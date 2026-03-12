@@ -194,14 +194,18 @@ async function main() {
       const historyCount = document.querySelectorAll('.history-item').length;
       const audioStatus = document.getElementById('audioStatus')?.textContent?.trim() || '';
       const firstHistoryTitle = document.querySelector('.history-title')?.textContent?.trim() || '';
+      const firstHistoryExport = document.querySelector('.history-export')?.textContent?.trim() || '';
       const screenshotCount = document.getElementById('screenshotCount')?.textContent?.trim() || '';
+      const outputPreviewValue = document.getElementById('outputPreviewValue')?.textContent?.trim() || '';
 
       return {
         statusText,
         historyCount,
         audioStatus,
         firstHistoryTitle,
-        screenshotCount
+        firstHistoryExport,
+        screenshotCount,
+        outputPreviewValue
       };
     });
 
@@ -225,7 +229,9 @@ async function main() {
         hasPdf: fileTypes.some((item) => item.kind === 'pdf'),
         hasAudio: fileTypes.some((item) => item.kind === 'webm'),
         hasScreenshot: fileTypes.filter((item) => item.kind === 'png').length >= 1,
-        outputDirPersisted: settingsState?.outputDir === customOutputDir
+        outputDirPersisted: settingsState?.outputDir === customOutputDir,
+        outputPreviewRendered: popupSummary.outputPreviewValue.includes(`Downloads/${customOutputDir}/tutorial-`),
+        historyExportRendered: popupSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`)
       }
     };
 

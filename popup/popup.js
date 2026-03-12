@@ -14,6 +14,8 @@ const elements = {
   apiKey: $('apiKey'),
   endpointId: $('endpointId'),
   outputDir: $('outputDir'),
+  outputPreviewValue: $('outputPreviewValue'),
+  outputPreviewHint: $('outputPreviewHint'),
   btnResetDir: $('btnResetDir'),
   promptForSaveAs: $('promptForSaveAs'),
   interval: $('interval'),
@@ -41,7 +43,8 @@ function createIdleState() {
     pausedDurationMs: 0,
     pauseStartedAt: null,
     elapsedMs: 0,
-    audioStatus: '待启动'
+    audioStatus: '待启动',
+    recordingId: null
   };
 }
 
@@ -75,9 +78,10 @@ async function hydrate() {
 function bindEvents() {
   elements.apiKey.addEventListener('change', saveSettings);
   elements.endpointId.addEventListener('change', saveSettings);
+  elements.outputDir.addEventListener('input', updateOutputPreview);
   elements.outputDir.addEventListener('change', saveSettings);
   elements.btnResetDir.addEventListener('click', resetOutputDir);
-  elements.promptForSaveAs.addEventListener('change', saveSettings);
+  elements.promptForSaveAs.addEventListener('change', handlePromptForSaveAsChange);
   elements.interval.addEventListener('change', saveSettings);
   elements.autoScreenshot.addEventListener('change', saveSettings);
 
@@ -105,6 +109,11 @@ async function saveSettings() {
   }
 
   return result;
+}
+
+async function handlePromptForSaveAsChange() {
+  updateOutputPreview();
+  await saveSettings();
 }
 
 async function startRecording() {
@@ -181,6 +190,7 @@ function handleRuntimeMessage(message) {
       state.isGenerating = false;
       state.count = message.count || 0;
       state.startTime = message.startTime || Date.now();
+      state.recordingId = message.recordingId || state.recordingId;
       state.pausedDurationMs = 0;
       state.pauseStartedAt = null;
       state.audioStatus = message.audioStarted === false ? '未授权' : '录音中';
@@ -266,6 +276,7 @@ function updateUi() {
   elements.btnPause.textContent = state.isPaused ? '继续' : '暂停';
 
   renderHistory(historyItems);
+  updateOutputPreview();
   restartTimer();
 }
 
@@ -276,6 +287,7 @@ function applySettingsToForm(settings = {}) {
   elements.promptForSaveAs.checked = settings.promptForSaveAs === true;
   elements.interval.value = settings.screenshotInterval || 5;
   elements.autoScreenshot.checked = settings.autoScreenshot !== false;
+  updateOutputPreview();
 }
 
 function restartTimer() {
@@ -327,6 +339,7 @@ function renderHistory(history) {
               <div class="history-meta">
                 ${new Date(item.createdAt).toLocaleString()} · ${item.screenshotCount} 张截图 · ${formatDuration(item.durationMs || 0)}
               </div>
+              ${renderExportMeta(item)}
             </div>
           </div>
           <div class="history-actions">
@@ -337,6 +350,73 @@ function renderHistory(history) {
       `
     )
     .join('');
+}
+
+function renderExportMeta(item) {
+  const exportBaseName = typeof item.exportBaseName === 'string' ? item.exportBaseName.trim() : '';
+  if (!exportBaseName) {
+    return '';
+  }
+
+  const fullPath = `Downloads/${exportBaseName}`;
+  const text = item.lastExportPrompted
+    ? `上次导出：手动选择保存位置（默认建议 ${fullPath}）`
+    : `上次导出：${fullPath}`;
+
+  return `<div class="history-export">${escapeHtml(text)}</div>`;
+}
+
+function updateOutputPreview() {
+  if (!elements.outputPreviewValue || !elements.outputPreviewHint) {
+    return;
+  }
+
+  elements.outputPreviewValue.textContent = buildOutputPreviewPath();
+  elements.outputPreviewHint.textContent = elements.promptForSaveAs.checked
+    ? '开启询问后，Chrome 会以这个目录作为默认建议位置。'
+    : '导出时会在下载目录下创建这一层目录。';
+}
+
+function buildOutputPreviewPath() {
+  const outputDir = sanitizeOutputDir(elements.outputDir.value.trim());
+  const bundleName = buildPreviewBundleName(outputDir);
+  return `Downloads/${bundleName}`;
+}
+
+function buildPreviewBundleName(outputDir) {
+  const prefix = outputDir || DEFAULT_OUTPUT_DIR;
+  if (!state.recordingId || !state.startTime) {
+    return `${prefix}/tutorial-YYYYMMDD-HHMMSS-录制ID`;
+  }
+
+  return `${prefix}/tutorial-${formatBundleStamp(state.startTime)}-${state.recordingId}`;
+}
+
+function formatBundleStamp(timestamp) {
+  const date = new Date(timestamp);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+    '-',
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+    String(date.getSeconds()).padStart(2, '0')
+  ].join('');
+}
+
+function sanitizeOutputDir(value) {
+  const raw = typeof value === 'string' && value.trim() ? value : DEFAULT_OUTPUT_DIR;
+  const normalized = raw.replaceAll('\\', '/').trim();
+  const segments = normalized
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .filter((segment) => segment !== '.' && segment !== '..')
+    .map((segment) => segment.replace(/[<>:"|?*\u0000-\u001F]/g, '-').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  return segments.join('/') || DEFAULT_OUTPUT_DIR;
 }
 
 function formatDuration(durationMs) {

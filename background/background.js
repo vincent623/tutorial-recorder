@@ -270,7 +270,8 @@ async function startRecording(tabId) {
     audioDataUrl: null,
     audioMeta: null,
     exportBaseName: '',
-    lastExportAt: null
+    lastExportAt: null,
+    lastExportPrompted: false
   };
 
   currentRuntime = {
@@ -306,6 +307,7 @@ async function startRecording(tabId) {
 
     notifyPopup('started', {
       startTime: currentRuntime.startTime,
+      recordingId: currentRuntime.recordingId,
       count: currentRuntime.count,
       audioStarted: offscreenState?.audioStarted !== false
     });
@@ -535,6 +537,7 @@ async function generateTutorial() {
 
   currentRecording.exportBaseName = exportBaseName;
   currentRecording.lastExportAt = Date.now();
+  currentRecording.lastExportPrompted = settings.promptForSaveAs;
   await putRecording(currentRecording);
 
   await upsertHistoryEntry(buildHistoryEntry(currentRecording));
@@ -727,7 +730,9 @@ function buildHistoryEntry(recording) {
     screenshotCount: recording.screenshots.length,
     durationMs: getRecordingDuration(recording),
     hasAudio: Boolean(recording.audioDataUrl),
-    exportedAt: recording.lastExportAt || Date.now()
+    exportedAt: recording.lastExportAt || Date.now(),
+    exportBaseName: recording.exportBaseName || '',
+    lastExportPrompted: recording.lastExportPrompted === true
   };
 }
 
@@ -750,13 +755,20 @@ async function exportRecording(id) {
     notifyPopup('warning', { message: `PDF 生成失败：${pdfResult.error}` });
   }
 
-  await downloadRecordingBundle(
+  const exportBaseName = await downloadRecordingBundle(
     recording,
     markdown,
     pdfResult?.pdfDataUrl || null,
     settings.outputDir,
     settings.promptForSaveAs
   );
+
+  recording.exportBaseName = exportBaseName;
+  recording.lastExportAt = Date.now();
+  recording.lastExportPrompted = settings.promptForSaveAs;
+  await putRecording(recording);
+  await upsertHistoryEntry(buildHistoryEntry(recording));
+
   if (!currentRuntime.isRecording) {
     await closeOffscreenDocument();
   }

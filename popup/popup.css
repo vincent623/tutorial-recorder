@@ -222,6 +222,26 @@ body {
   align-items: center;
 }
 
+.preview-field {
+  margin-top: -2px;
+}
+
+.preview-box {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #d9e7fb;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+}
+
+.preview-path {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
 .mini-btn {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -310,6 +330,14 @@ body {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.5;
+}
+
+.history-export {
+  margin-top: 6px;
+  color: var(--primary-strong);
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
 }
 
 .history-actions {
