@@ -144,6 +144,11 @@ body {
   font: 13px/1.6 ui-monospace, 'SFMono-Regular', 'SF Mono', Monaco, Consolas, 'Liberation Mono', monospace;
 }
 
+.field textarea.is-readonly {
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f7fd 100%);
+  color: #475569;
+}
+
 .field input:focus,
 .field select:focus,
 .field textarea:focus {
@@ -163,6 +168,10 @@ body {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.prompt-field {
+  margin-bottom: 10px;
 }
 
 .preview-box {

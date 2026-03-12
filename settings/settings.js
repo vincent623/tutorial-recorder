@@ -66,6 +66,74 @@ const PROVIDER_PRESETS = {
   }
 };
 
+const PROMPT_PRESETS = {
+  default: {
+    label: '默认（平衡）',
+    description: '平衡页面上下文和最近交互，适合大多数教程场景。',
+    systemPrompt:
+      '你是教程录制助手。请优先根据页面上下文和最近交互，写出用户正在进行的具体操作步骤。不要只做静态截图描述。',
+    userPromptTemplate: [
+      '当前是教程第 {{stepIndex}} 步，共 {{totalSteps}} 步。',
+      '页面标题：{{pageTitle}}。',
+      '{{pageUrlLine}}',
+      '最近一次用户交互：{{interactionSummary}}。',
+      '上一步说明：{{previousDescription}}。',
+      '请输出 1 句自然中文步骤说明，优先描述“用户正在做什么”，用动词开头，尽量点明按钮、输入框、菜单或页面区域。',
+      '如果截图信息不足，请优先参考最近一次用户交互，而不是泛泛描述页面长什么样。'
+    ].join('\n')
+  },
+  actionFirst: {
+    label: '动作优先',
+    description: '更强调用户动作本身，尽量避免泛泛描述页面外观。',
+    systemPrompt:
+      '你是教程步骤生成器。请把截图和交互记录转成可执行的操作步骤，优先写动作，不要罗列静态界面元素。',
+    userPromptTemplate: [
+      '当前是教程第 {{stepIndex}} 步，共 {{totalSteps}} 步。',
+      '页面标题：{{pageTitle}}。',
+      '{{pageUrlLine}}',
+      '最近一次用户交互：{{interactionSummary}}。',
+      '上一步说明：{{previousDescription}}。',
+      '请只输出 1 句中文步骤，以“点击 / 输入 / 选择 / 切换 / 打开 / 提交”等动词开头。',
+      '如果截图与最近交互不一致，优先采用最近交互，不要描述颜色、布局或装饰风格。'
+    ].join('\n')
+  },
+  controlFocused: {
+    label: '控件定位',
+    description: '更强调按钮、输入框、菜单和页面区域，适合工具型产品教程。',
+    systemPrompt:
+      '你是教程录制助手，擅长把截图转成别人可以复现的操作步骤。请尽量点出具体控件名或页面区域。',
+    userPromptTemplate: [
+      '当前是教程第 {{stepIndex}} 步，共 {{totalSteps}} 步。',
+      '页面标题：{{pageTitle}}。',
+      '{{pageUrlLine}}',
+      '最近一次用户交互：{{interactionSummary}}。',
+      '上一步说明：{{previousDescription}}。',
+      '请输出 1 句教程步骤，格式尽量接近“动词 + 控件 / 区域 + 目的或结果”。',
+      '优先提到按钮、输入框、标签页、面板、菜单或表单区域，不要只说“页面发生变化”。'
+    ].join('\n')
+  },
+  concise: {
+    label: '简洁短句',
+    description: '输出更短更干净，适合希望后续自己再编辑的场景。',
+    systemPrompt:
+      '你是教程录制助手。请输出简洁、可执行的中文步骤句子，优先描述动作，不要展开解释。',
+    userPromptTemplate: [
+      '当前是教程第 {{stepIndex}} 步，共 {{totalSteps}} 步。',
+      '页面标题：{{pageTitle}}。',
+      '{{pageUrlLine}}',
+      '最近一次用户交互：{{interactionSummary}}。',
+      '上一步说明：{{previousDescription}}。',
+      '请输出 1 句 18 到 28 个字左右的中文步骤说明，用动词开头，只保留最关键的动作和对象。'
+    ].join('\n')
+  },
+  custom: {
+    label: '自定义',
+    description: '完全自定义系统提示词和用户提示词模板。',
+    systemPrompt: '',
+    userPromptTemplate: ''
+  }
+};
+
 const CAPTURE_MODE_HINTS = {
   displayMedia: '开始录制时会弹出共享画面选择，并额外请求麦克风权限。',
   tabCapture: '直接录制当前标签页，适合自动化验证或兼容场景，通常不会弹出共享选择。'
@@ -90,10 +158,19 @@ const elements = {
   modelId: $('modelId'),
   modelLabel: $('modelLabel'),
   modelHint: $('modelHint'),
-  extraHeadersJson: $('extraHeadersJson')
+  extraHeadersJson: $('extraHeadersJson'),
+  promptPreset: $('promptPreset'),
+  promptPresetHint: $('promptPresetHint'),
+  promptSystem: $('promptSystem'),
+  promptUser: $('promptUser'),
+  promptEditorHint: $('promptEditorHint')
 };
 
 let saveTimer = null;
+let promptDraft = {
+  systemPrompt: '',
+  userPromptTemplate: ''
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await hydrate();
@@ -125,6 +202,11 @@ function bindEvents() {
   elements.apiBaseUrl.addEventListener('change', saveSettings);
   elements.modelId.addEventListener('change', saveSettings);
   elements.extraHeadersJson.addEventListener('change', saveSettings);
+  elements.promptPreset.addEventListener('change', handlePromptPresetChange);
+  elements.promptSystem.addEventListener('input', handlePromptDraftInput);
+  elements.promptUser.addEventListener('input', handlePromptDraftInput);
+  elements.promptSystem.addEventListener('change', handlePromptDraftCommit);
+  elements.promptUser.addEventListener('change', handlePromptDraftCommit);
 }
 
 async function saveSettings() {
@@ -170,7 +252,16 @@ function readSettingsFromForm() {
     apiKey: elements.apiKey.value.trim(),
     apiBaseUrl: elements.apiBaseUrl.value.trim(),
     modelId: elements.modelId.value.trim(),
-    extraHeadersJson
+    extraHeadersJson,
+    promptPreset: elements.promptPreset.value,
+    customSystemPrompt:
+      elements.promptPreset.value === 'custom'
+        ? elements.promptSystem.value
+        : promptDraft.systemPrompt,
+    customUserPrompt:
+      elements.promptPreset.value === 'custom'
+        ? elements.promptUser.value
+        : promptDraft.userPromptTemplate
   };
 }
 
@@ -186,6 +277,34 @@ async function handleProviderPresetChange() {
 
 async function handlePromptForSaveAsChange() {
   updateOutputPreview();
+  await saveSettings();
+}
+
+async function handlePromptPresetChange() {
+  updatePromptUi();
+  await saveSettings();
+}
+
+function handlePromptDraftInput(event) {
+  if (elements.promptPreset.value !== 'custom') {
+    return;
+  }
+
+  if (event.target === elements.promptSystem) {
+    promptDraft.systemPrompt = elements.promptSystem.value;
+    return;
+  }
+
+  if (event.target === elements.promptUser) {
+    promptDraft.userPromptTemplate = elements.promptUser.value;
+  }
+}
+
+async function handlePromptDraftCommit() {
+  if (elements.promptPreset.value !== 'custom') {
+    return;
+  }
+
   await saveSettings();
 }
 
@@ -207,8 +326,14 @@ function applySettingsToForm(settings = {}) {
   elements.apiBaseUrl.value = settings.apiBaseUrl || '';
   elements.modelId.value = settings.modelId || '';
   elements.extraHeadersJson.value = settings.extraHeadersJson || '';
+  elements.promptPreset.value = settings.promptPreset || 'default';
+  promptDraft = {
+    systemPrompt: settings.customSystemPrompt || '',
+    userPromptTemplate: settings.customUserPrompt || ''
+  };
   updateCaptureModeHint();
   updateProviderUi();
+  updatePromptUi();
   updateOutputPreview();
 }
 
@@ -222,6 +347,28 @@ function updateProviderUi() {
   elements.modelLabel.textContent = preset.modelLabel;
   elements.modelHint.textContent = preset.modelHint;
   elements.apiBaseHint.textContent = preset.apiBaseHint;
+}
+
+function updatePromptUi() {
+  const presetKey = elements.promptPreset.value || 'default';
+  const preset = PROMPT_PRESETS[presetKey] || PROMPT_PRESETS.default;
+  const isCustom = presetKey === 'custom';
+  const fallbackPreset = PROMPT_PRESETS.default;
+
+  elements.promptPresetHint.textContent = preset.description;
+  elements.promptSystem.readOnly = !isCustom;
+  elements.promptUser.readOnly = !isCustom;
+  elements.promptSystem.classList.toggle('is-readonly', !isCustom);
+  elements.promptUser.classList.toggle('is-readonly', !isCustom);
+  elements.promptSystem.value = isCustom
+    ? promptDraft.systemPrompt || fallbackPreset.systemPrompt
+    : preset.systemPrompt;
+  elements.promptUser.value = isCustom
+    ? promptDraft.userPromptTemplate || fallbackPreset.userPromptTemplate
+    : preset.userPromptTemplate;
+  elements.promptEditorHint.textContent = isCustom
+    ? '支持占位符：{{stepIndex}}、{{totalSteps}}、{{pageTitle}}、{{pageUrl}}、{{pageUrlLine}}、{{interactionSummary}}、{{previousDescription}}。'
+    : '当前显示的是内置模板预览，切到“自定义”后可直接编辑。';
 }
 
 function updateOutputPreview() {

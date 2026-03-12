@@ -55,6 +55,74 @@ const PROVIDER_PRESETS = {
   }
 };
 
+const PROMPT_PRESETS = {
+  default: {
+    label: '默认（平衡）',
+    description: '平衡页面上下文和最近交互，适合大多数教程场景。',
+    systemPrompt:
+      '你是教程录制助手。请优先根据页面上下文和最近交互，写出用户正在进行的具体操作步骤。不要只做静态截图描述。',
+    userPromptTemplate: [
+      '当前是教程第 {{stepIndex}} 步，共 {{totalSteps}} 步。',
+      '页面标题：{{pageTitle}}。',
+      '{{pageUrlLine}}',
+      '最近一次用户交互：{{interactionSummary}}。',
+      '上一步说明：{{previousDescription}}。',
+      '请输出 1 句自然中文步骤说明，优先描述“用户正在做什么”，用动词开头，尽量点明按钮、输入框、菜单或页面区域。',
+      '如果截图信息不足，请优先参考最近一次用户交互，而不是泛泛描述页面长什么样。'
+    ].join('\n')
+  },
+  actionFirst: {
+    label: '动作优先',
+    description: '更强调用户动作本身，尽量避免泛泛描述页面外观。',
+    systemPrompt:
+      '你是教程步骤生成器。请把截图和交互记录转成可执行的操作步骤，优先写动作，不要罗列静态界面元素。',
+    userPromptTemplate: [
+      '当前是教程第 {{stepIndex}} 步，共 {{totalSteps}} 步。',
+      '页面标题：{{pageTitle}}。',
+      '{{pageUrlLine}}',
+      '最近一次用户交互：{{interactionSummary}}。',
+      '上一步说明：{{previousDescription}}。',
+      '请只输出 1 句中文步骤，以“点击 / 输入 / 选择 / 切换 / 打开 / 提交”等动词开头。',
+      '如果截图与最近交互不一致，优先采用最近交互，不要描述颜色、布局或装饰风格。'
+    ].join('\n')
+  },
+  controlFocused: {
+    label: '控件定位',
+    description: '更强调按钮、输入框、菜单和页面区域，适合工具型产品教程。',
+    systemPrompt:
+      '你是教程录制助手，擅长把截图转成别人可以复现的操作步骤。请尽量点出具体控件名或页面区域。',
+    userPromptTemplate: [
+      '当前是教程第 {{stepIndex}} 步，共 {{totalSteps}} 步。',
+      '页面标题：{{pageTitle}}。',
+      '{{pageUrlLine}}',
+      '最近一次用户交互：{{interactionSummary}}。',
+      '上一步说明：{{previousDescription}}。',
+      '请输出 1 句教程步骤，格式尽量接近“动词 + 控件 / 区域 + 目的或结果”。',
+      '优先提到按钮、输入框、标签页、面板、菜单或表单区域，不要只说“页面发生变化”。'
+    ].join('\n')
+  },
+  concise: {
+    label: '简洁短句',
+    description: '输出更短更干净，适合希望后续自己再编辑的场景。',
+    systemPrompt:
+      '你是教程录制助手。请输出简洁、可执行的中文步骤句子，优先描述动作，不要展开解释。',
+    userPromptTemplate: [
+      '当前是教程第 {{stepIndex}} 步，共 {{totalSteps}} 步。',
+      '页面标题：{{pageTitle}}。',
+      '{{pageUrlLine}}',
+      '最近一次用户交互：{{interactionSummary}}。',
+      '上一步说明：{{previousDescription}}。',
+      '请输出 1 句 18 到 28 个字左右的中文步骤说明，用动词开头，只保留最关键的动作和对象。'
+    ].join('\n')
+  },
+  custom: {
+    label: '自定义',
+    description: '完全自定义系统提示词和用户提示词模板。',
+    systemPrompt: '',
+    userPromptTemplate: ''
+  }
+};
+
 const DEFAULT_SETTINGS = {
   providerPreset: 'volcengineArk',
   apiStyle: PROVIDER_PRESETS.volcengineArk.apiStyle,
@@ -62,6 +130,9 @@ const DEFAULT_SETTINGS = {
   apiKey: '',
   modelId: '',
   extraHeadersJson: '',
+  promptPreset: 'default',
+  customSystemPrompt: '',
+  customUserPrompt: '',
   captureMode: 'displayMedia',
   outputDir: 'tutorial-recorder',
   promptForSaveAs: false,
@@ -239,6 +310,15 @@ function normalizeSettings(settings = {}) {
     outputDir: sanitizeOutputDir(settings.outputDir),
     modelId,
     extraHeadersJson: normalizeHeadersJson(settings.extraHeadersJson),
+    promptPreset: getPromptPresetKey(settings.promptPreset),
+    customSystemPrompt: sanitizePromptValue(
+      settings.customSystemPrompt,
+      PROMPT_PRESETS.default.systemPrompt.length * 8
+    ),
+    customUserPrompt: sanitizePromptValue(
+      settings.customUserPrompt,
+      PROMPT_PRESETS.default.userPromptTemplate.length * 8
+    ),
     captureMode: normalizeCaptureMode(settings.captureMode),
     promptForSaveAs: settings.promptForSaveAs === true,
     screenshotInterval: clampInterval(settings.screenshotInterval ?? DEFAULT_SETTINGS.screenshotInterval),
@@ -252,6 +332,14 @@ function getProviderPresetKey(value) {
 
 function getProviderPreset(value) {
   return PROVIDER_PRESETS[getProviderPresetKey(value)];
+}
+
+function getPromptPresetKey(value) {
+  return Object.hasOwn(PROMPT_PRESETS, value) ? value : DEFAULT_SETTINGS.promptPreset;
+}
+
+function getPromptPreset(value) {
+  return PROMPT_PRESETS[getPromptPresetKey(value)];
 }
 
 function normalizeApiStyle(value) {
@@ -297,6 +385,14 @@ function sanitizeApiBaseUrl(value, providerPreset = DEFAULT_SETTINGS.providerPre
 
 function normalizeHeadersJson(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function sanitizePromptValue(value, maxLength) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.replace(/\r\n?/g, '\n').trim().slice(0, maxLength);
 }
 
 function sanitizeTextValue(value, maxLength) {
@@ -1171,23 +1267,21 @@ function getFallbackDescription(screenshot, index) {
   return `步骤 ${index + 1}`;
 }
 
-function buildScreenshotContextPrompt(screenshot, index, screenshots) {
+function buildPromptContext(screenshot, index, screenshots) {
   const pageTitle = sanitizePageTitle(screenshot?.pageContext?.title) || '未知页面';
   const pageUrl = summarizeUrlForPrompt(screenshot?.pageContext?.url);
   const interactionSummary = screenshot?.pageContext?.interaction?.summary || '没有可靠的交互记录';
   const previousDescription = screenshots[index - 1]?.description || '无';
 
-  return [
-    `当前是教程第 ${index + 1} 步，共 ${screenshots.length} 步。`,
-    `页面标题：${pageTitle}。`,
-    pageUrl ? `页面地址：${pageUrl}。` : '',
-    `最近一次用户交互：${interactionSummary}。`,
-    `上一步说明：${previousDescription}。`,
-    '请输出 1 句自然中文步骤说明，优先描述“用户正在做什么”，用动词开头，尽量点明按钮、输入框、菜单或页面区域。',
-    '如果截图信息不足，请优先参考最近一次用户交互，而不是泛泛描述页面长什么样。'
-  ]
-    .filter(Boolean)
-    .join('\n');
+  return {
+    stepIndex: String(index + 1),
+    totalSteps: String(screenshots.length),
+    pageTitle,
+    pageUrl,
+    pageUrlLine: pageUrl ? `页面地址：${pageUrl}。` : '',
+    interactionSummary,
+    previousDescription
+  };
 }
 
 function sanitizePageTitle(title) {
@@ -1207,10 +1301,42 @@ function summarizeUrlForPrompt(url) {
   }
 }
 
+function getEffectivePromptConfig(settings = {}) {
+  const presetKey = getPromptPresetKey(settings.promptPreset);
+  const preset = getPromptPreset(presetKey);
+  if (presetKey !== 'custom') {
+    return preset;
+  }
+
+  return {
+    ...preset,
+    systemPrompt: settings.customSystemPrompt || PROMPT_PRESETS.default.systemPrompt,
+    userPromptTemplate: settings.customUserPrompt || PROMPT_PRESETS.default.userPromptTemplate
+  };
+}
+
+function renderPromptTemplate(template, context) {
+  const rendered = String(template || '').replace(/{{\s*(\w+)\s*}}/g, (_, key) =>
+    Object.hasOwn(context, key) ? String(context[key] ?? '') : ''
+  );
+
+  return rendered
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line, index, lines) => line || (index > 0 && lines[index - 1]))
+    .join('\n')
+    .trim();
+}
+
 function buildVisionRequest(screenshot, settings, index, screenshots) {
   const imageData = screenshot.data;
   const apiStyle = normalizeApiStyle(settings.apiStyle);
   const extraHeaders = parseExtraHeaders(settings.extraHeadersJson);
+  const promptConfig = getEffectivePromptConfig(settings);
+  const contextPrompt = renderPromptTemplate(
+    promptConfig.userPromptTemplate,
+    buildPromptContext(screenshot, index, screenshots)
+  );
   const headers =
     apiStyle === 'anthropicMessages'
       ? {
@@ -1225,7 +1351,6 @@ function buildVisionRequest(screenshot, settings, index, screenshots) {
           ...extraHeaders
         };
   const url = resolveVisionUrl(settings.apiBaseUrl, apiStyle);
-  const contextPrompt = buildScreenshotContextPrompt(screenshot, index, screenshots);
 
   if (apiStyle === 'anthropicMessages') {
     const { mediaType, base64 } = parseImageDataUrl(imageData);
@@ -1235,7 +1360,7 @@ function buildVisionRequest(screenshot, settings, index, screenshots) {
       headers,
       body: {
         model: settings.modelId,
-        system: '你是教程录制助手。请优先根据页面上下文和最近交互，写出用户正在进行的具体操作步骤。不要只做静态截图描述。',
+        system: promptConfig.systemPrompt,
         max_tokens: 160,
         messages: [
           {
@@ -1263,7 +1388,7 @@ function buildVisionRequest(screenshot, settings, index, screenshots) {
       headers,
       body: {
         model: settings.modelId,
-        instructions: '你是教程录制助手。请优先根据页面上下文和最近交互，写出用户正在进行的具体操作步骤。不要只做静态截图描述。',
+        instructions: promptConfig.systemPrompt,
         input: [
           {
             role: 'user',
@@ -1286,7 +1411,7 @@ function buildVisionRequest(screenshot, settings, index, screenshots) {
         messages: [
           {
             role: 'system',
-            content: '你是教程录制助手。请优先根据页面上下文和最近交互，写出用户正在进行的具体操作步骤。不要只做静态截图描述。'
+            content: promptConfig.systemPrompt
           },
           {
             role: 'user',

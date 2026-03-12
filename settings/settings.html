@@ -130,6 +130,34 @@
         <small class="field-hint" id="apiBaseHint">支持 OpenAI 兼容接口，只需填写基地址，路径会按 API 风格自动补全。</small>
       </label>
 
+      <div class="field prompt-field">
+        <span>提示词版本</span>
+        <select id="promptPreset">
+          <option value="default">默认（平衡）</option>
+          <option value="actionFirst">动作优先</option>
+          <option value="controlFocused">控件定位</option>
+          <option value="concise">简洁短句</option>
+          <option value="custom">自定义</option>
+        </select>
+        <small class="field-hint" id="promptPresetHint">平衡页面上下文和最近交互，适合大多数教程场景。</small>
+      </div>
+
+      <div class="grid grid-equal">
+        <label class="field">
+          <span>系统提示词</span>
+          <textarea id="promptSystem" rows="6" placeholder="用于定义模型角色和总体目标"></textarea>
+        </label>
+
+        <label class="field">
+          <span>用户提示词模板</span>
+          <textarea id="promptUser" rows="8" placeholder="可使用占位符拼接页面上下文和交互记录"></textarea>
+        </label>
+      </div>
+
+      <small class="field-hint" id="promptEditorHint">
+        当前显示的是内置模板预览，切到“自定义”后可直接编辑。
+      </small>
+
       <label class="field">
         <span>附加请求头 JSON（可选）</span>
         <textarea id="extraHeadersJson" rows="4" placeholder='例如 {"HTTP-Referer":"https://example.com"}'></textarea>
