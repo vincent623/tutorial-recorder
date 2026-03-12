@@ -67,10 +67,10 @@
       </label>
 
       <div class="field preview-field">
-        <span>目录预览</span>
+        <span>导出位置预览</span>
         <div class="preview-box">
-          <div class="preview-path" id="outputPreviewValue">Downloads/tutorial-recorder/tutorial-YYYYMMDD-HHMMSS-录制ID</div>
-          <small class="field-hint" id="outputPreviewHint">导出时会在下载目录下创建这一层目录。</small>
+          <div class="preview-path" id="outputPreviewValue">Downloads/tutorial-recorder/tutorial-YYYYMMDD-HHMMSS-录制ID.zip</div>
+          <small class="field-hint" id="outputPreviewHint">导出时会在下载目录下生成这个 ZIP 文件。</small>
         </div>
       </div>
 
@@ -79,7 +79,7 @@
           <span>导出时询问保存位置</span>
           <input type="checkbox" id="promptForSaveAs">
         </div>
-        <small class="field-hint">开启后，Chrome 会为 Markdown、PDF、音频和每张截图分别弹出保存对话框。</small>
+        <small class="field-hint">开启后，Chrome 只会为导出的 ZIP 文件弹出一次保存对话框。</small>
       </div>
 
       <div class="grid">
@@ -98,10 +98,38 @@
     <section class="panel history-panel">
       <div class="panel-head">
         <h2>历史记录</h2>
-        <span class="panel-tip">支持重新导出和删除</span>
+        <span class="panel-tip">支持查看、编辑、重新导出和删除</span>
       </div>
       <div id="historyList" class="history-list">
         <p class="empty">暂无录制记录</p>
+      </div>
+    </section>
+
+    <section class="panel detail-panel" id="detailPanel" hidden>
+      <div class="panel-head">
+        <h2>教程详情</h2>
+        <div class="detail-head-actions">
+          <button type="button" id="btnCloseDetail" class="mini-btn">关闭</button>
+        </div>
+      </div>
+
+      <div class="detail-status" id="detailStatus">选择一条历史记录后可查看和编辑教程。</div>
+
+      <div class="detail-content" id="detailContent" hidden>
+        <label class="field">
+          <span>教程标题</span>
+          <input type="text" id="detailTitle" placeholder="教程标题">
+        </label>
+
+        <div class="detail-meta" id="detailMeta"></div>
+        <div class="detail-export-path" id="detailExportPath"></div>
+
+        <div class="detail-steps" id="detailSteps"></div>
+
+        <div class="detail-actions">
+          <button type="button" id="btnSaveDetail" class="btn btn-secondary">保存修改</button>
+          <button type="button" id="btnDetailExport" class="btn btn-primary">导出 ZIP</button>
+        </div>
       </div>
     </section>
 

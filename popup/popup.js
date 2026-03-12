@@ -20,11 +20,22 @@ const elements = {
   promptForSaveAs: $('promptForSaveAs'),
   interval: $('interval'),
   autoScreenshot: $('autoScreenshot'),
-  historyList: $('historyList')
+  historyList: $('historyList'),
+  detailPanel: $('detailPanel'),
+  detailStatus: $('detailStatus'),
+  detailContent: $('detailContent'),
+  detailTitle: $('detailTitle'),
+  detailMeta: $('detailMeta'),
+  detailExportPath: $('detailExportPath'),
+  detailSteps: $('detailSteps'),
+  btnCloseDetail: $('btnCloseDetail'),
+  btnSaveDetail: $('btnSaveDetail'),
+  btnDetailExport: $('btnDetailExport')
 };
 
 let state = createIdleState();
 let historyItems = [];
+let detailState = createDetailState();
 let timer = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -45,6 +56,30 @@ function createIdleState() {
     elapsedMs: 0,
     audioStatus: '待启动',
     recordingId: null
+  };
+}
+
+function createDetailState() {
+  return {
+    openId: null,
+    loading: false,
+    saving: false,
+    original: null,
+    draft: null,
+    statusMessage: ''
+  };
+}
+
+function cloneRecordingDetail(recording) {
+  if (!recording) {
+    return null;
+  }
+
+  return {
+    ...recording,
+    screenshots: Array.isArray(recording.screenshots)
+      ? recording.screenshots.map((screenshot) => ({ ...screenshot }))
+      : []
   };
 }
 
@@ -72,6 +107,7 @@ async function hydrate() {
 
   historyItems = snapshot.history || [];
   renderHistory(historyItems);
+  renderDetailPanel();
   updateUi();
 }
 
@@ -90,6 +126,12 @@ function bindEvents() {
   elements.btnStop.addEventListener('click', stopRecording);
   elements.btnCapture.addEventListener('click', captureManually);
   elements.historyList.addEventListener('click', handleHistoryAction);
+
+  elements.btnCloseDetail.addEventListener('click', closeDetail);
+  elements.btnSaveDetail.addEventListener('click', saveDetail);
+  elements.btnDetailExport.addEventListener('click', exportDetail);
+  elements.detailTitle.addEventListener('input', handleDetailInput);
+  elements.detailSteps.addEventListener('input', handleDetailInput);
 }
 
 async function saveSettings() {
@@ -155,6 +197,7 @@ async function captureManually() {
 
 async function resetOutputDir() {
   elements.outputDir.value = DEFAULT_OUTPUT_DIR;
+  updateOutputPreview();
   await saveSettings();
 }
 
@@ -169,6 +212,11 @@ async function handleHistoryAction(event) {
     return;
   }
 
+  if (action === 'details') {
+    await openDetail(id);
+    return;
+  }
+
   if (action === 'delete') {
     const confirmed = window.confirm('确定删除这条历史记录吗？');
     if (!confirmed) {
@@ -179,7 +227,124 @@ async function handleHistoryAction(event) {
   const result = await sendAction(action === 'export' ? 'downloadRecording' : 'deleteRecording', { id });
   if (!result?.ok) {
     alert(`${action === 'export' ? '重新导出' : '删除'}失败：${result?.error || '未知错误'}`);
+    return;
   }
+
+  if (action === 'delete' && detailState.openId === id) {
+    closeDetail();
+  }
+}
+
+async function openDetail(id) {
+  detailState = {
+    ...createDetailState(),
+    openId: id,
+    loading: true,
+    statusMessage: '正在加载教程详情...'
+  };
+  renderHistory(historyItems);
+  renderDetailPanel();
+
+  const result = await sendAction('getRecordingDetail', { id });
+  if (!result?.ok || !result.recording) {
+    detailState = createDetailState();
+    renderHistory(historyItems);
+    renderDetailPanel();
+    alert(`读取历史记录失败：${result?.error || '未知错误'}`);
+    return;
+  }
+
+  detailState = {
+    openId: id,
+    loading: false,
+    saving: false,
+    original: cloneRecordingDetail(result.recording),
+    draft: cloneRecordingDetail(result.recording),
+    statusMessage: '可直接修改标题和步骤说明，保存后导出新的 ZIP。'
+  };
+  renderHistory(historyItems);
+  renderDetailPanel();
+}
+
+function closeDetail() {
+  detailState = createDetailState();
+  renderHistory(historyItems);
+  renderDetailPanel();
+}
+
+function handleDetailInput(event) {
+  if (!detailState.draft) {
+    return;
+  }
+
+  if (event.target === elements.detailTitle) {
+    detailState.draft.title = event.target.value;
+  }
+
+  const stepIndex = Number.parseInt(event.target.dataset.stepIndex || '', 10);
+  if (!Number.isNaN(stepIndex) && detailState.draft.screenshots[stepIndex]) {
+    detailState.draft.screenshots[stepIndex].description = event.target.value;
+  }
+
+  syncDetailActionState('已修改，记得保存后再导出。');
+}
+
+async function saveDetail() {
+  if (!detailState.draft || !detailState.openId || detailState.saving) {
+    return;
+  }
+
+  detailState.saving = true;
+  syncDetailActionState('正在保存修改...');
+
+  const result = await sendAction('updateRecording', {
+    id: detailState.openId,
+    updates: {
+      title: detailState.draft.title,
+      screenshots: detailState.draft.screenshots.map((screenshot) => ({
+        description: screenshot.description
+      }))
+    }
+  });
+
+  detailState.saving = false;
+
+  if (!result?.ok || !result.recording) {
+    syncDetailActionState('保存失败，请稍后重试。');
+    alert(`保存失败：${result?.error || '未知错误'}`);
+    return;
+  }
+
+  historyItems = result.history || historyItems;
+  detailState.original = cloneRecordingDetail(result.recording);
+  detailState.draft = cloneRecordingDetail(result.recording);
+  detailState.statusMessage = '修改已保存，可直接导出新的 ZIP。';
+  renderHistory(historyItems);
+  renderDetailPanel();
+}
+
+async function exportDetail() {
+  if (!detailState.openId) {
+    return;
+  }
+
+  if (isDetailDirty()) {
+    await saveDetail();
+    if (isDetailDirty()) {
+      return;
+    }
+  }
+
+  syncDetailActionState('正在导出 ZIP...');
+  const result = await sendAction('downloadRecording', { id: detailState.openId });
+  if (!result?.ok) {
+    syncDetailActionState('导出失败，请稍后重试。');
+    alert(`导出失败：${result?.error || '未知错误'}`);
+    return;
+  }
+
+  detailState.statusMessage = 'ZIP 导出完成，可以直接发出。';
+  renderDetailPanel();
 }
 
 function handleRuntimeMessage(message) {
@@ -227,11 +392,22 @@ function handleRuntimeMessage(message) {
       state = createIdleState();
       state.audioStatus = '已导出';
       historyItems = message.history || [];
-      renderHistory(historyItems);
+      if (detailState.openId && !historyItems.some((item) => item.id === detailState.openId)) {
+        closeDetail();
+      }
       break;
     case 'historyUpdated':
       historyItems = message.history || [];
-      renderHistory(historyItems);
+      if (detailState.openId && !historyItems.some((item) => item.id === detailState.openId)) {
+        closeDetail();
+      }
+      break;
+    case 'exported':
+      state.isGenerating = false;
+      historyItems = message.history || [];
+      if (detailState.draft) {
+        detailState.statusMessage = 'ZIP 导出完成，可以直接发出。';
+      }
       break;
     case 'warning':
       if ((message.message || '').includes('录音')) {
@@ -277,6 +453,7 @@ function updateUi() {
 
   renderHistory(historyItems);
   updateOutputPreview();
+  updateDetailBusyState();
   restartTimer();
 }
 
@@ -332,7 +509,7 @@ function renderHistory(history) {
   elements.historyList.innerHTML = history
     .map(
       (item) => `
-        <article class="history-item">
+        <article class="history-item ${detailState.openId === item.id ? 'is-selected' : ''}">
           <div class="history-main">
             <div>
               <div class="history-title">${escapeHtml(item.title || '未命名教程')}</div>
@@ -343,7 +520,8 @@ function renderHistory(history) {
             </div>
           </div>
           <div class="history-actions">
-            <button class="btn-export" data-action="export" data-id="${item.id}" ${busy ? 'disabled' : ''}>重新导出</button>
+            <button class="btn-view" data-action="details" data-id="${item.id}" ${busy ? 'disabled' : ''}>查看</button>
+            <button class="btn-export" data-action="export" data-id="${item.id}" ${busy ? 'disabled' : ''}>导出</button>
             <button class="btn-delete" data-action="delete" data-id="${item.id}" ${busy ? 'disabled' : ''}>删除</button>
           </div>
         </article>
@@ -358,12 +536,133 @@ function renderExportMeta(item) {
     return '';
   }
 
-  const fullPath = `Downloads/${exportBaseName}`;
   const text = item.lastExportPrompted
-    ? `上次导出：手动选择保存位置（默认建议 ${fullPath}）`
-    : `上次导出：${fullPath}`;
+    ? `上次导出：手动选择保存位置（默认建议 ${formatDownloadsPath(exportBaseName)}）`
+    : `上次导出：${formatDownloadsPath(exportBaseName)}`;
 
   return `<div class="history-export">${escapeHtml(text)}</div>`;
+}
+
+function renderDetailPanel() {
+  const hasPanel = detailState.loading || detailState.draft;
+  elements.detailPanel.hidden = !hasPanel;
+
+  if (!hasPanel) {
+    elements.detailContent.hidden = true;
+    elements.detailStatus.textContent = '选择一条历史记录后可查看和编辑教程。';
+    elements.detailMeta.innerHTML = '';
+    elements.detailExportPath.textContent = '';
+    elements.detailSteps.innerHTML = '';
+    return;
+  }
+
+  if (detailState.loading || !detailState.draft) {
+    elements.detailContent.hidden = true;
+    elements.detailStatus.textContent = detailState.statusMessage || '正在加载教程详情...';
+    return;
+  }
+
+  elements.detailContent.hidden = false;
+  elements.detailStatus.textContent = detailState.statusMessage || '可直接修改标题和步骤说明，保存后导出新的 ZIP。';
+  elements.detailTitle.value = detailState.draft.title || '';
+  elements.detailMeta.innerHTML = renderDetailMeta(detailState.draft);
+  elements.detailExportPath.textContent = renderDetailExportPath(detailState.draft);
+  elements.detailSteps.innerHTML = detailState.draft.screenshots
+    .map(
+      (screenshot, index) => `
+        <article class="detail-step">
+          <div class="detail-step-head">
+            <div class="detail-step-title">步骤 ${index + 1}</div>
+            <div class="detail-step-time">${escapeHtml(screenshot.timestampLabel || formatDuration(screenshot.timeOffsetMs || 0))}</div>
+          </div>
+          <img src="${escapeHtml(screenshot.data)}" alt="步骤 ${index + 1} 截图">
+          <textarea data-step-index="${index}" placeholder="为这一步写一句清晰说明">${escapeHtml(
+            screenshot.description || `步骤 ${index + 1}`
+          )}</textarea>
+        </article>
+      `
+    )
+    .join('');
+
+  syncDetailActionState();
+}
+
+function renderDetailMeta(detail) {
+  const chips = [
+    ['创建时间', new Date(detail.createdAt).toLocaleString()],
+    ['录制时长', formatDuration(detail.durationMs || 0)],
+    ['步骤数量', String(detail.screenshotCount || detail.screenshots.length || 0)],
+    ['音频状态', detail.hasAudio ? '已包含' : '未生成']
+  ];
+
+  return chips
+    .map(
+      ([label, value]) => `
+        <div class="detail-chip">
+          <span class="detail-chip-label">${escapeHtml(label)}</span>
+          <span class="detail-chip-value">${escapeHtml(value)}</span>
+        </div>
+      `
+    )
+    .join('');
+}
+
+function renderDetailExportPath(detail) {
+  const exportBaseName = typeof detail.exportBaseName === 'string' ? detail.exportBaseName.trim() : '';
+  if (!exportBaseName) {
+    return '尚未导出，保存后可直接生成 ZIP。';
+  }
+
+  return detail.lastExportPrompted
+    ? `上次导出：手动选择保存位置（默认建议 ${formatDownloadsPath(exportBaseName)}）`
+    : `上次导出：${formatDownloadsPath(exportBaseName)}`;
+}
+
+function updateDetailBusyState() {
+  if (elements.detailPanel.hidden || detailState.loading || !detailState.draft) {
+    return;
+  }
+
+  syncDetailActionState();
+}
+
+function syncDetailActionState(statusMessage = '') {
+  if (elements.detailPanel.hidden || detailState.loading || !detailState.draft) {
+    return;
+  }
+
+  if (statusMessage) {
+    detailState.statusMessage = statusMessage;
+  } else if (detailState.saving) {
+    detailState.statusMessage = '正在保存修改...';
+  } else if (state.isGenerating) {
+    detailState.statusMessage = '正在生成文件，请稍候。';
+  } else if (detailState.statusMessage.startsWith('ZIP 导出完成')) {
+    detailState.statusMessage = 'ZIP 导出完成，可以直接发出。';
+  } else if (isDetailDirty()) {
+    detailState.statusMessage = '已修改，记得保存后再导出。';
+  } else {
+    detailState.statusMessage = '可直接修改标题和步骤说明，保存后导出新的 ZIP。';
+  }
+
+  elements.detailStatus.textContent = detailState.statusMessage;
+  elements.btnSaveDetail.disabled = detailState.saving || state.isGenerating || !isDetailDirty();
+  elements.btnDetailExport.disabled = detailState.saving || state.isGenerating || !detailState.openId;
+}
+
+function isDetailDirty() {
+  if (!detailState.original || !detailState.draft) {
+    return false;
+  }
+
+  if ((detailState.original.title || '') !== (detailState.draft.title || '')) {
+    return true;
+  }
+
+  return detailState.draft.screenshots.some(
+    (screenshot, index) =>
+      (detailState.original.screenshots[index]?.description || '') !== (screenshot.description || '')
+  );
 }
 
 function updateOutputPreview() {
@@ -373,14 +672,14 @@ function updateOutputPreview() {
 
   elements.outputPreviewValue.textContent = buildOutputPreviewPath();
   elements.outputPreviewHint.textContent = elements.promptForSaveAs.checked
-    ? '开启询问后，Chrome 会以这个目录作为默认建议位置。'
-    : '导出时会在下载目录下创建这一层目录。';
+    ? '开启询问后，Chrome 会只为这个 ZIP 文件弹出一次保存对话框。'
+    : '导出时会在下载目录下生成这个 ZIP 文件。';
 }
 
 function buildOutputPreviewPath() {
   const outputDir = sanitizeOutputDir(elements.outputDir.value.trim());
   const bundleName = buildPreviewBundleName(outputDir);
-  return `Downloads/${bundleName}`;
+  return formatDownloadsPath(`${bundleName}.zip`);
 }
 
 function buildPreviewBundleName(outputDir) {
@@ -403,6 +702,10 @@ function formatBundleStamp(timestamp) {
     String(date.getMinutes()).padStart(2, '0'),
     String(date.getSeconds()).padStart(2, '0')
   ].join('');
+}
+
+function formatDownloadsPath(relativePath) {
+  return `Downloads/${relativePath}`;
 }
 
 function sanitizeOutputDir(value) {

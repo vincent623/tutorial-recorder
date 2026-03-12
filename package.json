@@ -8,6 +8,7 @@
     "validate:e2e": "node scripts/e2e/validate-extension.mjs"
   },
   "devDependencies": {
+    "fflate": "^0.8.2",
     "playwright": "^1.58.2"
   }
 }

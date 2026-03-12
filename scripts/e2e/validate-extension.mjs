@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { unzipSync } from '../../lib/fflate.js';
 import { chromium } from 'playwright';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +17,7 @@ const fixturePath = path.join(__dirname, 'fixture.html');
 const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48123', 10);
 const headless = process.env.PW_HEADLESS !== '0';
 const customOutputDir = process.env.PW_OUTPUT_SUBDIR || 'codex-e2e/tutorial-recorder';
+const editedTitle = '发布版教程';
 
 async function main() {
   await mkdir(artifactsDir, { recursive: true });
@@ -187,7 +189,23 @@ async function main() {
     );
     console.log('[e2e] history rendered in popup');
 
-    const downloadItems = await waitForDownloads(serviceWorker);
+    await historyPopup.locator('button[data-action="details"]').first().click();
+    await historyPopup.waitForSelector('#detailContent:not([hidden])');
+    console.log('[e2e] detail panel opened');
+
+    await historyPopup.locator('#detailTitle').fill(editedTitle);
+    await historyPopup.locator('textarea[data-step-index="0"]').fill('发布版步骤 1');
+    await historyPopup.locator('#btnSaveDetail').click();
+    await historyPopup.waitForFunction(
+      (expectedTitle) => document.querySelector('.history-title')?.textContent?.trim() === expectedTitle,
+      editedTitle
+    );
+    console.log('[e2e] detail title saved');
+
+    await historyPopup.locator('#btnDetailExport').click();
+    console.log('[e2e] detail zip export triggered');
+
+    const downloadItems = await waitForDownloads(serviceWorker, 2);
     console.log(`[e2e] downloads completed: ${downloadItems.length}`);
     const popupSummary = await historyPopup.evaluate(() => {
       const statusText = document.querySelector('#status .status-text')?.textContent?.trim() || '';
@@ -195,6 +213,7 @@ async function main() {
       const audioStatus = document.getElementById('audioStatus')?.textContent?.trim() || '';
       const firstHistoryTitle = document.querySelector('.history-title')?.textContent?.trim() || '';
       const firstHistoryExport = document.querySelector('.history-export')?.textContent?.trim() || '';
+      const detailStatus = document.getElementById('detailStatus')?.textContent?.trim() || '';
       const screenshotCount = document.getElementById('screenshotCount')?.textContent?.trim() || '';
       const outputPreviewValue = document.getElementById('outputPreviewValue')?.textContent?.trim() || '';
 
@@ -204,6 +223,7 @@ async function main() {
         audioStatus,
         firstHistoryTitle,
         firstHistoryExport,
+        detailStatus,
         screenshotCount,
         outputPreviewValue
       };
@@ -213,6 +233,7 @@ async function main() {
 
     const filesOnDisk = await listFiles(downloadsDir);
     const fileTypes = await classifyDownloadedFiles(downloadsDir, filesOnDisk);
+    const archiveContents = await inspectZipArchives(downloadsDir, fileTypes);
 
     const report = {
       extensionId,
@@ -224,14 +245,34 @@ async function main() {
       downloadItems,
       filesOnDisk,
       fileTypes,
+      archiveContents,
       checks: {
-        hasMarkdown: fileTypes.some((item) => item.kind === 'markdown'),
-        hasPdf: fileTypes.some((item) => item.kind === 'pdf'),
-        hasAudio: fileTypes.some((item) => item.kind === 'webm'),
-        hasScreenshot: fileTypes.filter((item) => item.kind === 'png').length >= 1,
+        hasZip: fileTypes.some((item) => item.kind === 'zip'),
+        archiveHasMarkdown: archiveContents.some((archive) =>
+          archive.entries.some((entry) => entry.kind === 'markdown')
+        ),
+        archiveHasPdf: archiveContents.some((archive) =>
+          archive.entries.some((entry) => entry.kind === 'pdf')
+        ),
+        archiveHasAudio: archiveContents.some((archive) =>
+          archive.entries.some((entry) => entry.kind === 'webm')
+        ),
+        archiveHasScreenshot: archiveContents.some((archive) =>
+          archive.entries.filter((entry) => entry.kind === 'png').length >= 1
+        ),
         outputDirPersisted: settingsState?.outputDir === customOutputDir,
-        outputPreviewRendered: popupSummary.outputPreviewValue.includes(`Downloads/${customOutputDir}/tutorial-`),
-        historyExportRendered: popupSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`)
+        outputPreviewRendered:
+          popupSummary.outputPreviewValue.includes(`Downloads/${customOutputDir}/tutorial-`) &&
+          popupSummary.outputPreviewValue.endsWith('.zip'),
+        historyExportRendered:
+          popupSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`) &&
+          popupSummary.firstHistoryExport.includes('.zip'),
+        detailTitleSaved: popupSummary.firstHistoryTitle === editedTitle,
+        archiveContainsEditedTitle: archiveContents.some((archive) =>
+          archive.entries.some(
+            (entry) => entry.kind === 'markdown' && entry.preview.includes(`# ${editedTitle}`)
+          )
+        )
       }
     };
 
@@ -262,7 +303,7 @@ async function startFixtureServer() {
   return server;
 }
 
-async function waitForDownloads(serviceWorker) {
+async function waitForDownloads(serviceWorker, minCount = 1) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < 120000) {
@@ -282,7 +323,7 @@ async function waitForDownloads(serviceWorker) {
         }));
     });
 
-    const finished = items.length >= 4 && items.every((item) => item.state === 'complete');
+    const finished = items.length >= minCount && items.every((item) => item.state === 'complete');
     if (finished) {
       return items;
     }
@@ -357,29 +398,73 @@ async function classifyDownloadedFiles(rootDir, files) {
 
   for (const relativePath of files) {
     const buffer = await readFile(path.join(rootDir, relativePath));
-    const header = buffer.subarray(0, 16);
-    let kind = 'unknown';
-
-    if (header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46) {
-      kind = 'pdf';
-    } else if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) {
-      kind = 'png';
-    } else if (header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3) {
-      kind = 'webm';
-    } else {
-      const text = buffer.toString('utf8').trimStart();
-      if (text.startsWith('# ')) {
-        kind = 'markdown';
-      }
-    }
-
     results.push({
       name: relativePath,
-      kind
+      kind: classifyBuffer(buffer).kind
     });
   }
 
   return results;
+}
+
+async function inspectZipArchives(rootDir, files) {
+  const archives = [];
+
+  for (const file of files) {
+    if (file.kind !== 'zip') {
+      continue;
+    }
+
+    const buffer = await readFile(path.join(rootDir, file.name));
+    const archive = unzipSync(new Uint8Array(buffer));
+    const entries = Object.entries(archive)
+      .map(([name, bytes]) => {
+        const analysis = classifyBuffer(Buffer.from(bytes));
+        return {
+          name,
+          kind: analysis.kind,
+          preview: analysis.preview
+        };
+      })
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    archives.push({
+      name: file.name,
+      entries
+    });
+  }
+
+  return archives;
+}
+
+function classifyBuffer(buffer) {
+  const header = buffer.subarray(0, 16);
+
+  if (header[0] === 0x50 && header[1] === 0x4b && header[2] === 0x03 && header[3] === 0x04) {
+    return { kind: 'zip', preview: '' };
+  }
+
+  if (header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46) {
+    return { kind: 'pdf', preview: '' };
+  }
+
+  if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) {
+    return { kind: 'png', preview: '' };
+  }
+
+  if (header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3) {
+    return { kind: 'webm', preview: '' };
+  }
+
+  const text = buffer.toString('utf8').trimStart();
+  if (text.startsWith('# ')) {
+    return {
+      kind: 'markdown',
+      preview: text.slice(0, 200)
+    };
+  }
+
+  return { kind: 'unknown', preview: text.slice(0, 80) };
 }
 
 main().catch(async (error) => {

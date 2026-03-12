@@ -1,3 +1,4 @@
+import { strToU8, zipSync } from '../lib/fflate.js';
 import { deleteRecording, getRecording, putRecording } from './asset-store.js';
 
 const SETTINGS_KEY = 'settings';
@@ -72,6 +73,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'downloadRecording':
         await exportRecording(message.id);
         sendResponse({ ok: true });
+        break;
+      case 'getRecordingDetail':
+        sendResponse({ ok: true, recording: await getRecordingDetail(message.id) });
+        break;
+      case 'updateRecording':
+        sendResponse({
+          ok: true,
+          recording: await updateRecordingDetails(message.id, message.updates || {}),
+          history: await getHistory()
+        });
         break;
       case 'deleteRecording':
         await deleteRecordingById(message.id);
@@ -593,6 +604,31 @@ function buildRecordingTitle(recording) {
   return firstDescription.slice(0, 36);
 }
 
+function buildRecordingDetail(recording) {
+  if (!recording) {
+    return null;
+  }
+
+  return {
+    id: recording.id,
+    title: recording.title || buildRecordingTitle(recording),
+    createdAt: recording.startTime,
+    durationMs: getRecordingDuration(recording),
+    screenshotCount: recording.screenshots.length,
+    hasAudio: Boolean(recording.audioDataUrl),
+    exportBaseName: recording.exportBaseName || '',
+    lastExportPrompted: recording.lastExportPrompted === true,
+    screenshots: recording.screenshots.map((screenshot, index) => ({
+      id: screenshot.id,
+      index: index + 1,
+      description: screenshot.description || `步骤 ${index + 1}`,
+      timeOffsetMs: screenshot.timeOffsetMs || 0,
+      timestampLabel: formatDuration(screenshot.timeOffsetMs || 0),
+      data: screenshot.data
+    }))
+  };
+}
+
 function buildPdfPayload(recording) {
   return {
     id: recording.id,
@@ -637,31 +673,29 @@ function buildMarkdown(recording) {
 
 async function downloadRecordingBundle(recording, markdown, pdfDataUrl, outputDir, promptForSaveAs) {
   const bundleName = buildBundleName(recording, outputDir);
-
-  await downloadText(
-    `${bundleName}/tutorial.md`,
-    markdown,
-    'text/markdown;charset=utf-8',
-    promptForSaveAs
-  );
+  const archiveRoot = getArchiveRootName(bundleName);
+  const archiveEntries = {
+    [`${archiveRoot}/tutorial.md`]: strToU8(markdown)
+  };
 
   if (pdfDataUrl) {
-    await downloadUrl(`${bundleName}/tutorial.pdf`, pdfDataUrl, promptForSaveAs);
+    archiveEntries[`${archiveRoot}/tutorial.pdf`] = dataUrlToUint8Array(pdfDataUrl);
   }
 
   if (recording.audioDataUrl) {
-    await downloadUrl(`${bundleName}/audio/tutorial-audio.webm`, recording.audioDataUrl, promptForSaveAs);
+    archiveEntries[`${archiveRoot}/audio/tutorial-audio.webm`] = dataUrlToUint8Array(recording.audioDataUrl);
   }
 
   for (let index = 0; index < recording.screenshots.length; index += 1) {
-    await downloadUrl(
-      `${bundleName}/screenshots/step-${String(index + 1).padStart(2, '0')}.png`,
-      recording.screenshots[index].data,
-      promptForSaveAs
-    );
+    archiveEntries[
+      `${archiveRoot}/screenshots/step-${String(index + 1).padStart(2, '0')}.png`
+    ] = dataUrlToUint8Array(recording.screenshots[index].data);
   }
 
-  return bundleName;
+  const zipBytes = zipSync(archiveEntries, { level: 6 });
+  const zipFilename = `${bundleName}.zip`;
+  await downloadBlob(zipFilename, new Blob([zipBytes], { type: 'application/zip' }), promptForSaveAs);
+  return zipFilename;
 }
 
 function buildBundleName(recording, outputDir = DEFAULT_SETTINGS.outputDir) {
@@ -698,6 +732,26 @@ async function downloadBlob(filename, blob, promptForSaveAs = false) {
   await downloadUrl(filename, dataUrl, promptForSaveAs);
 }
 
+function dataUrlToUint8Array(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:.*?;base64,(.*)$/);
+  if (!match) {
+    throw new Error('无法解析导出文件数据');
+  }
+
+  const binary = atob(match[1]);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
+}
+
+function getArchiveRootName(bundleName) {
+  return bundleName.split('/').filter(Boolean).pop() || bundleName;
+}
+
 async function blobToDataUrl(blob) {
   const buffer = await blob.arrayBuffer();
   const bytes = new Uint8Array(buffer);
@@ -725,7 +779,7 @@ async function upsertHistoryEntry(entry) {
 function buildHistoryEntry(recording) {
   return {
     id: recording.id,
-    title: recording.title,
+    title: recording.title || buildRecordingTitle(recording),
     createdAt: recording.startTime,
     screenshotCount: recording.screenshots.length,
     durationMs: getRecordingDuration(recording),
@@ -772,7 +826,51 @@ async function exportRecording(id) {
   if (!currentRuntime.isRecording) {
     await closeOffscreenDocument();
   }
+  notifyPopup('exported', { history: await getHistory() });
+}
+
+async function getRecordingDetail(id) {
+  const recording = await getRecording(id);
+
+  if (!recording) {
+    throw new Error('这条历史记录已不存在');
+  }
+
+  return buildRecordingDetail(recording);
+}
+
+async function updateRecordingDetails(id, updates) {
+  const recording = await getRecording(id);
+
+  if (!recording) {
+    throw new Error('这条历史记录已不存在');
+  }
+
+  const nextTitle = sanitizeEditableText(updates.title, 80);
+  const nextScreenshots = Array.isArray(updates.screenshots) ? updates.screenshots : [];
+
+  recording.title = nextTitle || buildRecordingTitle(recording);
+  recording.screenshots = recording.screenshots.map((screenshot, index) => ({
+    ...screenshot,
+    description:
+      sanitizeEditableText(nextScreenshots[index]?.description, 400) ||
+      screenshot.description ||
+      `步骤 ${index + 1}`
+  }));
+  recording.updatedAt = Date.now();
+
+  await putRecording(recording);
+  await upsertHistoryEntry(buildHistoryEntry(recording));
   notifyPopup('historyUpdated', { history: await getHistory() });
+  return buildRecordingDetail(recording);
+}
+
+function sanitizeEditableText(value, maxLength) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
 async function deleteRecordingById(id) {
