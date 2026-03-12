@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>教程录制器设置</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Tutorial Recorder</p>
+        <h1>完整设置</h1>
+        <p class="hero-copy">这里放完整录制、导出和 AI 配置。popup 里只保留开录常用项，避免小窗口太拥挤。</p>
+      </div>
+      <div class="hero-status" id="saveStatus">加载中...</div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>录制设置</h2>
+        <span class="panel-tip">开始录制前修改会立即生效</span>
+      </div>
+
+      <div class="grid grid-equal">
+        <label class="field">
+          <span>画面录制方式</span>
+          <select id="captureMode">
+            <option value="displayMedia">共享屏幕 / 标签页（推荐）</option>
+            <option value="tabCapture">直接录制当前标签页（兼容模式）</option>
+          </select>
+          <small class="field-hint" id="captureModeHint">开始录制时会弹出共享画面选择，并额外请求麦克风权限。</small>
+        </label>
+
+        <label class="field">
+          <span>自动截图间隔（秒）</span>
+          <input type="number" id="interval" min="1" max="60" value="5">
+        </label>
+      </div>
+
+      <div class="grid compact-grid">
+        <label class="field checkbox-field">
+          <span>自动截图</span>
+          <input type="checkbox" id="autoScreenshot" checked>
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>导出设置</h2>
+        <span class="panel-tip">导出 ZIP、PDF、Markdown、视频和音频的默认位置</span>
+      </div>
+
+      <label class="field">
+        <span>导出目录</span>
+        <div class="field-inline">
+          <input type="text" id="outputDir" placeholder="默认：tutorial-recorder">
+          <button type="button" id="btnResetDir" class="mini-btn">默认</button>
+        </div>
+        <small class="field-hint">只支持下载目录下的相对子目录，例如 `tutorial-recorder/runs`。</small>
+      </label>
+
+      <div class="field preview-field">
+        <span>导出位置预览</span>
+        <div class="preview-box">
+          <div class="preview-path" id="outputPreviewValue">Downloads/tutorial-recorder/tutorial-YYYYMMDD-HHMMSS-录制ID.zip</div>
+          <small class="field-hint" id="outputPreviewHint">导出时会在下载目录下生成这个 ZIP 文件。</small>
+        </div>
+      </div>
+
+      <div class="field toggle-field">
+        <div class="toggle-row">
+          <span>导出时询问保存位置</span>
+          <input type="checkbox" id="promptForSaveAs">
+        </div>
+        <small class="field-hint">开启后，Chrome 只会为导出的 ZIP 文件弹出一次保存对话框。</small>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>AI 设置</h2>
+        <span class="panel-tip">支持多家视觉模型和 OpenAI 兼容网关</span>
+      </div>
+
+      <div class="grid grid-equal">
+        <label class="field">
+          <span>Provider 预设</span>
+          <select id="providerPreset">
+            <option value="volcengineArk">火山方舟</option>
+            <option value="siliconFlow">硅基流动</option>
+            <option value="aliyunDashScope">阿里云百炼</option>
+            <option value="openRouter">OpenRouter</option>
+            <option value="googleGemini">Google Gemini</option>
+            <option value="anthropicClaude">Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="openaiCompatible">OpenAI Compatible</option>
+            <option value="custom">自定义</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>API 风格</span>
+          <select id="apiStyle">
+            <option value="chatCompletions">Chat Completions</option>
+            <option value="responses">Responses</option>
+            <option value="anthropicMessages">Anthropic Messages</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="grid grid-equal">
+        <label class="field">
+          <span>API Key</span>
+          <input type="password" id="apiKey" placeholder="用于自动生成步骤说明">
+        </label>
+
+        <label class="field">
+          <span id="modelLabel">模型 / Endpoint ID</span>
+          <input type="text" id="modelId" placeholder="例如 ep-xxxx 或 gpt-4.1-mini">
+          <small class="field-hint" id="modelHint">火山方舟填 Endpoint ID；OpenAI / 兼容接口填模型 ID。</small>
+        </label>
+      </div>
+
+      <label class="field">
+        <span>API Base URL</span>
+        <input type="text" id="apiBaseUrl" placeholder="例如 https://ark.cn-beijing.volces.com/api/v3">
+        <small class="field-hint" id="apiBaseHint">支持 OpenAI 兼容接口，只需填写基地址，路径会按 API 风格自动补全。</small>
+      </label>
+
+      <label class="field">
+        <span>附加请求头 JSON（可选）</span>
+        <textarea id="extraHeadersJson" rows="4" placeholder='例如 {"HTTP-Referer":"https://example.com"}'></textarea>
+        <small class="field-hint">适合给 OpenAI 兼容网关补自定义 Header，格式必须是 JSON 对象。</small>
+      </label>
+    </section>
+  </main>
+
+  <script src="settings.js"></script>
+</body>
+</html>

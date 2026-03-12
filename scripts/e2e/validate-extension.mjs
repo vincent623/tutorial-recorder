@@ -94,9 +94,20 @@ async function main() {
     );
     console.log('[e2e] popup page ready');
 
-    await popup.locator('#outputDir').fill(customOutputDir);
-    console.log(`[e2e] output dir set: ${customOutputDir}`);
-    const saveSettingsResult = await popup.evaluate((outputDir) =>
+    const settingsPagePromise = context.waitForEvent('page');
+    await popup.locator('#btnOpenSettings').click();
+    const settingsPage = await settingsPagePromise;
+    settingsPage.on('close', () => console.log('[e2e] settings page closed'));
+    settingsPage.on('pageerror', (error) => console.log(`[settings pageerror] ${error.message}`));
+    settingsPage.on('console', (message) => console.log(`[settings console:${message.type()}] ${message.text()}`));
+    await settingsPage.waitForLoadState('domcontentloaded');
+    await settingsPage.waitForFunction(() => document.getElementById('outputDir') && Boolean(chrome?.runtime?.sendMessage));
+    console.log('[e2e] settings page ready');
+
+    await settingsPage.locator('#outputDir').fill(customOutputDir);
+    await settingsPage.locator('#outputDir').dispatchEvent('change');
+    console.log(`[e2e] output dir set in settings page: ${customOutputDir}`);
+    const saveSettingsResult = await settingsPage.evaluate((outputDir) =>
       chrome.runtime.sendMessage({
         action: 'saveSettings',
         settings: {
@@ -115,6 +126,11 @@ async function main() {
       customOutputDir
     );
     console.log(`[e2e] save settings result: ${JSON.stringify(saveSettingsResult)}`);
+    const settingsPageSummary = await settingsPage.evaluate(() => ({
+      title: document.title,
+      outputPreviewValue: document.getElementById('outputPreviewValue')?.textContent?.trim() || ''
+    }));
+    await settingsPage.close().catch(() => {});
 
     const startResult = await popup.evaluate(
       (tabId) => chrome.runtime.sendMessage({ action: 'startRecording', tabId }),
@@ -217,21 +233,23 @@ async function main() {
       const statusText = document.querySelector('#status .status-text')?.textContent?.trim() || '';
       const historyCount = document.querySelectorAll('.history-item').length;
       const mediaStatus = document.getElementById('mediaStatus')?.textContent?.trim() || '';
+      const providerSummary = document.getElementById('providerSummary')?.textContent?.trim() || '';
+      const outputDirSummary = document.getElementById('outputDirSummary')?.textContent?.trim() || '';
       const firstHistoryTitle = document.querySelector('.history-title')?.textContent?.trim() || '';
       const firstHistoryExport = document.querySelector('.history-export')?.textContent?.trim() || '';
       const detailStatus = document.getElementById('detailStatus')?.textContent?.trim() || '';
       const screenshotCount = document.getElementById('screenshotCount')?.textContent?.trim() || '';
-      const outputPreviewValue = document.getElementById('outputPreviewValue')?.textContent?.trim() || '';
 
       return {
         statusText,
         historyCount,
         mediaStatus,
+        providerSummary,
+        outputDirSummary,
         firstHistoryTitle,
         firstHistoryExport,
         detailStatus,
-        screenshotCount,
-        outputPreviewValue
+        screenshotCount
       };
     });
 
@@ -246,6 +264,7 @@ async function main() {
       fixtureUrl: `http://127.0.0.1:${port}/fixture.html`,
       contentFeedbackObserved,
       popup: popupSummary,
+      settingsPage: settingsPageSummary,
       settingsState,
       historyState,
       downloadItems,
@@ -269,10 +288,13 @@ async function main() {
         archiveHasScreenshot: archiveContents.some((archive) =>
           archive.entries.filter((entry) => entry.kind === 'png').length >= 1
         ),
+        settingsPageOpened: settingsPageSummary.title.includes('设置'),
         outputDirPersisted: settingsState?.outputDir === customOutputDir,
         outputPreviewRendered:
-          popupSummary.outputPreviewValue.includes(`Downloads/${customOutputDir}/tutorial-`) &&
-          popupSummary.outputPreviewValue.endsWith('.zip'),
+          settingsPageSummary.outputPreviewValue.includes(`Downloads/${customOutputDir}/tutorial-`) &&
+          settingsPageSummary.outputPreviewValue.endsWith('.zip'),
+        popupSummaryRendered:
+          popupSummary.providerSummary.length > 0 && popupSummary.outputDirSummary === customOutputDir,
         historyExportRendered:
           popupSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`) &&
           popupSummary.firstHistoryExport.includes('.zip'),

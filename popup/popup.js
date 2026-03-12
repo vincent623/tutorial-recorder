@@ -1,78 +1,15 @@
 const $ = (id) => document.getElementById(id);
 const DEFAULT_OUTPUT_DIR = 'tutorial-recorder';
-const PROVIDER_PRESETS = {
-  volcengineArk: {
-    label: '火山方舟',
-    apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-    apiStyle: 'chatCompletions',
-    modelLabel: '模型 / Endpoint ID',
-    modelHint: '火山方舟填 Endpoint ID，例如 ep-xxxx。',
-    apiBaseHint: '会自动补成 /chat/completions，适合方舟视觉模型。'
-  },
-  siliconFlow: {
-    label: '硅基流动',
-    apiBaseUrl: 'https://api.siliconflow.com/v1',
-    apiStyle: 'chatCompletions',
-    modelLabel: '模型 ID',
-    modelHint: '硅基流动填支持视觉的模型 ID，例如 Qwen/QVQ/VLM 系列。',
-    apiBaseHint: '走 OpenAI 兼容 Chat Completions，基地址会自动补成 /chat/completions。'
-  },
-  aliyunDashScope: {
-    label: '阿里云百炼',
-    apiBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    apiStyle: 'chatCompletions',
-    modelLabel: '模型 ID',
-    modelHint: '阿里云百炼填视觉模型 ID，例如 qwen-vl 系列。',
-    apiBaseHint: '走百炼 OpenAI 兼容模式，基地址会自动补成 /chat/completions。'
-  },
-  openRouter: {
-    label: 'OpenRouter',
-    apiBaseUrl: 'https://openrouter.ai/api/v1',
-    apiStyle: 'chatCompletions',
-    modelLabel: '模型 ID',
-    modelHint: 'OpenRouter 填模型路由名，例如 anthropic/claude-3.5-sonnet 或 google/gemini-2.5-flash。',
-    apiBaseHint: '建议配合附加 Header JSON 一起使用，例如 HTTP-Referer 和 X-Title。'
-  },
-  googleGemini: {
-    label: 'Google Gemini',
-    apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    apiStyle: 'chatCompletions',
-    modelLabel: '模型 ID',
-    modelHint: 'Google Gemini 填模型 ID，例如 gemini-2.0-flash 或 gemini-2.5-flash。',
-    apiBaseHint: '使用 Google 官方 OpenAI 兼容入口，基地址会自动补成 /chat/completions。'
-  },
-  anthropicClaude: {
-    label: 'Claude',
-    apiBaseUrl: 'https://api.anthropic.com/v1',
-    apiStyle: 'anthropicMessages',
-    modelLabel: 'Claude 模型 ID',
-    modelHint: 'Claude 建议填官方模型名，例如 claude-3-7-sonnet-latest。',
-    apiBaseHint: '会直接调用 Anthropic 原生 /messages 接口，不走 OpenAI 兼容层。'
-  },
-  openai: {
-    label: 'OpenAI',
-    apiBaseUrl: 'https://api.openai.com/v1',
-    apiStyle: 'responses',
-    modelLabel: '模型 ID',
-    modelHint: 'OpenAI 填模型 ID，例如 gpt-4.1-mini 或 gpt-4.1。',
-    apiBaseHint: '会自动补成 /responses，适合 OpenAI 原生视觉接口。'
-  },
-  openaiCompatible: {
-    label: 'OpenAI Compatible',
-    apiBaseUrl: 'https://api.openai.com/v1',
-    apiStyle: 'chatCompletions',
-    modelLabel: '模型 ID',
-    modelHint: '适合兼容 OpenAI Chat Completions 的网关或代理。',
-    apiBaseHint: '只填基地址即可，插件会自动补成 /chat/completions。'
-  },
-  custom: {
-    label: '自定义',
-    apiBaseUrl: '',
-    apiStyle: 'chatCompletions',
-    modelLabel: '模型 / Endpoint ID',
-    modelHint: '你可以自行指定任意 OpenAI 兼容网关的模型名或 Endpoint ID。',
-    apiBaseHint: '支持任意 OpenAI 兼容基地址，路径会按 API 风格自动拼接。'
-  }
+const PROVIDER_LABELS = {
+  volcengineArk: '火山方舟',
+  siliconFlow: '硅基流动',
+  aliyunDashScope: '阿里云百炼',
+  openRouter: 'OpenRouter',
+  googleGemini: 'Google Gemini',
+  anthropicClaude: 'Claude',
+  openai: 'OpenAI',
+  openaiCompatible: 'OpenAI Compatible',
+  custom: '自定义'
 };
 
 const CAPTURE_MODE_HINTS = {
@@ -90,24 +27,13 @@ const elements = {
   screenshotCount: $('screenshotCount'),
   recordTime: $('recordTime'),
   mediaStatus: $('mediaStatus'),
+  btnOpenSettings: $('btnOpenSettings'),
   captureMode: $('captureMode'),
   captureModeHint: $('captureModeHint'),
-  providerPreset: $('providerPreset'),
-  apiStyle: $('apiStyle'),
-  apiKey: $('apiKey'),
-  apiBaseUrl: $('apiBaseUrl'),
-  apiBaseHint: $('apiBaseHint'),
-  modelId: $('modelId'),
-  modelLabel: $('modelLabel'),
-  modelHint: $('modelHint'),
-  extraHeadersJson: $('extraHeadersJson'),
-  outputDir: $('outputDir'),
-  outputPreviewValue: $('outputPreviewValue'),
-  outputPreviewHint: $('outputPreviewHint'),
-  btnResetDir: $('btnResetDir'),
-  promptForSaveAs: $('promptForSaveAs'),
   interval: $('interval'),
   autoScreenshot: $('autoScreenshot'),
+  providerSummary: $('providerSummary'),
+  outputDirSummary: $('outputDirSummary'),
   historyList: $('historyList'),
   detailPanel: $('detailPanel'),
   detailStatus: $('detailStatus'),
@@ -125,6 +51,7 @@ let state = createIdleState();
 let historyItems = [];
 let detailState = createDetailState();
 let timer = null;
+let currentSettings = {};
 
 document.addEventListener('DOMContentLoaded', async () => {
   await hydrate();
@@ -204,18 +131,9 @@ async function hydrate() {
 
 function bindEvents() {
   elements.captureMode.addEventListener('change', handleCaptureModeChange);
-  elements.providerPreset.addEventListener('change', handleProviderPresetChange);
-  elements.apiStyle.addEventListener('change', saveSettings);
-  elements.apiKey.addEventListener('change', saveSettings);
-  elements.apiBaseUrl.addEventListener('change', saveSettings);
-  elements.modelId.addEventListener('change', saveSettings);
-  elements.extraHeadersJson.addEventListener('change', saveSettings);
-  elements.outputDir.addEventListener('input', updateOutputPreview);
-  elements.outputDir.addEventListener('change', saveSettings);
-  elements.btnResetDir.addEventListener('click', resetOutputDir);
-  elements.promptForSaveAs.addEventListener('change', handlePromptForSaveAsChange);
   elements.interval.addEventListener('change', saveSettings);
   elements.autoScreenshot.addEventListener('change', saveSettings);
+  elements.btnOpenSettings.addEventListener('click', openSettingsPage);
 
   elements.btnStart.addEventListener('click', startRecording);
   elements.btnPause.addEventListener('click', togglePause);
@@ -231,13 +149,8 @@ function bindEvents() {
 }
 
 async function saveSettings() {
-  const settings = readSettingsFromForm();
-  if (!settings) {
-    return { ok: false, error: 'invalid-settings' };
-  }
-
   const result = await sendAction('saveSettings', {
-    settings
+    settings: readSettingsFromForm()
   });
 
   if (result?.ok && result.settings) {
@@ -248,52 +161,15 @@ async function saveSettings() {
 }
 
 function readSettingsFromForm() {
-  const extraHeadersJson = elements.extraHeadersJson.value.trim();
-  if (extraHeadersJson) {
-    try {
-      const parsed = JSON.parse(extraHeadersJson);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('附加请求头必须是 JSON 对象');
-      }
-    } catch (error) {
-      alert(`附加请求头格式不正确：${error.message}`);
-      elements.extraHeadersJson.focus();
-      return null;
-    }
-  }
-
   return {
-    providerPreset: elements.providerPreset.value,
-    apiStyle: elements.apiStyle.value,
-    apiKey: elements.apiKey.value.trim(),
-    apiBaseUrl: elements.apiBaseUrl.value.trim(),
-    modelId: elements.modelId.value.trim(),
-    extraHeadersJson,
     captureMode: elements.captureMode.value,
-    outputDir: elements.outputDir.value.trim(),
-    promptForSaveAs: elements.promptForSaveAs.checked,
     screenshotInterval: parseInt(elements.interval.value, 10),
     autoScreenshot: elements.autoScreenshot.checked
   };
 }
 
-async function handlePromptForSaveAsChange() {
-  updateOutputPreview();
-  await saveSettings();
-}
-
 async function handleCaptureModeChange() {
   updateCaptureModeHint();
-  await saveSettings();
-}
-
-async function handleProviderPresetChange() {
-  const preset = PROVIDER_PRESETS[elements.providerPreset.value] || PROVIDER_PRESETS.custom;
-  elements.apiStyle.value = preset.apiStyle;
-  if (preset.apiBaseUrl) {
-    elements.apiBaseUrl.value = preset.apiBaseUrl;
-  }
-  updateProviderUi();
   await saveSettings();
 }
 
@@ -337,10 +213,8 @@ async function captureManually() {
   }
 }
 
-async function resetOutputDir() {
-  elements.outputDir.value = DEFAULT_OUTPUT_DIR;
-  updateOutputPreview();
-  await saveSettings();
+function openSettingsPage() {
+  chrome.runtime.openOptionsPage();
 }
 
 async function handleHistoryAction(event) {
@@ -607,26 +481,18 @@ function updateUi() {
   elements.btnPause.textContent = state.isPaused ? '继续' : '暂停';
 
   renderHistory(historyItems);
-  updateOutputPreview();
+  updateSettingsSummary();
   updateDetailBusyState();
   restartTimer();
 }
 
 function applySettingsToForm(settings = {}) {
+  currentSettings = { ...settings };
   elements.captureMode.value = settings.captureMode || 'displayMedia';
-  elements.providerPreset.value = settings.providerPreset || 'volcengineArk';
-  elements.apiStyle.value = settings.apiStyle || 'chatCompletions';
-  elements.apiKey.value = settings.apiKey || '';
-  elements.apiBaseUrl.value = settings.apiBaseUrl || '';
-  elements.modelId.value = settings.modelId || settings.endpointId || '';
-  elements.extraHeadersJson.value = settings.extraHeadersJson || '';
-  elements.outputDir.value = settings.outputDir || DEFAULT_OUTPUT_DIR;
-  elements.promptForSaveAs.checked = settings.promptForSaveAs === true;
   elements.interval.value = settings.screenshotInterval || 5;
   elements.autoScreenshot.checked = settings.autoScreenshot !== false;
   updateCaptureModeHint();
-  updateProviderUi();
-  updateOutputPreview();
+  updateSettingsSummary();
 }
 
 function updateCaptureModeHint() {
@@ -634,11 +500,10 @@ function updateCaptureModeHint() {
     CAPTURE_MODE_HINTS[elements.captureMode.value] || CAPTURE_MODE_HINTS.displayMedia;
 }
 
-function updateProviderUi() {
-  const preset = PROVIDER_PRESETS[elements.providerPreset.value] || PROVIDER_PRESETS.custom;
-  elements.modelLabel.textContent = preset.modelLabel;
-  elements.modelHint.textContent = preset.modelHint;
-  elements.apiBaseHint.textContent = preset.apiBaseHint;
+function updateSettingsSummary() {
+  const providerKey = currentSettings.providerPreset || 'volcengineArk';
+  elements.providerSummary.textContent = PROVIDER_LABELS[providerKey] || PROVIDER_LABELS.custom;
+  elements.outputDirSummary.textContent = currentSettings.outputDir || DEFAULT_OUTPUT_DIR;
 }
 
 function getMediaStatusLabel(audioStarted, videoStarted) {
@@ -872,49 +737,6 @@ function isDetailDirty() {
   );
 }
 
-function updateOutputPreview() {
-  if (!elements.outputPreviewValue || !elements.outputPreviewHint) {
-    return;
-  }
-
-  elements.outputPreviewValue.textContent = buildOutputPreviewPath();
-  elements.outputPreviewHint.textContent = elements.promptForSaveAs.checked
-    ? '开启询问后，Chrome 会只为这个 ZIP 文件弹出一次保存对话框。'
-    : '导出时会在下载目录下生成这个 ZIP 文件。';
-}
-
-function buildOutputPreviewPath() {
-  const outputDir = sanitizeOutputDir(elements.outputDir.value.trim());
-  const bundleName = buildPreviewBundleName(outputDir);
-  return formatDownloadsPath(`${bundleName}.zip`);
-}
-
-function buildPreviewBundleName(outputDir) {
-  const prefix = outputDir || DEFAULT_OUTPUT_DIR;
-  if (!state.recordingId || !state.startTime) {
-    return `${prefix}/tutorial-YYYYMMDD-HHMMSS-录制ID`;
-  }
-
-  return `${prefix}/tutorial-${formatBundleStamp(state.startTime)}-${state.recordingId}`;
-}
-
-function formatBundleStamp(timestamp) {
-  const date = new Date(timestamp);
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-    '-',
-    String(date.getHours()).padStart(2, '0'),
-    String(date.getMinutes()).padStart(2, '0'),
-    String(date.getSeconds()).padStart(2, '0')
-  ].join('');
-}
-
-function formatDownloadsPath(relativePath) {
-  return `Downloads/${relativePath}`;
-}
-
 function sanitizeOutputDir(value) {
   const raw = typeof value === 'string' && value.trim() ? value : DEFAULT_OUTPUT_DIR;
   const normalized = raw.replaceAll('\\', '/').trim();
@@ -927,6 +749,10 @@ function sanitizeOutputDir(value) {
     .filter(Boolean);
 
   return segments.join('/') || DEFAULT_OUTPUT_DIR;
+}
+
+function formatDownloadsPath(relativePath) {
+  return `Downloads/${relativePath}`;
 }
 
 function formatDuration(durationMs) {

@@ -9,6 +9,7 @@
 - 基于火山方舟、硅基流动、阿里云百炼、OpenRouter、Google Gemini、Claude、OpenAI 或任意 OpenAI 兼容视觉端点生成步骤说明
 - 导出单个 `ZIP`，内含 `Markdown + PDF + 音频 WebM + 视频 WebM + PNG`
 - 历史记录查看、编辑、重新导出和删除
+- popup 只保留快速设置，并提供独立完整设置页
 - 自定义下载子目录，或为 ZIP 弹出一次保存位置选择
 
 ## 项目结构
@@ -19,6 +20,7 @@ tutorial-recorder/
 ├── content/             # 页面内录制反馈
 ├── offscreen/           # 屏幕/标签页录制、麦克风录音、定时截图、PDF 生成
 ├── popup/               # 扩展 UI、设置、历史记录
+├── settings/            # 独立完整设置页
 ├── icons/               # 扩展图标
 ├── lib/                 # 第三方前端库
 ├── scripts/e2e/         # 本地真实浏览器验证脚本
@@ -35,15 +37,19 @@ tutorial-recorder/
 3. 选择“加载已解压的扩展程序”
 4. 选中项目根目录 `/Volumes/My_data/dev/tutorial-recorder`
 
-打开插件 popup 后，可以配置：
+打开插件 popup 后，可以直接改：
 
 - 画面录制方式：
   - `共享屏幕 / 标签页（推荐）`：开始录制时会弹出真实共享授权，再请求麦克风权限
   - `直接录制当前标签页（兼容模式）`：适合自动化验证或不想走共享面板的场景
+- 自动截图间隔
+- 是否自动截图
+
+点击 `完整设置` 后，可以在独立设置页继续配置：
+
 - `Provider 预设`、`API 风格`、`API Base URL`
 - `API Key`、`模型 / Endpoint ID`
 - `附加请求头 JSON`
-- 自动截图间隔
 - 导出目录
 - 是否在导出时为 ZIP 弹出保存位置
 
@@ -53,6 +59,7 @@ tutorial-recorder/
 - 如果开启“导出时询问保存位置”，Chrome 只会对 ZIP 文件弹出一次保存对话框
 - 历史记录面板支持查看教程详情、修改标题和步骤说明，然后重新导出新的 ZIP
 - 未配置 AI 时，插件仍然可以录制和导出，只是步骤说明会回退到默认文案
+- 截图分析会附带页面标题、地址和最近一次交互动作，帮助视觉模型更准确地判断“用户正在做什么”
 - `API Base URL` 只需要填到版本根路径，例如 `https://ark.cn-beijing.volces.com/api/v3` 或 `https://api.openai.com/v1`，插件会按 `Chat Completions / Responses` 自动补齐路径
 - `附加请求头 JSON` 适合 OpenAI 兼容网关，例如：
 

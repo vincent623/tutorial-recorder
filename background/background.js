@@ -123,6 +123,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'manualCapture':
         sendResponse(await captureScreenshot({ trigger: 'manual' }));
         break;
+      case 'recordInteraction':
+        await recordInteraction(message.payload || {}, sender);
+        sendResponse({ ok: true });
+        break;
       case 'downloadRecording':
         await exportRecording(message.id);
         sendResponse({ ok: true });
@@ -216,7 +220,8 @@ function createIdleRuntime() {
     autoScreenshot: DEFAULT_SETTINGS.autoScreenshot,
     audioStarted: false,
     videoStarted: false,
-    mediaStatus: '待启动'
+    mediaStatus: '待启动',
+    lastInteraction: null
   };
 }
 
@@ -315,7 +320,11 @@ async function getSettings() {
 }
 
 async function saveSettings(settings) {
-  const nextSettings = normalizeSettings(settings);
+  const currentSettings = await getSettings();
+  const nextSettings = normalizeSettings({
+    ...currentSettings,
+    ...settings
+  });
   await chrome.storage.local.set({ [SETTINGS_KEY]: nextSettings });
 
   if (currentRuntime.isRecording) {
@@ -602,7 +611,12 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
     timestamp,
     timeOffsetMs: getElapsedMs(timestamp),
     trigger,
-    description: ''
+    description: '',
+    pageContext: {
+      title: tab.title || '',
+      url: tab.url || '',
+      interaction: getRelevantInteraction(timestamp)
+    }
   });
 
   currentRuntime.count = currentRecording.screenshots.length;
@@ -635,12 +649,17 @@ async function generateTutorial() {
 
       try {
         currentRecording.screenshots[index].description = await analyzeImage(
-          currentRecording.screenshots[index].data,
-          settings
+          currentRecording.screenshots[index],
+          settings,
+          index,
+          currentRecording.screenshots
         );
       } catch (error) {
         console.error('[Background] Analyze error:', error);
-        currentRecording.screenshots[index].description = `步骤 ${index + 1}`;
+        currentRecording.screenshots[index].description = getFallbackDescription(
+          currentRecording.screenshots[index],
+          index
+        );
       }
     }
   } else {
@@ -650,7 +669,7 @@ async function generateTutorial() {
 
     currentRecording.screenshots = currentRecording.screenshots.map((screenshot, index) => ({
       ...screenshot,
-      description: screenshot.description || `步骤 ${index + 1}`
+      description: screenshot.description || getFallbackDescription(screenshot, index)
     }));
   }
 
@@ -694,8 +713,8 @@ async function generateTutorial() {
   });
 }
 
-async function analyzeImage(imageData, settings) {
-  const request = buildVisionRequest(imageData, settings);
+async function analyzeImage(screenshot, settings, index, screenshots) {
+  const request = buildVisionRequest(screenshot, settings, index, screenshots);
   const response = await fetch(request.url, {
     method: 'POST',
     headers: request.headers,
@@ -1090,7 +1109,90 @@ function applyMediaResult(recording, mediaResult, fallbackDurationMs) {
   }
 }
 
-function buildVisionRequest(imageData, settings) {
+async function recordInteraction(payload, sender) {
+  if (!currentRuntime.isRecording || !currentRecording) {
+    return;
+  }
+
+  if (sender.tab?.id && currentRuntime.tabId && sender.tab.id !== currentRuntime.tabId) {
+    return;
+  }
+
+  currentRuntime.lastInteraction = {
+    type: sanitizeEditableText(payload.type, 40) || 'interaction',
+    summary: sanitizeEditableText(payload.summary, 160),
+    target: sanitizeEditableText(payload.target, 160),
+    timestamp: Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now()
+  };
+
+  await persistRuntime();
+}
+
+function getRelevantInteraction(timestamp) {
+  const interaction = currentRuntime.lastInteraction;
+  if (!interaction?.summary) {
+    return null;
+  }
+
+  if (Math.abs(timestamp - interaction.timestamp) > 15_000) {
+    return null;
+  }
+
+  return interaction;
+}
+
+function getFallbackDescription(screenshot, index) {
+  const interactionSummary = screenshot?.pageContext?.interaction?.summary;
+  if (interactionSummary) {
+    return interactionSummary;
+  }
+
+  const pageTitle = sanitizePageTitle(screenshot?.pageContext?.title);
+  if (pageTitle) {
+    return `查看 ${pageTitle}`;
+  }
+
+  return `步骤 ${index + 1}`;
+}
+
+function buildScreenshotContextPrompt(screenshot, index, screenshots) {
+  const pageTitle = sanitizePageTitle(screenshot?.pageContext?.title) || '未知页面';
+  const pageUrl = summarizeUrlForPrompt(screenshot?.pageContext?.url);
+  const interactionSummary = screenshot?.pageContext?.interaction?.summary || '没有可靠的交互记录';
+  const previousDescription = screenshots[index - 1]?.description || '无';
+
+  return [
+    `当前是教程第 ${index + 1} 步，共 ${screenshots.length} 步。`,
+    `页面标题：${pageTitle}。`,
+    pageUrl ? `页面地址：${pageUrl}。` : '',
+    `最近一次用户交互：${interactionSummary}。`,
+    `上一步说明：${previousDescription}。`,
+    '请输出 1 句自然中文步骤说明，优先描述“用户正在做什么”，用动词开头，尽量点明按钮、输入框、菜单或页面区域。',
+    '如果截图信息不足，请优先参考最近一次用户交互，而不是泛泛描述页面长什么样。'
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function sanitizePageTitle(title) {
+  return sanitizeEditableText(title, 120);
+}
+
+function summarizeUrlForPrompt(url) {
+  if (typeof url !== 'string' || !url) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname}${parsed.pathname}`.slice(0, 160);
+  } catch (error) {
+    return sanitizeEditableText(url, 160);
+  }
+}
+
+function buildVisionRequest(screenshot, settings, index, screenshots) {
+  const imageData = screenshot.data;
   const apiStyle = normalizeApiStyle(settings.apiStyle);
   const extraHeaders = parseExtraHeaders(settings.extraHeadersJson);
   const headers =
@@ -1107,6 +1209,7 @@ function buildVisionRequest(imageData, settings) {
           ...extraHeaders
         };
   const url = resolveVisionUrl(settings.apiBaseUrl, apiStyle);
+  const contextPrompt = buildScreenshotContextPrompt(screenshot, index, screenshots);
 
   if (apiStyle === 'anthropicMessages') {
     const { mediaType, base64 } = parseImageDataUrl(imageData);
@@ -1116,13 +1219,13 @@ function buildVisionRequest(imageData, settings) {
       headers,
       body: {
         model: settings.modelId,
-        system: '你是教程录制助手。请用简洁中文总结截图里的当前操作步骤，不要重复截图里不重要的细节。',
+        system: '你是教程录制助手。请优先根据页面上下文和最近交互，写出用户正在进行的具体操作步骤。不要只做静态截图描述。',
         max_tokens: 160,
         messages: [
           {
             role: 'user',
             content: [
-              { type: 'text', text: '请用一句话描述这个截图代表的操作步骤。' },
+              { type: 'text', text: contextPrompt },
               {
                 type: 'image',
                 source: {
@@ -1144,12 +1247,12 @@ function buildVisionRequest(imageData, settings) {
       headers,
       body: {
         model: settings.modelId,
-        instructions: '你是教程录制助手。请用简洁中文总结截图里的当前操作步骤，不要重复截图里不重要的细节。',
+        instructions: '你是教程录制助手。请优先根据页面上下文和最近交互，写出用户正在进行的具体操作步骤。不要只做静态截图描述。',
         input: [
           {
             role: 'user',
             content: [
-              { type: 'input_text', text: '请用一句话描述这个截图代表的操作步骤。' },
+              { type: 'input_text', text: contextPrompt },
               { type: 'input_image', image_url: imageData }
             ]
           }
@@ -1162,20 +1265,20 @@ function buildVisionRequest(imageData, settings) {
   return {
     url,
     headers,
-    body: {
-      model: settings.modelId,
-      messages: [
-        {
-          role: 'system',
-          content: '你是教程录制助手。请用简洁中文总结截图里的当前操作步骤，不要重复截图里不重要的细节。'
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: '请用一句话描述这个截图代表的操作步骤。' },
-            { type: 'image_url', image_url: { url: imageData } }
-          ]
-        }
+      body: {
+        model: settings.modelId,
+        messages: [
+          {
+            role: 'system',
+            content: '你是教程录制助手。请优先根据页面上下文和最近交互，写出用户正在进行的具体操作步骤。不要只做静态截图描述。'
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: contextPrompt },
+              { type: 'image_url', image_url: { url: imageData } }
+            ]
+          }
       ],
       max_tokens: 120
     }

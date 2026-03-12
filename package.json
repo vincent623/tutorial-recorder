@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check background/asset-store.js && node --check background/background.js && node --check content/content.js && node --check offscreen/offscreen.js && node --check popup/popup.js && node --check scripts/e2e/validate-extension.mjs",
+    "check": "node --check background/asset-store.js && node --check background/background.js && node --check content/content.js && node --check offscreen/offscreen.js && node --check popup/popup.js && node --check settings/settings.js && node --check scripts/e2e/validate-extension.mjs",
     "validate:e2e": "node scripts/e2e/validate-extension.mjs"
   },
   "devDependencies": {

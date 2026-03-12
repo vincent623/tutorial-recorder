@@ -484,17 +484,13 @@ async function generatePdf(recording) {
 
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
-  const margin = 48;
-
-  drawCoverPage(pdf, recording, { pageWidth, pageHeight, margin });
+  const coverCanvas = await renderCoverPage(recording);
+  pdf.addImage(coverCanvas, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
 
   for (let index = 0; index < recording.screenshots.length; index += 1) {
     pdf.addPage();
-    drawStepPage(pdf, recording, recording.screenshots[index], {
-      pageWidth,
-      pageHeight,
-      margin
-    });
+    const pageCanvas = await renderStepPage(recording, recording.screenshots[index]);
+    pdf.addImage(pageCanvas, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
   }
 
   return {
@@ -503,35 +499,32 @@ async function generatePdf(recording) {
   };
 }
 
-function drawCoverPage(pdf, recording, layout) {
-  const { pageWidth, margin } = layout;
-  let cursorY = margin + 18;
+async function renderCoverPage(recording) {
+  const { canvas, ctx, width, height } = createPageCanvas();
+  const margin = 88;
 
-  pdf.setFillColor(232, 241, 255);
-  pdf.roundedRect(margin, margin, pageWidth - margin * 2, 150, 24, 24, 'F');
+  drawPageBackground(ctx, width, height);
+  drawRoundedRect(ctx, margin, margin, width - margin * 2, 300, 34, '#e8f1ff');
 
-  pdf.setTextColor(22, 119, 255);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(13);
-  pdf.text('Tutorial Recorder', margin + 24, cursorY);
+  ctx.fillStyle = '#1677ff';
+  ctx.font = `700 28px ${getCanvasFontFamily()}`;
+  ctx.fillText('Tutorial Recorder', margin + 40, margin + 58);
 
-  cursorY += 34;
-  pdf.setTextColor(15, 23, 42);
-  pdf.setFontSize(28);
-  pdf.text(recording.title, margin + 24, cursorY);
+  ctx.fillStyle = '#0f172a';
+  const coverTitle = recording.title || '教程录制';
+  const titleLines = wrapText(ctx, coverTitle, width - margin * 2 - 80, '700 60px');
+  drawTextLines(ctx, titleLines, margin + 40, margin + 132, 74, '700 60px', '#0f172a');
 
-  cursorY += 26;
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(71, 85, 105);
-  pdf.setFontSize(13);
-  const introLines = pdf.splitTextToSize(
+  const introLines = wrapText(
+    ctx,
     '自动整理的操作教程，包含步骤截图、时间点、讲解音频和录制视频。建议和同目录下的 Markdown、音频、视频文件一起使用。',
-    pageWidth - margin * 2 - 48
+    width - margin * 2 - 80,
+    '400 28px'
   );
-  pdf.text(introLines, margin + 24, cursorY, { lineHeightFactor: 1.6 });
+  drawTextLines(ctx, introLines, margin + 40, margin + 210, 42, '400 28px', '#475569');
 
-  cursorY = margin + 190;
-  const cardWidth = (pageWidth - margin * 2 - 16) / 2;
+  const cardTop = margin + 360;
+  const cardWidth = (width - margin * 2 - 28) / 2;
   const metrics = [
     ['创建时间', new Date(recording.createdAt).toLocaleString()],
     ['录制时长', formatDuration(recording.durationMs || 0)],
@@ -540,101 +533,172 @@ function drawCoverPage(pdf, recording, layout) {
   ];
 
   metrics.forEach(([label, value], index) => {
-    const x = margin + (index % 2) * (cardWidth + 16);
-    const y = cursorY + Math.floor(index / 2) * 116;
-    drawMetricCard(pdf, x, y, cardWidth, 100, label, value);
+    const x = margin + (index % 2) * (cardWidth + 28);
+    const y = cardTop + Math.floor(index / 2) * 168;
+    drawMetricCard(ctx, x, y, cardWidth, 138, label, value);
   });
 
-  const noteY = cursorY + 248;
-  pdf.setFillColor(243, 247, 255);
-  pdf.roundedRect(margin, noteY, pageWidth - margin * 2, 88, 18, 18, 'F');
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(12);
-  pdf.setTextColor(51, 65, 85);
-  const noteLines = pdf.splitTextToSize(
+  const noteY = cardTop + 352;
+  drawRoundedRect(ctx, margin, noteY, width - margin * 2, 180, 28, '#f3f7ff');
+  const noteLines = wrapText(
+    ctx,
     '导出的素材包括 tutorial.pdf、tutorial.md、audio/tutorial-audio.webm、video/tutorial-video.webm 和 screenshots/*.png。',
-    pageWidth - margin * 2 - 32
+    width - margin * 2 - 48,
+    '400 26px'
   );
-  pdf.text(noteLines, margin + 18, noteY + 28, { lineHeightFactor: 1.7 });
+  drawTextLines(ctx, noteLines, margin + 28, noteY + 52, 40, '400 26px', '#334155');
+
+  return canvas;
 }
 
-function drawStepPage(pdf, recording, screenshot, layout) {
-  const { pageWidth, pageHeight, margin } = layout;
+async function renderStepPage(recording, screenshot) {
+  const { canvas, ctx, width, height } = createPageCanvas();
+  const margin = 72;
 
-  pdf.setFillColor(248, 251, 255);
-  pdf.roundedRect(margin, margin, pageWidth - margin * 2, pageHeight - margin * 2, 26, 26, 'F');
+  drawPageBackground(ctx, width, height);
+  drawRoundedRect(ctx, margin, margin, width - margin * 2, height - margin * 2, 34, '#f8fbff');
 
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(13);
-  pdf.setTextColor(22, 119, 255);
-  pdf.text(`STEP ${screenshot.index}`, margin + 24, margin + 32);
+  ctx.fillStyle = '#1677ff';
+  ctx.font = `700 28px ${getCanvasFontFamily()}`;
+  ctx.fillText(`STEP ${screenshot.index}`, margin + 38, margin + 52);
 
-  pdf.setTextColor(15, 23, 42);
-  pdf.setFontSize(22);
-  const titleLines = pdf.splitTextToSize(
-    screenshot.description,
-    pageWidth - margin * 2 - 120
-  );
-  pdf.text(titleLines, margin + 24, margin + 68, { lineHeightFactor: 1.3 });
+  const badgeWidth = 168;
+  drawRoundedRect(ctx, width - margin - badgeWidth - 32, margin + 18, badgeWidth, 54, 27, '#e8f1ff');
+  ctx.fillStyle = '#0f5ecb';
+  ctx.font = `600 24px ${getCanvasFontFamily()}`;
+  ctx.textAlign = 'center';
+  ctx.fillText(screenshot.timestampLabel, width - margin - badgeWidth / 2 - 32, margin + 53);
+  ctx.textAlign = 'left';
 
-  pdf.setFillColor(232, 241, 255);
-  pdf.roundedRect(pageWidth - margin - 102, margin + 18, 78, 28, 14, 14, 'F');
-  pdf.setTextColor(15, 94, 203);
-  pdf.setFontSize(12);
-  pdf.text(screenshot.timestampLabel, pageWidth - margin - 63, margin + 37, {
-    align: 'center'
+  const title = screenshot.description || `步骤 ${screenshot.index}`;
+  const titleLines = wrapText(ctx, title, width - margin * 2 - 210, '700 52px');
+  drawTextLines(ctx, titleLines, margin + 38, margin + 120, 62, '700 52px', '#0f172a');
+
+  const titleHeight = titleLines.length * 62;
+  const summaryY = margin + 150 + titleHeight;
+  drawRoundedRect(ctx, margin + 38, summaryY, width - margin * 2 - 76, 126, 28, '#ffffff');
+  const summaryLines = wrapText(ctx, title, width - margin * 2 - 132, '400 28px');
+  drawTextLines(ctx, summaryLines, margin + 62, summaryY + 42, 40, '400 28px', '#475569');
+
+  const imageBoxX = margin + 38;
+  const imageBoxY = summaryY + 156;
+  const imageBoxWidth = width - margin * 2 - 76;
+  const imageBoxHeight = height - imageBoxY - margin - 80;
+  drawRoundedRect(ctx, imageBoxX, imageBoxY, imageBoxWidth, imageBoxHeight, 30, '#ffffff');
+  await drawCanvasImageFit(ctx, screenshot.data, imageBoxX + 18, imageBoxY + 18, imageBoxWidth - 36, imageBoxHeight - 36);
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = `400 22px ${getCanvasFontFamily()}`;
+  ctx.fillText(`录制时间线：${screenshot.timestampLabel}`, margin + 38, height - margin - 24);
+  ctx.textAlign = 'right';
+  ctx.fillText(recording.title, width - margin - 38, height - margin - 24);
+  ctx.textAlign = 'left';
+
+  return canvas;
+}
+
+function createPageCanvas() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1240;
+  canvas.height = 1754;
+  return {
+    canvas,
+    ctx: canvas.getContext('2d'),
+    width: canvas.width,
+    height: canvas.height
+  };
+}
+
+function drawPageBackground(ctx, width, height) {
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, '#f9fbff');
+  gradient.addColorStop(1, '#f2f6fb');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius, fillStyle) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, radius);
+  ctx.arcTo(x + width, y + height, x, y + height, radius);
+  ctx.arcTo(x, y + height, x, y, radius);
+  ctx.arcTo(x, y, x + width, y, radius);
+  ctx.closePath();
+  ctx.fillStyle = fillStyle;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMetricCard(ctx, x, y, width, height, label, value) {
+  drawRoundedRect(ctx, x, y, width, height, 24, '#ffffff');
+  ctx.strokeStyle = '#dbe7ff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x + 1, y + 1, width - 2, height - 2);
+  ctx.fillStyle = '#64748b';
+  ctx.font = `400 22px ${getCanvasFontFamily()}`;
+  ctx.fillText(label, x + 22, y + 34);
+  const valueLines = wrapText(ctx, value, width - 44, '700 34px');
+  drawTextLines(ctx, valueLines, x + 22, y + 82, 46, '700 34px', '#0f172a');
+}
+
+function wrapText(ctx, text, maxWidth, fontShorthand) {
+  ctx.save();
+  ctx.font = `${fontShorthand} ${getCanvasFontFamily()}`;
+  const raw = String(text || '').replace(/\s+/g, ' ').trim() || ' ';
+  const lines = [];
+  let current = '';
+
+  for (const char of raw) {
+    const next = current + char;
+    if (ctx.measureText(next).width <= maxWidth || !current) {
+      current = next;
+      continue;
+    }
+    lines.push(current);
+    current = char;
+  }
+
+  if (current) {
+    lines.push(current);
+  }
+
+  ctx.restore();
+  return lines;
+}
+
+function drawTextLines(ctx, lines, x, y, lineHeight, fontShorthand, color) {
+  ctx.save();
+  ctx.font = `${fontShorthand} ${getCanvasFontFamily()}`;
+  ctx.fillStyle = color;
+  lines.forEach((line, index) => {
+    ctx.fillText(line, x, y + index * lineHeight);
   });
-
-  const bodyY = margin + 96 + Math.max(0, titleLines.length - 1) * 18;
-  pdf.setFillColor(255, 255, 255);
-  pdf.roundedRect(margin + 24, bodyY, pageWidth - margin * 2 - 48, 64, 18, 18, 'F');
-  pdf.setTextColor(71, 85, 105);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(12);
-  const descriptionLines = pdf.splitTextToSize(
-    screenshot.description,
-    pageWidth - margin * 2 - 72
-  );
-  pdf.text(descriptionLines, margin + 40, bodyY + 24, { lineHeightFactor: 1.6 });
-
-  const imageTop = bodyY + 92;
-  const imageBoxX = margin + 24;
-  const imageBoxY = imageTop;
-  const imageBoxWidth = pageWidth - margin * 2 - 48;
-  const imageBoxHeight = pageHeight - imageTop - margin - 58;
-  pdf.setFillColor(255, 255, 255);
-  pdf.roundedRect(imageBoxX, imageBoxY, imageBoxWidth, imageBoxHeight, 20, 20, 'F');
-  drawImageFit(pdf, screenshot.data, imageBoxX + 16, imageBoxY + 16, imageBoxWidth - 32, imageBoxHeight - 32);
-
-  pdf.setFontSize(11);
-  pdf.setTextColor(100, 116, 139);
-  pdf.text(`录制时间线：${screenshot.timestampLabel}`, margin + 24, pageHeight - margin - 18);
-  pdf.text(recording.title, pageWidth - margin - 24, pageHeight - margin - 18, { align: 'right' });
+  ctx.restore();
 }
 
-function drawMetricCard(pdf, x, y, width, height, label, value) {
-  pdf.setFillColor(255, 255, 255);
-  pdf.setDrawColor(219, 231, 255);
-  pdf.roundedRect(x, y, width, height, 18, 18, 'FD');
-  pdf.setFont('helvetica', 'normal');
-  pdf.setFontSize(11);
-  pdf.setTextColor(100, 116, 139);
-  pdf.text(label, x + 16, y + 24);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setFontSize(18);
-  pdf.setTextColor(15, 23, 42);
-  const valueLines = pdf.splitTextToSize(value, width - 32);
-  pdf.text(valueLines, x + 16, y + 50, { lineHeightFactor: 1.4 });
-}
-
-function drawImageFit(pdf, dataUrl, x, y, maxWidth, maxHeight) {
-  const { width, height } = pdf.getImageProperties(dataUrl);
-  const scale = Math.min(maxWidth / width, maxHeight / height);
-  const drawWidth = width * scale;
-  const drawHeight = height * scale;
+async function drawCanvasImageFit(ctx, dataUrl, x, y, maxWidth, maxHeight) {
+  const image = await loadImage(dataUrl);
+  const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
   const offsetX = x + (maxWidth - drawWidth) / 2;
   const offsetY = y + (maxHeight - drawHeight) / 2;
-  pdf.addImage(dataUrl, 'PNG', offsetX, offsetY, drawWidth, drawHeight);
+  ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+}
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('无法加载截图用于 PDF 导出'));
+    image.src = dataUrl;
+  });
+}
+
+function getCanvasFontFamily() {
+  return '-apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
 }
 
 function formatDuration(durationMs) {
