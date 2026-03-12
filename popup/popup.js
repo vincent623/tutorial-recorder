@@ -98,7 +98,9 @@ function createDetailState() {
     draft: null,
     statusMessage: '',
     imageTarget: null,
-    importingImage: false
+    importingImage: false,
+    draggingStepIndex: null,
+    dropStepIndex: null
   };
 }
 
@@ -162,6 +164,10 @@ function bindEvents() {
   elements.detailTitle.addEventListener('input', handleDetailInput);
   elements.detailSteps.addEventListener('input', handleDetailInput);
   elements.detailSteps.addEventListener('click', handleDetailStepAction);
+  elements.detailSteps.addEventListener('dragstart', handleDetailStepDragStart);
+  elements.detailSteps.addEventListener('dragover', handleDetailStepDragOver);
+  elements.detailSteps.addEventListener('drop', handleDetailStepDrop);
+  elements.detailSteps.addEventListener('dragend', handleDetailStepDragEnd);
   elements.detailImageInput.addEventListener('change', handleDetailImageSelection);
 }
 
@@ -293,9 +299,11 @@ async function openDetail(id) {
     saving: false,
     original: cloneRecordingDetail(result.recording),
     draft: cloneRecordingDetail(result.recording),
-    statusMessage: '可直接修改标题、步骤文案和每一步截图，保存后导出新的 ZIP。',
+    statusMessage: '可直接修改标题、步骤文案、截图内容和步骤顺序，保存后导出新的 ZIP。',
     imageTarget: null,
-    importingImage: false
+    importingImage: false,
+    draggingStepIndex: null,
+    dropStepIndex: null
   };
   renderHistory(historyItems);
   renderDetailPanel();
@@ -351,9 +359,92 @@ function handleDetailStepAction(event) {
     return;
   }
 
+  if (action === 'move-up') {
+    moveDraftScreenshot(stepIndex, stepIndex - 1);
+    return;
+  }
+
+  if (action === 'move-down') {
+    moveDraftScreenshot(stepIndex, stepIndex + 1);
+    return;
+  }
+
   if (action === 'delete') {
     deleteDraftScreenshot(stepIndex);
   }
+}
+
+function handleDetailStepDragStart(event) {
+  const handle = event.target.closest('[data-step-action="drag"]');
+  if (!handle || !detailState.draft || detailState.saving || state.isGenerating || detailState.importingImage) {
+    return;
+  }
+
+  const stepIndex = Number.parseInt(handle.dataset.stepIndex || '', 10);
+  if (Number.isNaN(stepIndex)) {
+    return;
+  }
+
+  detailState.draggingStepIndex = stepIndex;
+  detailState.dropStepIndex = stepIndex;
+  event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('text/plain', String(stepIndex));
+  updateDragVisualState();
+}
+
+function handleDetailStepDragOver(event) {
+  if (!detailState.draft || detailState.draggingStepIndex == null) {
+    return;
+  }
+
+  const stepCard = event.target.closest('.detail-step');
+  if (!stepCard) {
+    return;
+  }
+
+  const stepIndex = Number.parseInt(stepCard.dataset.stepIndex || '', 10);
+  if (Number.isNaN(stepIndex)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  if (detailState.dropStepIndex !== stepIndex) {
+    detailState.dropStepIndex = stepIndex;
+    updateDragVisualState();
+  }
+}
+
+function handleDetailStepDrop(event) {
+  if (!detailState.draft || detailState.draggingStepIndex == null) {
+    return;
+  }
+
+  const stepCard = event.target.closest('.detail-step');
+  if (!stepCard) {
+    return;
+  }
+
+  const targetIndex = Number.parseInt(stepCard.dataset.stepIndex || '', 10);
+  if (Number.isNaN(targetIndex)) {
+    return;
+  }
+
+  event.preventDefault();
+  const draggingIndex = detailState.draggingStepIndex;
+  detailState.draggingStepIndex = null;
+  detailState.dropStepIndex = null;
+  moveDraftScreenshot(draggingIndex, targetIndex, { shouldRender: true });
+}
+
+function handleDetailStepDragEnd() {
+  if (detailState.draggingStepIndex == null && detailState.dropStepIndex == null) {
+    return;
+  }
+
+  detailState.draggingStepIndex = null;
+  detailState.dropStepIndex = null;
+  updateDragVisualState();
 }
 
 async function saveDetail() {
@@ -693,7 +784,8 @@ function renderDetailPanel() {
   }
 
   elements.detailContent.hidden = false;
-  elements.detailStatus.textContent = detailState.statusMessage || '可直接修改标题、步骤文案和每一步截图，保存后导出新的 ZIP。';
+  elements.detailStatus.textContent =
+    detailState.statusMessage || '可直接修改标题、步骤文案、截图内容和步骤顺序，保存后导出新的 ZIP。';
   elements.detailTitle.value = detailState.draft.title || '';
   elements.detailMeta.innerHTML = renderDetailMeta(detailState.draft);
   elements.detailExportPath.textContent = renderDetailExportPath(detailState.draft);
@@ -701,9 +793,16 @@ function renderDetailPanel() {
   elements.detailSteps.innerHTML = detailState.draft.screenshots
     .map(
       (screenshot, index) => `
-        <article class="detail-step">
+        <article class="detail-step ${
+          detailState.draggingStepIndex === index ? 'is-dragging' : ''
+        } ${detailState.dropStepIndex === index ? 'is-drop-target' : ''}" data-step-index="${index}">
           <div class="detail-step-head">
-            <div class="detail-step-title">步骤 ${index + 1}</div>
+            <div class="detail-step-title-group">
+              <button type="button" class="detail-drag-handle" data-step-action="drag" data-step-index="${index}" ${
+                busy ? 'disabled' : ''
+              } draggable="${busy ? 'false' : 'true'}" title="拖拽排序">拖动</button>
+              <div class="detail-step-title">步骤 ${index + 1}</div>
+            </div>
             <div class="detail-step-time">${escapeHtml(screenshot.timestampLabel || formatDuration(screenshot.timeOffsetMs || 0))}</div>
           </div>
           <button type="button" class="detail-preview-btn" data-step-action="preview" data-step-index="${index}" ${
@@ -715,6 +814,12 @@ function renderDetailPanel() {
             screenshot.description || `步骤 ${index + 1}`
           )}</textarea>
           <div class="detail-step-actions">
+            <button type="button" class="btn-inline btn-inline-light" data-step-action="move-up" data-step-index="${index}" ${
+              busy || index === 0 ? 'disabled' : ''
+            }>上移</button>
+            <button type="button" class="btn-inline btn-inline-light" data-step-action="move-down" data-step-index="${index}" ${
+              busy || index === detailState.draft.screenshots.length - 1 ? 'disabled' : ''
+            }>下移</button>
             <button type="button" class="btn-inline btn-inline-light" data-step-action="preview" data-step-index="${index}" ${
               busy ? 'disabled' : ''
             }>查看原图</button>
@@ -787,6 +892,8 @@ function syncDetailActionState(statusMessage = '') {
     detailState.statusMessage = '正在保存修改...';
   } else if (detailState.importingImage) {
     detailState.statusMessage = '正在处理截图，请稍候...';
+  } else if (detailState.draggingStepIndex != null) {
+    detailState.statusMessage = '拖拽到目标位置后松手即可调整步骤顺序。';
   } else if (state.isGenerating) {
     detailState.statusMessage = '正在生成文件，请稍候。';
   } else if (detailState.statusMessage.startsWith('ZIP 导出完成')) {
@@ -794,7 +901,7 @@ function syncDetailActionState(statusMessage = '') {
   } else if (isDetailDirty()) {
     detailState.statusMessage = '已修改，记得保存后再导出。';
   } else {
-    detailState.statusMessage = '可直接修改标题、步骤文案和每一步截图，保存后导出新的 ZIP。';
+    detailState.statusMessage = '可直接修改标题、步骤文案、截图内容和步骤顺序，保存后导出新的 ZIP。';
   }
 
   elements.detailStatus.textContent = detailState.statusMessage;
@@ -886,6 +993,7 @@ function insertDraftScreenshot(index, dataUrl) {
 
   const stepIndex = Math.max(0, Math.min(index, detailState.draft.screenshots.length));
   detailState.draft.screenshots.splice(stepIndex, 0, createDraftScreenshot(dataUrl, stepIndex));
+  normalizeDraftScreenshotTimeline();
   syncDetailActionState('已添加新截图，记得保存后再导出。');
 }
 
@@ -915,8 +1023,35 @@ function deleteDraftScreenshot(stepIndex) {
   }
 
   detailState.draft.screenshots.splice(stepIndex, 1);
+  normalizeDraftScreenshotTimeline();
   syncDetailActionState('已删除截图，记得保存后再导出。');
   renderDetailPanel();
+}
+
+function moveDraftScreenshot(fromIndex, toIndex, { shouldRender = true } = {}) {
+  if (!detailState.draft?.screenshots?.length) {
+    return;
+  }
+
+  const lastIndex = detailState.draft.screenshots.length - 1;
+  const normalizedFrom = Math.max(0, Math.min(fromIndex, lastIndex));
+  const normalizedTo = Math.max(0, Math.min(toIndex, lastIndex));
+
+  if (normalizedFrom === normalizedTo) {
+    if (shouldRender) {
+      renderDetailPanel();
+    }
+    return;
+  }
+
+  const [moved] = detailState.draft.screenshots.splice(normalizedFrom, 1);
+  detailState.draft.screenshots.splice(normalizedTo, 0, moved);
+  normalizeDraftScreenshotTimeline();
+  syncDetailActionState('已调整步骤顺序，记得保存后再导出。');
+
+  if (shouldRender) {
+    renderDetailPanel();
+  }
 }
 
 function createDraftScreenshot(dataUrl, insertIndex) {
@@ -951,6 +1086,41 @@ function computeInsertedTimeOffsetMs(screenshots, insertIndex) {
   }
 
   return 0;
+}
+
+function normalizeDraftScreenshotTimeline() {
+  if (!detailState.draft?.screenshots?.length) {
+    return;
+  }
+
+  let previousOffsetMs = 0;
+  detailState.draft.screenshots = detailState.draft.screenshots.map((screenshot, index) => {
+    const fallbackOffset = index === 0 ? 0 : previousOffsetMs + 1000;
+    const currentOffset = Number.parseInt(screenshot.timeOffsetMs, 10);
+    const nextOffsetMs =
+      index === 0
+        ? 0
+        : Number.isNaN(currentOffset)
+          ? fallbackOffset
+          : Math.max(fallbackOffset, currentOffset);
+
+    previousOffsetMs = nextOffsetMs;
+
+    return {
+      ...screenshot,
+      timeOffsetMs: nextOffsetMs,
+      timestamp: (detailState.draft.createdAt || Date.now()) + nextOffsetMs,
+      timestampLabel: formatDuration(nextOffsetMs)
+    };
+  });
+}
+
+function updateDragVisualState() {
+  elements.detailSteps.querySelectorAll('.detail-step').forEach((stepElement) => {
+    const stepIndex = Number.parseInt(stepElement.dataset.stepIndex || '', 10);
+    stepElement.classList.toggle('is-dragging', stepIndex === detailState.draggingStepIndex);
+    stepElement.classList.toggle('is-drop-target', stepIndex === detailState.dropStepIndex);
+  });
 }
 
 async function readImageFileAsPngDataUrl(file) {

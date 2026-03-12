@@ -273,6 +273,20 @@ async function main() {
       () => document.querySelectorAll('.detail-step').length
     );
 
+    detailCrudState.firstStepTextBeforeReorder = await historyPopup.locator('textarea[data-step-index="0"]').inputValue();
+    detailCrudState.secondStepTextBeforeReorder = await historyPopup.locator('textarea[data-step-index="1"]').inputValue();
+    await historyPopup.locator('button[data-step-action="move-down"][data-step-index="0"]').click();
+    await historyPopup.waitForFunction(
+      (expectedValue) =>
+        (document.querySelector('textarea[data-step-index="0"]')?.value || '').trim() === expectedValue,
+      detailCrudState.secondStepTextBeforeReorder
+    );
+    detailCrudState.firstStepTextAfterReorder = await historyPopup
+      .locator('textarea[data-step-index="0"]')
+      .inputValue();
+    detailCrudState.reorderWorked =
+      detailCrudState.firstStepTextAfterReorder === detailCrudState.secondStepTextBeforeReorder;
+
     await historyPopup.locator('#detailTitle').fill(editedTitle);
     await historyPopup.locator('textarea[data-step-index="0"]').fill('发布版步骤 1');
     await historyPopup.locator('#btnSaveDetail').click();
@@ -368,7 +382,8 @@ async function main() {
           detailCrudState.countBefore === 3 &&
           detailCrudState.countAfterInsert === 4 &&
           detailCrudState.countAfterDelete === 3 &&
-          detailCrudState.firstImageChanged === true,
+          detailCrudState.firstImageChanged === true &&
+          detailCrudState.reorderWorked === true,
         aiDescriptionsActionable:
           !aiEnabled ||
           generatedDescriptions.some((item) => /(点击|切换|修改|提交|输入|进入)/.test(item)),
