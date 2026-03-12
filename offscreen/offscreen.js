@@ -1,13 +1,19 @@
-let mediaRecorder = null;
-let mediaStream = null;
+let audioRecorder = null;
+let videoRecorder = null;
+let microphoneStream = null;
+let captureStream = null;
 let audioChunks = [];
+let videoChunks = [];
 let captureTimer = null;
 let sessionStartAt = null;
 let pausedDurationMs = 0;
 let pauseStartedAt = null;
 let autoCaptureEnabled = true;
 let captureIntervalMs = 5000;
+let captureMode = 'displayMedia';
 let audioStartError = '';
+let videoStartError = '';
+let isStoppingSession = false;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== 'offscreen' || message.action !== 'offscreenMessage') {
@@ -49,50 +55,73 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function startSession(payload = {}) {
+  captureMode = payload.captureMode === 'tabCapture' ? 'tabCapture' : 'displayMedia';
   captureIntervalMs = payload.intervalMs || 5000;
   autoCaptureEnabled = payload.autoCapture !== false;
   sessionStartAt = Date.now();
   pausedDurationMs = 0;
   pauseStartedAt = null;
   audioStartError = '';
+  videoStartError = '';
   audioChunks = [];
+  videoChunks = [];
+  isStoppingSession = false;
 
-  await stopMediaRecorder();
-  await stopRecorderTracks();
-  startCaptureTimer();
+  await stopRecordersAndTracks();
 
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
+    captureStream = await startCaptureStream(payload);
+    attachTrackEndListeners(captureStream, 'video');
+    videoRecorder = createRecorder(captureStream, 'video');
+    if (videoRecorder) {
+      videoRecorder.start(1000);
+    }
+  } catch (error) {
+    videoStartError = describeCaptureError(error, captureMode);
+    captureStream = null;
+    videoRecorder = null;
+  }
+
+  try {
+    microphoneStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true
       }
     });
 
-    mediaRecorder = new MediaRecorder(mediaStream);
-    mediaRecorder.addEventListener('dataavailable', (event) => {
-      if (event.data && event.data.size > 0) {
-        audioChunks.push(event.data);
-      }
-    });
-    mediaRecorder.start(1000);
-
-    return { ok: true, audioStarted: true };
+    attachTrackEndListeners(microphoneStream, 'audio');
+    audioRecorder = createRecorder(microphoneStream, 'audio');
+    if (audioRecorder) {
+      audioRecorder.start(1000);
+    } else {
+      audioStartError = '当前浏览器无法启动音频录制';
+    }
   } catch (error) {
-    audioStartError = error.message || '麦克风权限被拒绝';
-    mediaRecorder = null;
-    await stopRecorderTracks();
-    return { ok: true, audioStarted: false, error: audioStartError };
+    audioStartError = describeMicrophoneError(error);
+    microphoneStream = null;
+    audioRecorder = null;
   }
+
+  startCaptureTimer();
+
+  const audioStarted = Boolean(audioRecorder);
+  const videoStarted = Boolean(videoRecorder);
+  return {
+    ok: true,
+    audioStarted,
+    videoStarted,
+    captureMode,
+    error: buildSessionWarning(audioStarted, videoStarted, audioStartError, videoStartError)
+  };
 }
 
 function pauseSession() {
   pauseStartedAt = Date.now();
   stopCaptureTimer();
 
-  if (mediaRecorder?.state === 'recording') {
-    mediaRecorder.pause();
-  }
+  pauseRecorder(audioRecorder);
+  pauseRecorder(videoRecorder);
 }
 
 function resumeSession(payload = {}) {
@@ -105,9 +134,8 @@ function resumeSession(payload = {}) {
   autoCaptureEnabled = payload.autoCapture !== false;
   startCaptureTimer();
 
-  if (mediaRecorder?.state === 'paused') {
-    mediaRecorder.resume();
-  }
+  resumeRecorder(audioRecorder);
+  resumeRecorder(videoRecorder);
 }
 
 function updateSession(payload = {}) {
@@ -130,9 +158,17 @@ async function stopSession() {
   }
 
   const durationMs = sessionStartAt ? Math.max(0, Date.now() - sessionStartAt - pausedDurationMs) : 0;
-  const mimeType = mediaRecorder?.mimeType || 'audio/webm';
-  const audioBlob = await stopMediaRecorder();
-  await stopRecorderTracks();
+  isStoppingSession = true;
+  const audioMimeType = audioRecorder?.mimeType || 'audio/webm';
+  const videoMimeType = videoRecorder?.mimeType || 'video/webm';
+  const [audioBlob, videoBlob] = await Promise.all([
+    stopRecorder(audioRecorder, audioChunks, 'audio/webm'),
+    stopRecorder(videoRecorder, videoChunks, 'video/webm')
+  ]);
+  audioRecorder = null;
+  videoRecorder = null;
+  await stopRecordersAndTracks();
+  isStoppingSession = false;
 
   sessionStartAt = null;
   pausedDurationMs = 0;
@@ -141,10 +177,15 @@ async function stopSession() {
   return {
     ok: true,
     audioDataUrl: audioBlob ? await blobToDataUrl(audioBlob) : null,
-    mimeType,
-    durationMs,
-    size: audioBlob?.size || 0,
-    error: audioBlob ? '' : audioStartError
+    audioMimeType,
+    audioDurationMs: durationMs,
+    audioSize: audioBlob?.size || 0,
+    audioError: audioBlob ? '' : audioStartError,
+    videoDataUrl: videoBlob ? await blobToDataUrl(videoBlob) : null,
+    videoMimeType,
+    videoDurationMs: durationMs,
+    videoSize: videoBlob?.size || 0,
+    videoError: videoBlob ? '' : videoStartError
   };
 }
 
@@ -169,24 +210,21 @@ function stopCaptureTimer() {
   }
 }
 
-async function stopMediaRecorder() {
-  if (!mediaRecorder) {
+async function stopRecorder(recorder, chunks, fallbackMimeType) {
+  if (!recorder) {
     return null;
   }
 
-  const recorder = mediaRecorder;
-  mediaRecorder = null;
-
   const blob = await new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
-      resolve(audioChunks.length ? new Blob(audioChunks, { type: recorder.mimeType || 'audio/webm' }) : null);
+      resolve(chunks.length ? new Blob(chunks, { type: recorder.mimeType || fallbackMimeType }) : null);
     }, 4000);
 
     const handleStop = () => {
       clearTimeout(timeoutId);
-      resolve(new Blob(audioChunks, { type: recorder.mimeType || 'audio/webm' }));
+      resolve(chunks.length ? new Blob(chunks, { type: recorder.mimeType || fallbackMimeType }) : null);
     };
-    const handleError = (event) => reject(event.error || new Error('录音失败'));
+    const handleError = (event) => reject(event.error || new Error('媒体录制失败'));
 
     recorder.addEventListener('stop', handleStop, { once: true });
     recorder.addEventListener('error', handleError, { once: true });
@@ -218,11 +256,9 @@ async function stopMediaRecorder() {
       }
     }, 50);
   }).catch((error) => {
-    console.error('[Offscreen] Stop media recorder failed:', error);
+    console.error('[Offscreen] Stop recorder failed:', error);
     return null;
   });
-
-  audioChunks = [];
 
   if (!blob || !blob.size) {
     return null;
@@ -231,14 +267,210 @@ async function stopMediaRecorder() {
   return blob;
 }
 
-async function stopRecorderTracks() {
-  if (mediaStream) {
-    for (const track of mediaStream.getTracks()) {
-      track.stop();
-    }
+function pauseRecorder(recorder) {
+  if (recorder?.state === 'recording') {
+    recorder.pause();
+  }
+}
+
+function resumeRecorder(recorder) {
+  if (recorder?.state === 'paused') {
+    recorder.resume();
+  }
+}
+
+function createRecorder(stream, kind) {
+  if (!stream) {
+    return null;
   }
 
-  mediaStream = null;
+  const mimeType = getPreferredMimeType(kind);
+  let recorder;
+
+  if (mimeType) {
+    const options = { mimeType };
+    if (kind === 'video') {
+      options.videoBitsPerSecond = 1_800_000;
+    } else {
+      options.audioBitsPerSecond = 128_000;
+    }
+    recorder = new MediaRecorder(stream, options);
+  } else {
+    recorder = new MediaRecorder(stream);
+  }
+
+  recorder.addEventListener('dataavailable', (event) => {
+    if (!event.data || event.data.size <= 0) {
+      return;
+    }
+
+    if (kind === 'audio') {
+      audioChunks.push(event.data);
+      return;
+    }
+
+    videoChunks.push(event.data);
+  });
+
+  return recorder;
+}
+
+function getPreferredMimeType(kind) {
+  const candidates =
+    kind === 'video'
+      ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+      : ['audio/webm;codecs=opus', 'audio/webm'];
+
+  return candidates.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) || '';
+}
+
+async function startCaptureStream(payload = {}) {
+  if (captureMode === 'tabCapture') {
+    if (!payload.captureStreamId) {
+      throw new Error('未取得当前标签页的录制流 ID');
+    }
+
+    return navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        mandatory: {
+          chromeMediaSource: 'tab',
+          chromeMediaSourceId: payload.captureStreamId,
+          maxWidth: 1920,
+          maxHeight: 1080,
+          maxFrameRate: 15
+        }
+      }
+    });
+  }
+
+  return navigator.mediaDevices.getDisplayMedia({
+    video: {
+      frameRate: {
+        ideal: 12,
+        max: 15
+      },
+      width: {
+        ideal: 1440,
+        max: 1920
+      },
+      height: {
+        ideal: 900,
+        max: 1080
+      }
+    },
+    audio: true,
+    preferCurrentTab: true,
+    selfBrowserSurface: 'include',
+    surfaceSwitching: 'include',
+    systemAudio: 'include'
+  });
+}
+
+async function stopRecordersAndTracks() {
+  stopStreamTracks(microphoneStream);
+  stopStreamTracks(captureStream);
+  microphoneStream = null;
+  captureStream = null;
+  audioChunks = [];
+  videoChunks = [];
+}
+
+function stopStreamTracks(stream) {
+  if (!stream) {
+    return;
+  }
+
+  for (const track of stream.getTracks()) {
+    track.stop();
+  }
+}
+
+function describeCaptureError(error, mode) {
+  if (error?.name === 'NotAllowedError') {
+    return mode === 'tabCapture' ? '当前标签页视频授权被拒绝' : '共享画面授权被取消';
+  }
+
+  if (error?.name === 'NotFoundError') {
+    return mode === 'tabCapture' ? '没有可录制的标签页画面' : '没有找到可共享的画面';
+  }
+
+  return error?.message || '视频录制启动失败';
+}
+
+function describeMicrophoneError(error) {
+  if (error?.name === 'NotAllowedError') {
+    return '麦克风权限被拒绝';
+  }
+
+  if (error?.name === 'NotFoundError') {
+    return '没有检测到可用麦克风';
+  }
+
+  return error?.message || '音频录制启动失败';
+}
+
+function buildSessionWarning(audioStarted, videoStarted, audioError, videoError) {
+  const issues = [];
+
+  if (!videoStarted && videoError) {
+    issues.push(`视频未启动：${videoError}`);
+  }
+
+  if (!audioStarted && audioError) {
+    issues.push(`音频未启动：${audioError}`);
+  }
+
+  return issues.join('；');
+}
+
+function attachTrackEndListeners(stream, kind) {
+  const sessionToken = sessionStartAt;
+
+  for (const track of stream.getTracks()) {
+    track.addEventListener(
+      'ended',
+      () => {
+        handleTrackEnded(kind, sessionToken).catch((error) => {
+          console.warn('[Offscreen] Track end handler failed:', error);
+        });
+      },
+      { once: true }
+    );
+  }
+}
+
+async function handleTrackEnded(kind, sessionToken) {
+  if (isStoppingSession || sessionToken !== sessionStartAt) {
+    return;
+  }
+
+  const audioStarted = hasLiveTracks(microphoneStream, 'audio') && Boolean(audioRecorder);
+  const videoStarted = hasLiveTracks(captureStream, 'video') && Boolean(videoRecorder);
+  const message =
+    kind === 'video'
+      ? '共享画面已结束，后续会继续记录截图和可用音频。'
+      : '麦克风采集已结束，后续会继续记录视频和截图。';
+
+  await chrome.runtime
+    .sendMessage({
+      action: 'offscreenMediaUpdated',
+      payload: {
+        audioStarted,
+        videoStarted,
+        message
+      }
+    })
+    .catch(() => {});
+}
+
+function hasLiveTracks(stream, kind) {
+  if (!stream) {
+    return false;
+  }
+
+  const tracks = kind === 'audio' ? stream.getAudioTracks() : stream.getVideoTracks();
+  return tracks.some((track) => track.readyState === 'live');
 }
 
 async function generatePdf(recording) {
@@ -293,7 +525,7 @@ function drawCoverPage(pdf, recording, layout) {
   pdf.setTextColor(71, 85, 105);
   pdf.setFontSize(13);
   const introLines = pdf.splitTextToSize(
-    '自动整理的操作教程，包含步骤截图、时间点和讲解音频。建议和同目录下的 Markdown 与音频文件一起使用。',
+    '自动整理的操作教程，包含步骤截图、时间点、讲解音频和录制视频。建议和同目录下的 Markdown、音频、视频文件一起使用。',
     pageWidth - margin * 2 - 48
   );
   pdf.text(introLines, margin + 24, cursorY, { lineHeightFactor: 1.6 });
@@ -304,7 +536,7 @@ function drawCoverPage(pdf, recording, layout) {
     ['创建时间', new Date(recording.createdAt).toLocaleString()],
     ['录制时长', formatDuration(recording.durationMs || 0)],
     ['步骤数量', String(recording.screenshots.length)],
-    ['音频导出', recording.audioAvailable ? '已包含' : '未生成']
+    ['媒体导出', recording.videoAvailable ? '音频 + 视频' : recording.audioAvailable ? '仅音频' : '未生成']
   ];
 
   metrics.forEach(([label, value], index) => {
@@ -320,7 +552,7 @@ function drawCoverPage(pdf, recording, layout) {
   pdf.setFontSize(12);
   pdf.setTextColor(51, 65, 85);
   const noteLines = pdf.splitTextToSize(
-    '导出的素材包括 tutorial.pdf、tutorial.md、audio/tutorial-audio.webm 和 screenshots/*.png。',
+    '导出的素材包括 tutorial.pdf、tutorial.md、audio/tutorial-audio.webm、video/tutorial-video.webm 和 screenshots/*.png。',
     pageWidth - margin * 2 - 32
   );
   pdf.text(noteLines, margin + 18, noteY + 28, { lineHeightFactor: 1.7 });
@@ -425,7 +657,7 @@ function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error || new Error('无法转换音频数据'));
+    reader.onerror = () => reject(reader.error || new Error('无法转换媒体数据'));
     reader.readAsDataURL(blob);
   });
 }

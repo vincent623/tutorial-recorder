@@ -40,6 +40,7 @@ async function main() {
         `--load-extension=${extensionPath}`,
         '--use-fake-ui-for-media-stream',
         '--use-fake-device-for-media-stream',
+        '--auto-select-desktop-capture-source=Tutorial Recorder Fixture',
         '--no-default-browser-check',
         '--no-first-run'
       ]
@@ -99,8 +100,13 @@ async function main() {
       chrome.runtime.sendMessage({
         action: 'saveSettings',
         settings: {
+          providerPreset: 'volcengineArk',
+          apiStyle: 'chatCompletions',
           apiKey: '',
-          endpointId: '',
+          apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+          modelId: '',
+          extraHeadersJson: '',
+          captureMode: 'displayMedia',
           outputDir,
           screenshotInterval: 5,
           autoScreenshot: true
@@ -210,7 +216,7 @@ async function main() {
     const popupSummary = await historyPopup.evaluate(() => {
       const statusText = document.querySelector('#status .status-text')?.textContent?.trim() || '';
       const historyCount = document.querySelectorAll('.history-item').length;
-      const audioStatus = document.getElementById('audioStatus')?.textContent?.trim() || '';
+      const mediaStatus = document.getElementById('mediaStatus')?.textContent?.trim() || '';
       const firstHistoryTitle = document.querySelector('.history-title')?.textContent?.trim() || '';
       const firstHistoryExport = document.querySelector('.history-export')?.textContent?.trim() || '';
       const detailStatus = document.getElementById('detailStatus')?.textContent?.trim() || '';
@@ -220,7 +226,7 @@ async function main() {
       return {
         statusText,
         historyCount,
-        audioStatus,
+        mediaStatus,
         firstHistoryTitle,
         firstHistoryExport,
         detailStatus,
@@ -256,6 +262,9 @@ async function main() {
         ),
         archiveHasAudio: archiveContents.some((archive) =>
           archive.entries.some((entry) => entry.kind === 'webm')
+        ),
+        archiveHasVideo: archiveContents.some((archive) =>
+          archive.entries.some((entry) => entry.name.endsWith('video/tutorial-video.webm'))
         ),
         archiveHasScreenshot: archiveContents.some((archive) =>
           archive.entries.filter((entry) => entry.kind === 'png').length >= 1

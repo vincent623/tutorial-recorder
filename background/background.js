@@ -5,11 +5,39 @@ const SETTINGS_KEY = 'settings';
 const HISTORY_KEY = 'recordings';
 const RUNTIME_KEY = 'recordingRuntime';
 const OFFSCREEN_PATH = 'offscreen/offscreen.html';
-const AI_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+const OFFSCREEN_MESSAGE_TIMEOUT_MS = 120_000;
+
+const PROVIDER_PRESETS = {
+  volcengineArk: {
+    label: '火山方舟',
+    apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiStyle: 'chatCompletions'
+  },
+  openai: {
+    label: 'OpenAI',
+    apiBaseUrl: 'https://api.openai.com/v1',
+    apiStyle: 'responses'
+  },
+  openaiCompatible: {
+    label: 'OpenAI Compatible',
+    apiBaseUrl: 'https://api.openai.com/v1',
+    apiStyle: 'chatCompletions'
+  },
+  custom: {
+    label: '自定义',
+    apiBaseUrl: '',
+    apiStyle: 'chatCompletions'
+  }
+};
 
 const DEFAULT_SETTINGS = {
+  providerPreset: 'volcengineArk',
+  apiStyle: PROVIDER_PRESETS.volcengineArk.apiStyle,
+  apiBaseUrl: PROVIDER_PRESETS.volcengineArk.apiBaseUrl,
   apiKey: '',
-  endpointId: '',
+  modelId: '',
+  extraHeadersJson: '',
+  captureMode: 'displayMedia',
   outputDir: 'tutorial-recorder',
   promptForSaveAs: false,
   screenshotInterval: 5,
@@ -91,6 +119,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'offscreenCaptureTick':
         sendResponse(await captureScreenshot({ trigger: 'auto' }));
         break;
+      case 'offscreenMediaUpdated':
+        await handleOffscreenMediaUpdated(message.payload || {});
+        sendResponse({ ok: true });
+        break;
       default:
         sendResponse({ ok: false, error: 'Unknown action' });
     }
@@ -154,20 +186,71 @@ function createIdleRuntime() {
     tabId: null,
     windowId: null,
     recordingId: null,
+    captureMode: DEFAULT_SETTINGS.captureMode,
     captureIntervalMs: DEFAULT_SETTINGS.screenshotInterval * 1000,
-    autoScreenshot: DEFAULT_SETTINGS.autoScreenshot
+    autoScreenshot: DEFAULT_SETTINGS.autoScreenshot,
+    audioStarted: false,
+    videoStarted: false,
+    mediaStatus: '待启动'
   };
 }
 
 function normalizeSettings(settings = {}) {
+  const preset = getProviderPreset(settings.providerPreset);
+  const apiStyle = normalizeApiStyle(settings.apiStyle ?? preset.apiStyle);
+  const modelId = sanitizeTextValue(settings.modelId ?? settings.endpointId ?? '', 120);
+
   return {
     ...DEFAULT_SETTINGS,
     ...settings,
+    providerPreset: getProviderPresetKey(settings.providerPreset),
+    apiStyle,
+    apiBaseUrl: sanitizeApiBaseUrl(settings.apiBaseUrl || preset.apiBaseUrl),
     outputDir: sanitizeOutputDir(settings.outputDir),
+    modelId,
+    extraHeadersJson: normalizeHeadersJson(settings.extraHeadersJson),
+    captureMode: normalizeCaptureMode(settings.captureMode),
     promptForSaveAs: settings.promptForSaveAs === true,
     screenshotInterval: clampInterval(settings.screenshotInterval ?? DEFAULT_SETTINGS.screenshotInterval),
     autoScreenshot: settings.autoScreenshot !== false
   };
+}
+
+function getProviderPresetKey(value) {
+  return Object.hasOwn(PROVIDER_PRESETS, value) ? value : DEFAULT_SETTINGS.providerPreset;
+}
+
+function getProviderPreset(value) {
+  return PROVIDER_PRESETS[getProviderPresetKey(value)];
+}
+
+function normalizeApiStyle(value) {
+  return value === 'responses' ? 'responses' : 'chatCompletions';
+}
+
+function normalizeCaptureMode(value) {
+  return value === 'tabCapture' ? 'tabCapture' : 'displayMedia';
+}
+
+function sanitizeApiBaseUrl(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    return '';
+  }
+
+  return raw.replace(/\/+$/, '');
+}
+
+function normalizeHeadersJson(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function sanitizeTextValue(value, maxLength) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim().slice(0, maxLength);
 }
 
 function clampInterval(seconds) {
@@ -277,9 +360,12 @@ async function startRecording(tabId) {
     startTime: startedAt,
     title: '',
     status: 'recording',
+    captureMode: settings.captureMode,
     screenshots: [],
     audioDataUrl: null,
     audioMeta: null,
+    videoDataUrl: null,
+    videoMeta: null,
     exportBaseName: '',
     lastExportAt: null,
     lastExportPrompted: false
@@ -292,8 +378,10 @@ async function startRecording(tabId) {
     tabId: tab.id,
     windowId: tab.windowId,
     recordingId: currentRecording.id,
+    captureMode: settings.captureMode,
     captureIntervalMs: settings.screenshotInterval * 1000,
-    autoScreenshot: settings.autoScreenshot
+    autoScreenshot: settings.autoScreenshot,
+    mediaStatus: '正在请求授权...'
   };
 
   await putRecording(currentRecording);
@@ -301,17 +389,38 @@ async function startRecording(tabId) {
   await updateBadge();
 
   try {
+    let captureStreamId = '';
+
+    if (settings.captureMode === 'tabCapture') {
+      captureStreamId = await chrome.tabCapture.getMediaStreamId({
+        targetTabId: tab.id
+      });
+    }
+
     const offscreenState = await ensureOffscreenDocument()
       .then(() =>
         sendOffscreenMessage('startSession', {
+          captureMode: settings.captureMode,
+          captureStreamId,
+          tabId: tab.id,
+          windowId: tab.windowId,
           intervalMs: currentRuntime.captureIntervalMs,
           autoCapture: currentRuntime.autoScreenshot
         })
       )
-      .catch((error) => ({ audioStarted: false, error: error.message || '无法启动录音' }));
+      .catch((error) => ({
+        audioStarted: false,
+        videoStarted: false,
+        error: error.message || '无法启动媒体录制'
+      }));
+
+    currentRuntime.audioStarted = offscreenState?.audioStarted === true;
+    currentRuntime.videoStarted = offscreenState?.videoStarted === true;
+    currentRuntime.mediaStatus = summarizeMediaState(currentRuntime.audioStarted, currentRuntime.videoStarted);
+    await persistRuntime();
 
     if (offscreenState?.error) {
-      notifyPopup('warning', { message: `录音未启动：${offscreenState.error}` });
+      notifyPopup('warning', { message: `媒体未完整启动：${offscreenState.error}` });
     }
 
     await captureScreenshot({ trigger: 'initial', allowWhenPaused: true });
@@ -320,7 +429,10 @@ async function startRecording(tabId) {
       startTime: currentRuntime.startTime,
       recordingId: currentRuntime.recordingId,
       count: currentRuntime.count,
-      audioStarted: offscreenState?.audioStarted !== false
+      captureMode: currentRuntime.captureMode,
+      audioStarted: currentRuntime.audioStarted,
+      videoStarted: currentRuntime.videoStarted,
+      mediaStatus: currentRuntime.mediaStatus
     });
     notifyContent('recordingStarted');
   } catch (error) {
@@ -345,7 +457,7 @@ async function pauseRecording() {
   await updateBadge();
 
   await sendOffscreenMessage('pauseSession').catch((error) => {
-    notifyPopup('warning', { message: `录音暂停失败：${error.message}` });
+    notifyPopup('warning', { message: `媒体暂停失败：${error.message}` });
   });
 
   notifyPopup('paused');
@@ -370,7 +482,7 @@ async function resumeRecording() {
     intervalMs: currentRuntime.captureIntervalMs,
     autoCapture: currentRuntime.autoScreenshot
   }).catch((error) => {
-    notifyPopup('warning', { message: `录音恢复失败：${error.message}` });
+    notifyPopup('warning', { message: `媒体恢复失败：${error.message}` });
   });
 
   notifyPopup('resumed');
@@ -403,30 +515,16 @@ async function stopRecording() {
 
   notifyPopup('stopped');
   notifyContent('recordingStopped');
-  notifyPopup('generating', { message: '正在整理录音和截图...' });
+  notifyPopup('generating', { message: '正在整理音频、视频和截图...' });
 
-  const audioResult = await sendOffscreenMessage('stopSession').catch((error) => ({
+  const mediaResult = await sendOffscreenMessage('stopSession').catch((error) => ({
     audioDataUrl: null,
-    error: error.message || '录音停止失败',
+    videoDataUrl: null,
+    error: error.message || '媒体停止失败',
     durationMs: currentRuntime.durationMs
   }));
 
-  if (audioResult?.audioDataUrl) {
-    currentRecording.audioDataUrl = audioResult.audioDataUrl;
-    currentRecording.audioMeta = {
-      mimeType: audioResult.mimeType || 'audio/webm',
-      size: audioResult.size || 0,
-      durationMs: audioResult.durationMs || currentRuntime.durationMs
-    };
-  } else if (audioResult?.error) {
-    currentRecording.audioMeta = {
-      mimeType: '',
-      size: 0,
-      durationMs: currentRuntime.durationMs,
-      error: audioResult.error
-    };
-    notifyPopup('warning', { message: `录音未导出：${audioResult.error}` });
-  }
+  applyMediaResult(currentRecording, mediaResult, currentRuntime.durationMs);
 
   await putRecording(currentRecording);
 
@@ -494,7 +592,7 @@ async function generateTutorial() {
   }
 
   const settings = await getSettings();
-  const canAnalyze = Boolean(settings.apiKey && settings.endpointId);
+  const canAnalyze = Boolean(settings.apiKey && settings.modelId && settings.apiBaseUrl);
 
   if (canAnalyze) {
     for (let index = 0; index < currentRecording.screenshots.length; index += 1) {
@@ -564,31 +662,11 @@ async function generateTutorial() {
 }
 
 async function analyzeImage(imageData, settings) {
-  const base64 = imageData.replace(/^data:image\/\w+;base64,/, '');
-
-  const response = await fetch(AI_BASE_URL, {
+  const request = buildVisionRequest(imageData, settings);
+  const response = await fetch(request.url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${settings.apiKey}`
-    },
-    body: JSON.stringify({
-      model: settings.endpointId,
-      messages: [
-        {
-          role: 'system',
-          content: '你是教程录制助手。请用简洁中文总结截图里的当前操作步骤，不要重复截图里不重要的细节。'
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: '请用一句话描述这个截图代表的操作步骤。' },
-            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64}` } }
-          ]
-        }
-      ],
-      max_tokens: 100
-    })
+    headers: request.headers,
+    body: JSON.stringify(request.body)
   });
 
   if (!response.ok) {
@@ -596,7 +674,7 @@ async function analyzeImage(imageData, settings) {
   }
 
   const data = await response.json();
-  return data?.choices?.[0]?.message?.content?.trim() || '未命名步骤';
+  return extractVisionText(data, settings.apiStyle) || '未命名步骤';
 }
 
 function buildRecordingTitle(recording) {
@@ -616,6 +694,8 @@ function buildRecordingDetail(recording) {
     durationMs: getRecordingDuration(recording),
     screenshotCount: recording.screenshots.length,
     hasAudio: Boolean(recording.audioDataUrl),
+    hasVideo: Boolean(recording.videoDataUrl),
+    captureMode: recording.captureMode || DEFAULT_SETTINGS.captureMode,
     exportBaseName: recording.exportBaseName || '',
     lastExportPrompted: recording.lastExportPrompted === true,
     screenshots: recording.screenshots.map((screenshot, index) => ({
@@ -636,6 +716,7 @@ function buildPdfPayload(recording) {
     createdAt: recording.startTime,
     durationMs: getRecordingDuration(recording),
     audioAvailable: Boolean(recording.audioDataUrl),
+    videoAvailable: Boolean(recording.videoDataUrl),
     screenshots: recording.screenshots.map((screenshot, index) => ({
       index: index + 1,
       description: screenshot.description || `步骤 ${index + 1}`,
@@ -652,7 +733,9 @@ function buildMarkdown(recording) {
     `> 创建时间：${new Date(recording.startTime).toLocaleString()}`,
     `> 录制时长：${formatDuration(getRecordingDuration(recording))}`,
     `> 截图数量：${recording.screenshots.length}`,
+    `> 录制模式：${recording.captureMode === 'tabCapture' ? '直接录制当前标签页' : '共享屏幕/标签页'}`,
     `> 音频文件：${recording.audioDataUrl ? 'audio/tutorial-audio.webm' : '未生成'}`,
+    `> 视频文件：${recording.videoDataUrl ? 'video/tutorial-video.webm' : '未生成'}`,
     ''
   ];
 
@@ -684,6 +767,10 @@ async function downloadRecordingBundle(recording, markdown, pdfDataUrl, outputDi
 
   if (recording.audioDataUrl) {
     archiveEntries[`${archiveRoot}/audio/tutorial-audio.webm`] = dataUrlToUint8Array(recording.audioDataUrl);
+  }
+
+  if (recording.videoDataUrl) {
+    archiveEntries[`${archiveRoot}/video/tutorial-video.webm`] = dataUrlToUint8Array(recording.videoDataUrl);
   }
 
   for (let index = 0; index < recording.screenshots.length; index += 1) {
@@ -784,6 +871,8 @@ function buildHistoryEntry(recording) {
     screenshotCount: recording.screenshots.length,
     durationMs: getRecordingDuration(recording),
     hasAudio: Boolean(recording.audioDataUrl),
+    hasVideo: Boolean(recording.videoDataUrl),
+    captureMode: recording.captureMode || DEFAULT_SETTINGS.captureMode,
     exportedAt: recording.lastExportAt || Date.now(),
     exportBaseName: recording.exportBaseName || '',
     lastExportPrompted: recording.lastExportPrompted === true
@@ -895,6 +984,197 @@ function notifyContent(action, payload = {}) {
   chrome.tabs.sendMessage(currentRuntime.tabId, { action, ...payload }).catch(() => {});
 }
 
+async function handleOffscreenMediaUpdated(payload = {}) {
+  if (!currentRuntime.isRecording) {
+    return;
+  }
+
+  currentRuntime.audioStarted = payload.audioStarted === true;
+  currentRuntime.videoStarted = payload.videoStarted === true;
+  currentRuntime.mediaStatus = summarizeMediaState(currentRuntime.audioStarted, currentRuntime.videoStarted);
+  await persistRuntime();
+
+  notifyPopup('mediaUpdated', {
+    audioStarted: currentRuntime.audioStarted,
+    videoStarted: currentRuntime.videoStarted,
+    mediaStatus: currentRuntime.mediaStatus
+  });
+
+  if (payload.message) {
+    notifyPopup('warning', { message: payload.message });
+  }
+}
+
+function summarizeMediaState(audioStarted, videoStarted) {
+  if (audioStarted && videoStarted) {
+    return '音频+视频';
+  }
+
+  if (videoStarted) {
+    return '仅视频';
+  }
+
+  if (audioStarted) {
+    return '仅音频';
+  }
+
+  return '未授权';
+}
+
+function applyMediaResult(recording, mediaResult, fallbackDurationMs) {
+  if (mediaResult?.audioDataUrl) {
+    recording.audioDataUrl = mediaResult.audioDataUrl;
+    recording.audioMeta = {
+      mimeType: mediaResult.audioMimeType || 'audio/webm',
+      size: mediaResult.audioSize || 0,
+      durationMs: mediaResult.audioDurationMs || fallbackDurationMs
+    };
+  } else if (mediaResult?.audioError) {
+    recording.audioMeta = {
+      mimeType: '',
+      size: 0,
+      durationMs: fallbackDurationMs,
+      error: mediaResult.audioError
+    };
+    notifyPopup('warning', { message: `音频未导出：${mediaResult.audioError}` });
+  }
+
+  if (mediaResult?.videoDataUrl) {
+    recording.videoDataUrl = mediaResult.videoDataUrl;
+    recording.videoMeta = {
+      mimeType: mediaResult.videoMimeType || 'video/webm',
+      size: mediaResult.videoSize || 0,
+      durationMs: mediaResult.videoDurationMs || fallbackDurationMs
+    };
+  } else if (mediaResult?.videoError) {
+    recording.videoMeta = {
+      mimeType: '',
+      size: 0,
+      durationMs: fallbackDurationMs,
+      error: mediaResult.videoError
+    };
+    notifyPopup('warning', { message: `视频未导出：${mediaResult.videoError}` });
+  }
+}
+
+function buildVisionRequest(imageData, settings) {
+  const apiStyle = normalizeApiStyle(settings.apiStyle);
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${settings.apiKey}`,
+    ...parseExtraHeaders(settings.extraHeadersJson)
+  };
+  const url = resolveVisionUrl(settings.apiBaseUrl, apiStyle);
+
+  if (apiStyle === 'responses') {
+    return {
+      url,
+      headers,
+      body: {
+        model: settings.modelId,
+        instructions: '你是教程录制助手。请用简洁中文总结截图里的当前操作步骤，不要重复截图里不重要的细节。',
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: '请用一句话描述这个截图代表的操作步骤。' },
+              { type: 'input_image', image_url: imageData }
+            ]
+          }
+        ],
+        max_output_tokens: 120
+      }
+    };
+  }
+
+  return {
+    url,
+    headers,
+    body: {
+      model: settings.modelId,
+      messages: [
+        {
+          role: 'system',
+          content: '你是教程录制助手。请用简洁中文总结截图里的当前操作步骤，不要重复截图里不重要的细节。'
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '请用一句话描述这个截图代表的操作步骤。' },
+            { type: 'image_url', image_url: { url: imageData } }
+          ]
+        }
+      ],
+      max_tokens: 120
+    }
+  };
+}
+
+function resolveVisionUrl(apiBaseUrl, apiStyle) {
+  const base = sanitizeApiBaseUrl(apiBaseUrl || getProviderPreset(DEFAULT_SETTINGS.providerPreset).apiBaseUrl);
+  const normalizedBase = base
+    .replace(/\/chat\/completions$/i, '')
+    .replace(/\/responses$/i, '');
+
+  return `${normalizedBase}${apiStyle === 'responses' ? '/responses' : '/chat/completions'}`;
+}
+
+function parseExtraHeaders(extraHeadersJson) {
+  if (!extraHeadersJson) {
+    return {};
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(extraHeadersJson);
+  } catch (error) {
+    throw new Error(`附加请求头 JSON 无法解析：${error.message}`);
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('附加请求头必须是 JSON 对象');
+  }
+
+  return Object.fromEntries(
+    Object.entries(parsed)
+      .filter(([key, value]) => typeof key === 'string' && key.trim() && value != null)
+      .map(([key, value]) => [key.trim(), String(value)])
+  );
+}
+
+function extractVisionText(data, apiStyle) {
+  if (apiStyle === 'responses') {
+    if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+      return data.output_text.trim();
+    }
+
+    for (const item of data?.output || []) {
+      for (const part of item?.content || []) {
+        const text = part?.text || part?.content?.[0]?.text;
+        if (typeof text === 'string' && text.trim()) {
+          return text.trim();
+        }
+      }
+    }
+
+    return '';
+  }
+
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') {
+    return content.trim();
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => part?.text || '')
+      .join('\n')
+      .trim();
+  }
+
+  return '';
+}
+
 async function updateBadge() {
   if (currentRuntime.isGenerating) {
     await chrome.action.setBadgeBackgroundColor({ color: '#1677ff' });
@@ -941,8 +1221,8 @@ async function ensureOffscreenDocument() {
 
   offscreenCreationPromise = chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
-    reasons: ['USER_MEDIA', 'BLOBS'],
-    justification: 'Record microphone audio, manage capture timers, and render tutorial PDFs.'
+    reasons: ['USER_MEDIA', 'DISPLAY_MEDIA', 'BLOBS'],
+    justification: 'Record screen, microphone, manage capture timers, and render tutorial PDFs.'
   });
 
   try {
@@ -977,7 +1257,7 @@ async function sendOffscreenMessage(type, payload = {}) {
       payload
     }),
     new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Offscreen action timed out: ${type}`)), 20_000);
+      setTimeout(() => reject(new Error(`Offscreen action timed out: ${type}`)), OFFSCREEN_MESSAGE_TIMEOUT_MS);
     })
   ]);
 
@@ -996,9 +1276,9 @@ function formatDuration(durationMs) {
 }
 
 function getRecordingDuration(recording) {
-  return (
-    recording.audioMeta?.durationMs ||
-    recording.screenshots[recording.screenshots.length - 1]?.timeOffsetMs ||
-    0
+  return Math.max(
+    recording.audioMeta?.durationMs || 0,
+    recording.videoMeta?.durationMs || 0,
+    recording.screenshots[recording.screenshots.length - 1]?.timeOffsetMs || 0
   );
 }

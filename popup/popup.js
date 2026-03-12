@@ -1,5 +1,44 @@
 const $ = (id) => document.getElementById(id);
 const DEFAULT_OUTPUT_DIR = 'tutorial-recorder';
+const PROVIDER_PRESETS = {
+  volcengineArk: {
+    label: '火山方舟',
+    apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 / Endpoint ID',
+    modelHint: '火山方舟填 Endpoint ID，例如 ep-xxxx。',
+    apiBaseHint: '会自动补成 /chat/completions，适合方舟视觉模型。'
+  },
+  openai: {
+    label: 'OpenAI',
+    apiBaseUrl: 'https://api.openai.com/v1',
+    apiStyle: 'responses',
+    modelLabel: '模型 ID',
+    modelHint: 'OpenAI 填模型 ID，例如 gpt-4.1-mini 或 gpt-4.1。',
+    apiBaseHint: '会自动补成 /responses，适合 OpenAI 原生视觉接口。'
+  },
+  openaiCompatible: {
+    label: 'OpenAI Compatible',
+    apiBaseUrl: 'https://api.openai.com/v1',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: '适合兼容 OpenAI Chat Completions 的网关或代理。',
+    apiBaseHint: '只填基地址即可，插件会自动补成 /chat/completions。'
+  },
+  custom: {
+    label: '自定义',
+    apiBaseUrl: '',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 / Endpoint ID',
+    modelHint: '你可以自行指定任意 OpenAI 兼容网关的模型名或 Endpoint ID。',
+    apiBaseHint: '支持任意 OpenAI 兼容基地址，路径会按 API 风格自动拼接。'
+  }
+};
+
+const CAPTURE_MODE_HINTS = {
+  displayMedia: '开始录制时会弹出共享画面选择，并额外请求麦克风权限。',
+  tabCapture: '直接录制当前标签页，适合自动化验证或兼容场景，通常不会弹出共享选择。'
+};
 
 const elements = {
   status: $('status'),
@@ -10,9 +49,18 @@ const elements = {
   btnCapture: $('btnCapture'),
   screenshotCount: $('screenshotCount'),
   recordTime: $('recordTime'),
-  audioStatus: $('audioStatus'),
+  mediaStatus: $('mediaStatus'),
+  captureMode: $('captureMode'),
+  captureModeHint: $('captureModeHint'),
+  providerPreset: $('providerPreset'),
+  apiStyle: $('apiStyle'),
   apiKey: $('apiKey'),
-  endpointId: $('endpointId'),
+  apiBaseUrl: $('apiBaseUrl'),
+  apiBaseHint: $('apiBaseHint'),
+  modelId: $('modelId'),
+  modelLabel: $('modelLabel'),
+  modelHint: $('modelHint'),
+  extraHeadersJson: $('extraHeadersJson'),
   outputDir: $('outputDir'),
   outputPreviewValue: $('outputPreviewValue'),
   outputPreviewHint: $('outputPreviewHint'),
@@ -54,8 +102,11 @@ function createIdleState() {
     pausedDurationMs: 0,
     pauseStartedAt: null,
     elapsedMs: 0,
-    audioStatus: '待启动',
-    recordingId: null
+    mediaStatus: '待启动',
+    recordingId: null,
+    captureMode: 'displayMedia',
+    audioStarted: false,
+    videoStarted: false
   };
 }
 
@@ -96,12 +147,12 @@ async function hydrate() {
   state = {
     ...createIdleState(),
     ...snapshot.runtime,
-    audioStatus: snapshot.runtime?.isGenerating
+    mediaStatus: snapshot.runtime?.isGenerating
       ? '处理中'
       : snapshot.runtime?.isPaused
         ? '已暂停'
         : snapshot.runtime?.isRecording
-          ? '录音中'
+          ? snapshot.runtime?.mediaStatus || '录制中'
           : '待启动'
   };
 
@@ -112,8 +163,13 @@ async function hydrate() {
 }
 
 function bindEvents() {
+  elements.captureMode.addEventListener('change', handleCaptureModeChange);
+  elements.providerPreset.addEventListener('change', handleProviderPresetChange);
+  elements.apiStyle.addEventListener('change', saveSettings);
   elements.apiKey.addEventListener('change', saveSettings);
-  elements.endpointId.addEventListener('change', saveSettings);
+  elements.apiBaseUrl.addEventListener('change', saveSettings);
+  elements.modelId.addEventListener('change', saveSettings);
+  elements.extraHeadersJson.addEventListener('change', saveSettings);
   elements.outputDir.addEventListener('input', updateOutputPreview);
   elements.outputDir.addEventListener('change', saveSettings);
   elements.btnResetDir.addEventListener('click', resetOutputDir);
@@ -135,15 +191,13 @@ function bindEvents() {
 }
 
 async function saveSettings() {
+  const settings = readSettingsFromForm();
+  if (!settings) {
+    return { ok: false, error: 'invalid-settings' };
+  }
+
   const result = await sendAction('saveSettings', {
-    settings: {
-      apiKey: elements.apiKey.value.trim(),
-      endpointId: elements.endpointId.value.trim(),
-      outputDir: elements.outputDir.value.trim(),
-      promptForSaveAs: elements.promptForSaveAs.checked,
-      screenshotInterval: parseInt(elements.interval.value, 10),
-      autoScreenshot: elements.autoScreenshot.checked
-    }
+    settings
   });
 
   if (result?.ok && result.settings) {
@@ -153,13 +207,61 @@ async function saveSettings() {
   return result;
 }
 
+function readSettingsFromForm() {
+  const extraHeadersJson = elements.extraHeadersJson.value.trim();
+  if (extraHeadersJson) {
+    try {
+      const parsed = JSON.parse(extraHeadersJson);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('附加请求头必须是 JSON 对象');
+      }
+    } catch (error) {
+      alert(`附加请求头格式不正确：${error.message}`);
+      elements.extraHeadersJson.focus();
+      return null;
+    }
+  }
+
+  return {
+    providerPreset: elements.providerPreset.value,
+    apiStyle: elements.apiStyle.value,
+    apiKey: elements.apiKey.value.trim(),
+    apiBaseUrl: elements.apiBaseUrl.value.trim(),
+    modelId: elements.modelId.value.trim(),
+    extraHeadersJson,
+    captureMode: elements.captureMode.value,
+    outputDir: elements.outputDir.value.trim(),
+    promptForSaveAs: elements.promptForSaveAs.checked,
+    screenshotInterval: parseInt(elements.interval.value, 10),
+    autoScreenshot: elements.autoScreenshot.checked
+  };
+}
+
 async function handlePromptForSaveAsChange() {
   updateOutputPreview();
   await saveSettings();
 }
 
-async function startRecording() {
+async function handleCaptureModeChange() {
+  updateCaptureModeHint();
   await saveSettings();
+}
+
+async function handleProviderPresetChange() {
+  const preset = PROVIDER_PRESETS[elements.providerPreset.value] || PROVIDER_PRESETS.custom;
+  elements.apiStyle.value = preset.apiStyle;
+  if (preset.apiBaseUrl) {
+    elements.apiBaseUrl.value = preset.apiBaseUrl;
+  }
+  updateProviderUi();
+  await saveSettings();
+}
+
+async function startRecording() {
+  const saveResult = await saveSettings();
+  if (!saveResult?.ok) {
+    return;
+  }
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) {
     alert('未找到当前活动标签页');
@@ -358,7 +460,10 @@ function handleRuntimeMessage(message) {
       state.recordingId = message.recordingId || state.recordingId;
       state.pausedDurationMs = 0;
       state.pauseStartedAt = null;
-      state.audioStatus = message.audioStarted === false ? '未授权' : '录音中';
+      state.captureMode = message.captureMode || state.captureMode;
+      state.audioStarted = message.audioStarted === true;
+      state.videoStarted = message.videoStarted === true;
+      state.mediaStatus = message.mediaStatus || getMediaStatusLabel(state.audioStarted, state.videoStarted);
       break;
     case 'screenshot':
       state.count = message.count ?? state.count;
@@ -367,7 +472,7 @@ function handleRuntimeMessage(message) {
     case 'paused':
       state.isPaused = true;
       state.pauseStartedAt = Date.now();
-      state.audioStatus = '已暂停';
+      state.mediaStatus = '已暂停';
       break;
     case 'resumed':
       if (state.pauseStartedAt) {
@@ -375,13 +480,18 @@ function handleRuntimeMessage(message) {
       }
       state.isPaused = false;
       state.pauseStartedAt = null;
-      state.audioStatus = '录音中';
+      state.mediaStatus = getMediaStatusLabel(state.audioStarted, state.videoStarted);
       break;
     case 'stopped':
       state.elapsedMs = getElapsedMs();
       state.isRecording = false;
       state.isPaused = false;
-      state.audioStatus = '处理中';
+      state.mediaStatus = '处理中';
+      break;
+    case 'mediaUpdated':
+      state.audioStarted = message.audioStarted === true;
+      state.videoStarted = message.videoStarted === true;
+      state.mediaStatus = message.mediaStatus || getMediaStatusLabel(state.audioStarted, state.videoStarted);
       break;
     case 'generating':
       state.isGenerating = true;
@@ -390,7 +500,7 @@ function handleRuntimeMessage(message) {
       break;
     case 'complete':
       state = createIdleState();
-      state.audioStatus = '已导出';
+      state.mediaStatus = '已导出';
       historyItems = message.history || [];
       if (detailState.openId && !historyItems.some((item) => item.id === detailState.openId)) {
         closeDetail();
@@ -410,8 +520,13 @@ function handleRuntimeMessage(message) {
       }
       break;
     case 'warning':
-      if ((message.message || '').includes('录音')) {
-        state.audioStatus = '未授权';
+      if ((message.message || '').includes('视频未启动')) {
+        state.videoStarted = false;
+        state.mediaStatus = getMediaStatusLabel(state.audioStarted, state.videoStarted);
+      }
+      if ((message.message || '').includes('音频未启动')) {
+        state.audioStarted = false;
+        state.mediaStatus = getMediaStatusLabel(state.audioStarted, state.videoStarted);
       }
       elements.statusText.textContent = message.message || '提示';
       break;
@@ -427,7 +542,7 @@ function handleRuntimeMessage(message) {
 
 function updateUi() {
   elements.screenshotCount.textContent = String(state.count || 0);
-  elements.audioStatus.textContent = state.audioStatus;
+  elements.mediaStatus.textContent = state.mediaStatus;
   elements.recordTime.textContent = formatDuration(getElapsedMs());
 
   elements.status.className = 'status';
@@ -458,13 +573,48 @@ function updateUi() {
 }
 
 function applySettingsToForm(settings = {}) {
+  elements.captureMode.value = settings.captureMode || 'displayMedia';
+  elements.providerPreset.value = settings.providerPreset || 'volcengineArk';
+  elements.apiStyle.value = settings.apiStyle || 'chatCompletions';
   elements.apiKey.value = settings.apiKey || '';
-  elements.endpointId.value = settings.endpointId || '';
+  elements.apiBaseUrl.value = settings.apiBaseUrl || '';
+  elements.modelId.value = settings.modelId || settings.endpointId || '';
+  elements.extraHeadersJson.value = settings.extraHeadersJson || '';
   elements.outputDir.value = settings.outputDir || DEFAULT_OUTPUT_DIR;
   elements.promptForSaveAs.checked = settings.promptForSaveAs === true;
   elements.interval.value = settings.screenshotInterval || 5;
   elements.autoScreenshot.checked = settings.autoScreenshot !== false;
+  updateCaptureModeHint();
+  updateProviderUi();
   updateOutputPreview();
+}
+
+function updateCaptureModeHint() {
+  elements.captureModeHint.textContent =
+    CAPTURE_MODE_HINTS[elements.captureMode.value] || CAPTURE_MODE_HINTS.displayMedia;
+}
+
+function updateProviderUi() {
+  const preset = PROVIDER_PRESETS[elements.providerPreset.value] || PROVIDER_PRESETS.custom;
+  elements.modelLabel.textContent = preset.modelLabel;
+  elements.modelHint.textContent = preset.modelHint;
+  elements.apiBaseHint.textContent = preset.apiBaseHint;
+}
+
+function getMediaStatusLabel(audioStarted, videoStarted) {
+  if (audioStarted && videoStarted) {
+    return '音频+视频';
+  }
+
+  if (videoStarted) {
+    return '仅视频';
+  }
+
+  if (audioStarted) {
+    return '仅音频';
+  }
+
+  return state.isGenerating ? '处理中' : '待启动';
 }
 
 function restartTimer() {
@@ -514,7 +664,7 @@ function renderHistory(history) {
             <div>
               <div class="history-title">${escapeHtml(item.title || '未命名教程')}</div>
               <div class="history-meta">
-                ${new Date(item.createdAt).toLocaleString()} · ${item.screenshotCount} 张截图 · ${formatDuration(item.durationMs || 0)}
+                ${new Date(item.createdAt).toLocaleString()} · ${item.screenshotCount} 张截图 · ${formatDuration(item.durationMs || 0)} · ${escapeHtml(getHistoryMediaLabel(item))}
               </div>
               ${renderExportMeta(item)}
             </div>
@@ -541,6 +691,22 @@ function renderExportMeta(item) {
     : `上次导出：${formatDownloadsPath(exportBaseName)}`;
 
   return `<div class="history-export">${escapeHtml(text)}</div>`;
+}
+
+function getHistoryMediaLabel(item) {
+  if (item.hasAudio && item.hasVideo) {
+    return '音频 + 视频';
+  }
+
+  if (item.hasVideo) {
+    return '仅视频';
+  }
+
+  if (item.hasAudio) {
+    return '仅音频';
+  }
+
+  return '仅截图';
 }
 
 function renderDetailPanel() {
@@ -592,7 +758,8 @@ function renderDetailMeta(detail) {
     ['创建时间', new Date(detail.createdAt).toLocaleString()],
     ['录制时长', formatDuration(detail.durationMs || 0)],
     ['步骤数量', String(detail.screenshotCount || detail.screenshots.length || 0)],
-    ['音频状态', detail.hasAudio ? '已包含' : '未生成']
+    ['录制模式', detail.captureMode === 'tabCapture' ? '当前标签页兼容模式' : '共享屏幕 / 标签页'],
+    ['媒体导出', getHistoryMediaLabel(detail)]
   ];
 
   return chips

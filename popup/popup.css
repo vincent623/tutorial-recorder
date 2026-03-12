@@ -199,7 +199,9 @@ body {
 
 .field input[type='text'],
 .field input[type='password'],
-.field input[type='number'] {
+.field input[type='number'],
+.field select,
+.field textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -213,6 +215,12 @@ body {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.5;
+}
+
+.field textarea {
+  min-height: 88px;
+  resize: vertical;
+  font: 13px/1.5 ui-monospace, 'SFMono-Regular', 'SF Mono', Monaco, Consolas, 'Liberation Mono', monospace;
 }
 
 .field-inline {
@@ -280,10 +288,21 @@ body {
   box-shadow: 0 0 0 4px rgba(22, 119, 255, 0.12);
 }
 
+.field select:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: rgba(22, 119, 255, 0.6);
+  box-shadow: 0 0 0 4px rgba(22, 119, 255, 0.12);
+}
+
 .grid {
   display: grid;
   grid-template-columns: 1fr 120px;
   gap: 12px;
+}
+
+.grid-equal {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .checkbox-field {
