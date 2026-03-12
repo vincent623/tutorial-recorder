@@ -9,7 +9,7 @@ const PROVIDER_PRESETS = {
     apiBaseHint: '会自动补成 /chat/completions，适合方舟视觉模型。'
   },
   siliconFlow: {
-    apiBaseUrl: 'https://api.siliconflow.com/v1',
+    apiBaseUrl: 'https://api.siliconflow.cn/v1',
     apiStyle: 'chatCompletions',
     modelLabel: '模型 ID',
     modelHint: '硅基流动填支持视觉的模型 ID，例如 Qwen/QVQ/VLM 系列。',

@@ -108,7 +108,7 @@ npm run validate:e2e
 当前内置了这些常用接入方式：
 
 - `火山方舟`：默认基地址 `https://ark.cn-beijing.volces.com/api/v3`，推荐 `Chat Completions`
-- `硅基流动`：默认基地址 `https://api.siliconflow.com/v1`
+- `硅基流动`：默认基地址 `https://api.siliconflow.cn/v1`
 - `阿里云百炼`：默认基地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`
 - `OpenRouter`：默认基地址 `https://openrouter.ai/api/v1`
 - `Google Gemini`：默认基地址 `https://generativelanguage.googleapis.com/v1beta/openai`

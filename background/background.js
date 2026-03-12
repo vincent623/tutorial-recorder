@@ -15,7 +15,7 @@ const PROVIDER_PRESETS = {
   },
   siliconFlow: {
     label: '硅基流动',
-    apiBaseUrl: 'https://api.siliconflow.com/v1',
+    apiBaseUrl: 'https://api.siliconflow.cn/v1',
     apiStyle: 'chatCompletions'
   },
   aliyunDashScope: {
@@ -235,7 +235,7 @@ function normalizeSettings(settings = {}) {
     ...settings,
     providerPreset: getProviderPresetKey(settings.providerPreset),
     apiStyle,
-    apiBaseUrl: sanitizeApiBaseUrl(settings.apiBaseUrl || preset.apiBaseUrl),
+    apiBaseUrl: sanitizeApiBaseUrl(settings.apiBaseUrl || preset.apiBaseUrl, getProviderPresetKey(settings.providerPreset)),
     outputDir: sanitizeOutputDir(settings.outputDir),
     modelId,
     extraHeadersJson: normalizeHeadersJson(settings.extraHeadersJson),
@@ -270,13 +270,29 @@ function normalizeCaptureMode(value) {
   return value === 'tabCapture' ? 'tabCapture' : 'displayMedia';
 }
 
-function sanitizeApiBaseUrl(value) {
+function sanitizeApiBaseUrl(value, providerPreset = DEFAULT_SETTINGS.providerPreset) {
   const raw = typeof value === 'string' ? value.trim() : '';
   if (!raw) {
     return '';
   }
 
-  return raw.replace(/\/+$/, '');
+  let normalized = raw.replace(/\/+$/, '');
+
+  try {
+    const parsed = new URL(normalized);
+    const isSiliconFlow =
+      providerPreset === 'siliconFlow' || /^api\.siliconflow\.(cn|com)$/i.test(parsed.hostname);
+
+    if (isSiliconFlow && !/\/v\d+$/i.test(parsed.pathname)) {
+      normalized = `${parsed.origin}/v1`;
+    }
+  } catch (error) {
+    if (providerPreset === 'siliconFlow' && !/\/v\d+$/i.test(normalized)) {
+      normalized = `${normalized}/v1`.replace(/\/+$/, '/v1');
+    }
+  }
+
+  return normalized;
 }
 
 function normalizeHeadersJson(value) {
