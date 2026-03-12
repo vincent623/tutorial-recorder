@@ -1,6 +1,9 @@
 const $ = (id) => document.getElementById(id);
 const DEFAULT_OUTPUT_DIR = 'tutorial-recorder';
 const MAX_DETAIL_IMAGE_SIDE = 2000;
+const pageParams = new URLSearchParams(window.location.search);
+const isWorkspaceMode = pageParams.get('workspace') === '1';
+const requestedWorkspaceDetailId = pageParams.get('id') || '';
 const PROVIDER_LABELS = {
   volcengineArk: '火山方舟',
   siliconFlow: '硅基流动',
@@ -27,6 +30,9 @@ const CAPTURE_MODE_HINTS = {
 };
 
 const elements = {
+  pageTitle: $('pageTitle'),
+  heroCopy: $('heroCopy'),
+  heroActions: $('heroActions'),
   status: $('status'),
   statusText: $('status').querySelector('.status-text'),
   btnStart: $('btnStart'),
@@ -36,7 +42,9 @@ const elements = {
   screenshotCount: $('screenshotCount'),
   recordTime: $('recordTime'),
   mediaStatus: $('mediaStatus'),
+  btnOpenWorkspace: $('btnOpenWorkspace'),
   btnOpenSettings: $('btnOpenSettings'),
+  btnOpenSettingsHero: $('btnOpenSettingsHero'),
   captureMode: $('captureMode'),
   captureModeHint: $('captureModeHint'),
   interval: $('interval'),
@@ -44,6 +52,8 @@ const elements = {
   providerSummary: $('providerSummary'),
   promptSummary: $('promptSummary'),
   outputDirSummary: $('outputDirSummary'),
+  historyTitle: $('historyTitle'),
+  historyTip: $('historyTip'),
   historyList: $('historyList'),
   detailPanel: $('detailPanel'),
   detailStatus: $('detailStatus'),
@@ -64,8 +74,10 @@ let historyItems = [];
 let detailState = createDetailState();
 let timer = null;
 let currentSettings = {};
+let initialWorkspaceSelectionHandled = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
+  applyPageMode();
   await hydrate();
   bindEvents();
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
@@ -143,6 +155,10 @@ async function hydrate() {
   renderHistory(historyItems);
   renderDetailPanel();
   updateUi();
+
+  if (isWorkspaceMode) {
+    queueInitialWorkspaceSelection();
+  }
 }
 
 function bindEvents() {
@@ -150,6 +166,8 @@ function bindEvents() {
   elements.interval.addEventListener('change', saveSettings);
   elements.autoScreenshot.addEventListener('change', saveSettings);
   elements.btnOpenSettings.addEventListener('click', openSettingsPage);
+  elements.btnOpenSettingsHero.addEventListener('click', openSettingsPage);
+  elements.btnOpenWorkspace.addEventListener('click', () => openWorkspace());
 
   elements.btnStart.addEventListener('click', startRecording);
   elements.btnPause.addEventListener('click', togglePause);
@@ -240,6 +258,47 @@ function openSettingsPage() {
   chrome.runtime.openOptionsPage();
 }
 
+function openWorkspace(id = '') {
+  const params = new URLSearchParams();
+  params.set('workspace', '1');
+  if (id) {
+    params.set('id', id);
+  }
+
+  chrome.tabs.create({
+    url: chrome.runtime.getURL(`popup/popup.html?${params.toString()}`)
+  });
+}
+
+function applyPageMode() {
+  document.body.classList.add(isWorkspaceMode ? 'workspace-mode' : 'popup-mode');
+  document.title = isWorkspaceMode ? '教程工作台' : '教程录制器';
+  elements.pageTitle.textContent = isWorkspaceMode ? '教程工作台' : '教程自动录制';
+  elements.heroCopy.hidden = !isWorkspaceMode;
+  elements.heroActions.hidden = !isWorkspaceMode;
+  elements.historyTitle.textContent = isWorkspaceMode ? '全部记录' : '最近记录';
+  elements.historyTip.textContent = isWorkspaceMode
+    ? '选中一条记录后即可编辑步骤、替换截图并重新导出 ZIP'
+    : '最近 3 条记录，可进入工作台继续编辑';
+  elements.btnOpenWorkspace.hidden = isWorkspaceMode;
+}
+
+function queueInitialWorkspaceSelection() {
+  if (!isWorkspaceMode || detailState.loading || detailState.openId) {
+    return;
+  }
+
+  const requestedId = initialWorkspaceSelectionHandled ? '' : requestedWorkspaceDetailId;
+  initialWorkspaceSelectionHandled = true;
+  const targetId =
+    (requestedId && historyItems.find((item) => item.id === requestedId)?.id) ||
+    historyItems[0]?.id;
+
+  if (targetId) {
+    openDetail(targetId);
+  }
+}
+
 async function handleHistoryAction(event) {
   const button = event.target.closest('button[data-action]');
   if (!button) {
@@ -252,6 +311,11 @@ async function handleHistoryAction(event) {
   }
 
   if (action === 'details') {
+    if (!isWorkspaceMode) {
+      openWorkspace(id);
+      return;
+    }
+
     await openDetail(id);
     return;
   }
@@ -565,11 +629,17 @@ function handleRuntimeMessage(message) {
       if (detailState.openId && !historyItems.some((item) => item.id === detailState.openId)) {
         closeDetail();
       }
+      if (isWorkspaceMode) {
+        queueInitialWorkspaceSelection();
+      }
       break;
     case 'historyUpdated':
       historyItems = message.history || [];
       if (detailState.openId && !historyItems.some((item) => item.id === detailState.openId)) {
         closeDetail();
+      }
+      if (isWorkspaceMode) {
+        queueInitialWorkspaceSelection();
       }
       break;
     case 'exported':
@@ -702,15 +772,17 @@ function getElapsedMs() {
 
 function renderHistory(history) {
   historyItems = history;
+  const displayHistory = isWorkspaceMode ? history : history.slice(0, 3);
 
-  if (!history.length) {
+  if (!displayHistory.length) {
     elements.historyList.innerHTML = '<p class="empty">暂无录制记录</p>';
     return;
   }
 
   const busy = state.isRecording || state.isGenerating;
+  const overflowCount = Math.max(0, history.length - displayHistory.length);
 
-  elements.historyList.innerHTML = history
+  elements.historyList.innerHTML = displayHistory
     .map(
       (item) => `
         <article class="history-item ${detailState.openId === item.id ? 'is-selected' : ''}">
@@ -724,14 +796,21 @@ function renderHistory(history) {
             </div>
           </div>
           <div class="history-actions">
-            <button class="btn-view" data-action="details" data-id="${item.id}" ${busy ? 'disabled' : ''}>查看</button>
+            <button class="btn-view" data-action="details" data-id="${item.id}" ${busy ? 'disabled' : ''}>${isWorkspaceMode ? '编辑' : '继续编辑'}</button>
             <button class="btn-export" data-action="export" data-id="${item.id}" ${busy ? 'disabled' : ''}>导出</button>
-            <button class="btn-delete" data-action="delete" data-id="${item.id}" ${busy ? 'disabled' : ''}>删除</button>
+            ${
+              isWorkspaceMode
+                ? `<button class="btn-delete" data-action="delete" data-id="${item.id}" ${busy ? 'disabled' : ''}>删除</button>`
+                : ''
+            }
           </div>
         </article>
       `
     )
-    .join('');
+    .join('') +
+    (!isWorkspaceMode && overflowCount
+      ? `<p class="history-overflow-note">另外还有 ${overflowCount} 条记录，打开工作台可继续编辑或删除。</p>`
+      : '');
 }
 
 function renderExportMeta(item) {
@@ -764,12 +843,22 @@ function getHistoryMediaLabel(item) {
 }
 
 function renderDetailPanel() {
-  const hasPanel = detailState.loading || detailState.draft;
+  const hasPanel = isWorkspaceMode || detailState.loading || detailState.draft;
   elements.detailPanel.hidden = !hasPanel;
 
   if (!hasPanel) {
     elements.detailContent.hidden = true;
     elements.detailStatus.textContent = '选择一条历史记录后可查看和编辑教程。';
+    elements.detailMeta.innerHTML = '';
+    elements.detailExportPath.textContent = '';
+    elements.detailSteps.innerHTML = '';
+    elements.detailImageInput.value = '';
+    return;
+  }
+
+  if (isWorkspaceMode && !detailState.loading && !detailState.draft) {
+    elements.detailContent.hidden = true;
+    elements.detailStatus.textContent = '从左侧选择一条记录后，即可在这里修改标题、步骤文案和截图顺序。';
     elements.detailMeta.innerHTML = '';
     elements.detailExportPath.textContent = '';
     elements.detailSteps.innerHTML = '';

@@ -8,9 +8,9 @@
 - 真实视频录制 + 麦克风录音
 - 基于火山方舟、硅基流动、阿里云百炼、OpenRouter、Google Gemini、Claude、OpenAI 或任意 OpenAI 兼容视觉端点生成步骤说明
 - 导出单个 `ZIP`，内含 `Markdown + PDF + 音频 WebM + 视频 WebM + PNG`
-- 历史记录查看、编辑、重新导出和删除
+- popup 负责录制与快速入口，独立工作台负责历史记录查看、编辑、重新导出和删除
 - 教程详情支持对每一步截图做增删改查：查看原图、替换截图、插入新步骤、删除步骤、拖拽或上下移动重排步骤
-- popup 只保留快速设置，并提供独立完整设置页
+- popup 只保留录制和快速设置，并提供独立完整设置页与历史工作台
 - 自定义下载子目录，或为 ZIP 弹出一次保存位置选择
 
 ## 项目结构
@@ -48,10 +48,9 @@ tutorial-recorder/
 
 点击 `完整设置` 后，可以在独立设置页继续配置：
 
-- `Provider 预设`、`API 风格`、`API Base URL`
-- `API Key`、`模型 / Endpoint ID`
+- `Provider 预设`、`API Key`、`模型 / Endpoint ID`
+- `高级 AI 选项` 里可展开 `API 风格`、`API Base URL`、`附加请求头 JSON` 和 Prompt 编辑器
 - `默认（平衡）/ 动作优先 / 控件定位 / 简洁短句 / 自定义` 提示词版本
-- `附加请求头 JSON`
 - 导出目录
 - 是否在导出时为 ZIP 弹出保存位置
 
@@ -59,7 +58,8 @@ tutorial-recorder/
 
 - `导出目录` 只能是系统下载目录下的相对子目录，例如 `tutorial-recorder/runs`
 - 如果开启“导出时询问保存位置”，Chrome 只会对 ZIP 文件弹出一次保存对话框
-- 历史记录面板支持查看教程详情、修改标题和步骤说明，然后重新导出新的 ZIP
+- popup 里的历史区只保留最近记录和“继续编辑”入口；完整编辑放到独立工作台里
+- 工作台支持查看教程详情、修改标题和步骤说明，然后重新导出新的 ZIP
 - 教程详情里可以直接对步骤截图做增删改查和重排顺序，不必为了补一张图或换顺序重录整条教程
 - 未配置 AI 时，插件仍然可以录制和导出，只是步骤说明会回退到默认文案
 - 截图分析会附带页面标题、地址和最近一次交互动作，帮助视觉模型更准确地判断“用户正在做什么”
@@ -111,6 +111,7 @@ npm run validate:e2e
 
 - `output/playwright/report.json`
 - `output/playwright/popup.png`
+- `output/playwright/workspace.png`
 - `output/playwright/downloads/`
 - `output/playwright/profile/`
 

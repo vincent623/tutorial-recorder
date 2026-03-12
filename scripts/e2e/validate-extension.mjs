@@ -13,6 +13,7 @@ const downloadsDir = path.join(artifactsDir, 'downloads');
 const profileDir = path.join(artifactsDir, 'profile');
 const reportPath = path.join(artifactsDir, 'report.json');
 const popupShotPath = path.join(artifactsDir, 'popup.png');
+const workspaceShotPath = path.join(artifactsDir, 'workspace.png');
 const fixturePath = path.join(__dirname, 'fixture.html');
 const detailInsertImagePath = path.join(repoRoot, 'icons', 'icon128.png');
 const detailReplaceImagePath = path.join(repoRoot, 'icons', 'icon48.png');
@@ -234,69 +235,77 @@ async function main() {
       );
     }
 
+    const workspacePagePromise = context.waitForEvent('page');
     await historyPopup.locator('button[data-action="details"]').first().click();
-    await historyPopup.waitForSelector('#detailContent:not([hidden])');
-    console.log('[e2e] detail panel opened');
+    const workspacePage = await workspacePagePromise;
+    workspacePage.on('close', () => console.log('[e2e] workspace page closed'));
+    workspacePage.on('crash', () => console.log('[e2e] workspace page crashed'));
+    workspacePage.on('pageerror', (error) => console.log(`[workspace pageerror] ${error.message}`));
+    workspacePage.on('console', (message) => console.log(`[workspace console:${message.type()}] ${message.text()}`));
+    await workspacePage.waitForLoadState('domcontentloaded');
+    await workspacePage.waitForFunction(() => Boolean(chrome?.runtime?.sendMessage));
+    await workspacePage.waitForSelector('#detailContent:not([hidden])');
+    console.log('[e2e] workspace page ready');
 
     const detailCrudState = {
-      countBefore: await historyPopup.evaluate(() => document.querySelectorAll('.detail-step').length)
+      countBefore: await workspacePage.evaluate(() => document.querySelectorAll('.detail-step').length)
     };
-    const firstImageSrcBefore = await historyPopup.evaluate(
+    const firstImageSrcBefore = await workspacePage.evaluate(
       () => document.querySelector('.detail-step img')?.getAttribute('src') || ''
     );
 
-    await historyPopup.locator('button[data-step-action="insert-after"][data-step-index="0"]').click();
-    await historyPopup.locator('#detailImageInput').setInputFiles(detailInsertImagePath);
-    await historyPopup.waitForFunction(() => document.querySelectorAll('.detail-step').length === 4);
-    detailCrudState.countAfterInsert = await historyPopup.evaluate(
+    await workspacePage.locator('button[data-step-action="insert-after"][data-step-index="0"]').click();
+    await workspacePage.locator('#detailImageInput').setInputFiles(detailInsertImagePath);
+    await workspacePage.waitForFunction(() => document.querySelectorAll('.detail-step').length === 4);
+    detailCrudState.countAfterInsert = await workspacePage.evaluate(
       () => document.querySelectorAll('.detail-step').length
     );
 
-    await historyPopup.locator('button[data-step-action="replace"][data-step-index="0"]').click();
-    await historyPopup.locator('#detailImageInput').setInputFiles(detailReplaceImagePath);
-    await historyPopup.waitForFunction(
+    await workspacePage.locator('button[data-step-action="replace"][data-step-index="0"]').click();
+    await workspacePage.locator('#detailImageInput').setInputFiles(detailReplaceImagePath);
+    await workspacePage.waitForFunction(
       (beforeSrc) => {
         const currentSrc = document.querySelector('.detail-step img')?.getAttribute('src') || '';
         return Boolean(currentSrc) && currentSrc !== beforeSrc;
       },
       firstImageSrcBefore
     );
-    detailCrudState.firstImageChanged = await historyPopup.evaluate(
+    detailCrudState.firstImageChanged = await workspacePage.evaluate(
       (beforeSrc) => (document.querySelector('.detail-step img')?.getAttribute('src') || '') !== beforeSrc,
       firstImageSrcBefore
     );
 
-    historyPopup.once('dialog', (dialog) => dialog.accept());
-    await historyPopup.locator('button[data-step-action="delete"][data-step-index="1"]').click();
-    await historyPopup.waitForFunction(() => document.querySelectorAll('.detail-step').length === 3);
-    detailCrudState.countAfterDelete = await historyPopup.evaluate(
+    workspacePage.once('dialog', (dialog) => dialog.accept());
+    await workspacePage.locator('button[data-step-action="delete"][data-step-index="1"]').click();
+    await workspacePage.waitForFunction(() => document.querySelectorAll('.detail-step').length === 3);
+    detailCrudState.countAfterDelete = await workspacePage.evaluate(
       () => document.querySelectorAll('.detail-step').length
     );
 
-    detailCrudState.firstStepTextBeforeReorder = await historyPopup.locator('textarea[data-step-index="0"]').inputValue();
-    detailCrudState.secondStepTextBeforeReorder = await historyPopup.locator('textarea[data-step-index="1"]').inputValue();
-    await historyPopup.locator('button[data-step-action="move-down"][data-step-index="0"]').click();
-    await historyPopup.waitForFunction(
+    detailCrudState.firstStepTextBeforeReorder = await workspacePage.locator('textarea[data-step-index="0"]').inputValue();
+    detailCrudState.secondStepTextBeforeReorder = await workspacePage.locator('textarea[data-step-index="1"]').inputValue();
+    await workspacePage.locator('button[data-step-action="move-down"][data-step-index="0"]').click();
+    await workspacePage.waitForFunction(
       (expectedValue) =>
         (document.querySelector('textarea[data-step-index="0"]')?.value || '').trim() === expectedValue,
       detailCrudState.secondStepTextBeforeReorder
     );
-    detailCrudState.firstStepTextAfterReorder = await historyPopup
+    detailCrudState.firstStepTextAfterReorder = await workspacePage
       .locator('textarea[data-step-index="0"]')
       .inputValue();
     detailCrudState.reorderWorked =
       detailCrudState.firstStepTextAfterReorder === detailCrudState.secondStepTextBeforeReorder;
 
-    await historyPopup.locator('#detailTitle').fill(editedTitle);
-    await historyPopup.locator('textarea[data-step-index="0"]').fill('发布版步骤 1');
-    await historyPopup.locator('#btnSaveDetail').click();
-    await historyPopup.waitForFunction(
+    await workspacePage.locator('#detailTitle').fill(editedTitle);
+    await workspacePage.locator('textarea[data-step-index="0"]').fill('发布版步骤 1');
+    await workspacePage.locator('#btnSaveDetail').click();
+    await workspacePage.waitForFunction(
       (expectedTitle) => document.querySelector('.history-title')?.textContent?.trim() === expectedTitle,
       editedTitle
     );
     console.log('[e2e] detail title saved');
 
-    await historyPopup.locator('#btnDetailExport').click();
+    await workspacePage.locator('#btnDetailExport').click();
     console.log('[e2e] detail zip export triggered');
 
     const downloadItems = await waitForDownloads(serviceWorker, 2);
@@ -326,8 +335,24 @@ async function main() {
         screenshotCount
       };
     });
+    const workspaceSummary = await workspacePage.evaluate(() => {
+      const pageTitle = document.getElementById('pageTitle')?.textContent?.trim() || '';
+      const detailStatus = document.getElementById('detailStatus')?.textContent?.trim() || '';
+      const firstHistoryTitle = document.querySelector('.history-title')?.textContent?.trim() || '';
+      const firstHistoryExport = document.querySelector('.history-export')?.textContent?.trim() || '';
+      const detailVisible = !document.getElementById('detailContent')?.hasAttribute('hidden');
+
+      return {
+        pageTitle,
+        detailStatus,
+        firstHistoryTitle,
+        firstHistoryExport,
+        detailVisible
+      };
+    });
 
     await historyPopup.screenshot({ path: popupShotPath, fullPage: true });
+    await workspacePage.screenshot({ path: workspaceShotPath, fullPage: true });
 
     const filesOnDisk = await listFiles(downloadsDir);
     const fileTypes = await classifyDownloadedFiles(downloadsDir, filesOnDisk);
@@ -338,6 +363,7 @@ async function main() {
       fixtureUrl: `http://127.0.0.1:${port}/fixture.html`,
       contentFeedbackObserved,
       popup: popupSummary,
+      workspace: workspaceSummary,
       settingsPage: settingsPageSummary,
       settingsState: safeSettingsState,
       aiConfig: redactAiConfig(aiConfig),
@@ -375,9 +401,12 @@ async function main() {
           popupSummary.promptSummary.length > 0 &&
           popupSummary.outputDirSummary === customOutputDir,
         historyExportRendered:
-          popupSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`) &&
-          popupSummary.firstHistoryExport.includes('.zip'),
-        detailTitleSaved: popupSummary.firstHistoryTitle === editedTitle,
+          workspaceSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`) &&
+          workspaceSummary.firstHistoryExport.includes('.zip'),
+        detailTitleSaved: workspaceSummary.firstHistoryTitle === editedTitle,
+        workspaceOpened:
+          workspaceSummary.pageTitle.includes('工作台') &&
+          workspaceSummary.detailVisible === true,
         detailStepCrudWorked:
           detailCrudState.countBefore === 3 &&
           detailCrudState.countAfterInsert === 4 &&

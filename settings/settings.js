@@ -151,6 +151,7 @@ const elements = {
   outputPreviewHint: $('outputPreviewHint'),
   promptForSaveAs: $('promptForSaveAs'),
   providerPreset: $('providerPreset'),
+  advancedAiSettings: $('advancedAiSettings'),
   apiStyle: $('apiStyle'),
   apiKey: $('apiKey'),
   apiBaseUrl: $('apiBaseUrl'),
@@ -347,6 +348,7 @@ function updateProviderUi() {
   elements.modelLabel.textContent = preset.modelLabel;
   elements.modelHint.textContent = preset.modelHint;
   elements.apiBaseHint.textContent = preset.apiBaseHint;
+  syncAdvancedAiPanel();
 }
 
 function updatePromptUi() {
@@ -369,6 +371,7 @@ function updatePromptUi() {
   elements.promptEditorHint.textContent = isCustom
     ? '支持占位符：{{stepIndex}}、{{totalSteps}}、{{pageTitle}}、{{pageUrl}}、{{pageUrlLine}}、{{interactionSummary}}、{{previousDescription}}。'
     : '当前显示的是内置模板预览，切到“自定义”后可直接编辑。';
+  syncAdvancedAiPanel();
 }
 
 function updateOutputPreview() {
@@ -412,6 +415,20 @@ function setSaveStatus(text, saved) {
       elements.saveStatus.classList.remove('is-saved');
     }, 1800);
   }
+}
+
+function syncAdvancedAiPanel() {
+  const preset = PROVIDER_PRESETS[elements.providerPreset.value] || PROVIDER_PRESETS.custom;
+  const promptPreset = elements.promptPreset.value || 'default';
+  const currentApiBase = elements.apiBaseUrl.value.trim();
+  const currentHeaders = elements.extraHeadersJson.value.trim();
+  const shouldOpen =
+    promptPreset === 'custom' ||
+    Boolean(currentHeaders) ||
+    elements.apiStyle.value !== preset.apiStyle ||
+    (preset.apiBaseUrl || '') !== currentApiBase;
+
+  elements.advancedAiSettings.open = elements.advancedAiSettings.open || shouldOpen;
 }
 
 function sendAction(action, payload = {}) {

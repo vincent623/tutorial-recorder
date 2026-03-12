@@ -9,17 +9,23 @@
 <body>
   <div class="container">
     <header class="hero">
-      <div>
+      <div class="hero-copy-block">
         <p class="eyebrow">Tutorial Recorder</p>
-        <h1>教程自动录制</h1>
+        <h1 id="pageTitle">教程自动录制</h1>
+        <p class="hero-copy" id="heroCopy" hidden>在更宽的工作台里查看历史教程、编辑每一步截图和文案，再重新导出发给别人。</p>
       </div>
-      <div class="status" id="status">
-        <span class="status-dot"></span>
-        <span class="status-text">等待开始</span>
+      <div class="hero-side">
+        <div class="status" id="status" role="status" aria-live="polite" aria-atomic="true">
+          <span class="status-dot"></span>
+          <span class="status-text">等待开始</span>
+        </div>
+        <div class="hero-actions" id="heroActions" hidden>
+          <button type="button" id="btnOpenSettingsHero" class="mini-btn">完整设置</button>
+        </div>
       </div>
     </header>
 
-    <section class="controls">
+    <section class="controls recording-panel">
       <button id="btnStart" class="btn btn-primary">开始</button>
       <button id="btnPause" class="btn btn-warning" disabled>暂停</button>
       <button id="btnStop" class="btn btn-danger" disabled>停止</button>
@@ -41,7 +47,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel quick-panel">
       <div class="panel-head">
         <h2>快速设置</h2>
         <button type="button" id="btnOpenSettings" class="mini-btn">完整设置</button>
@@ -88,8 +94,11 @@
 
     <section class="panel history-panel">
       <div class="panel-head">
-        <h2>历史记录</h2>
-        <span class="panel-tip">支持查看、编辑、重新导出和删除</span>
+        <div class="panel-head-copy">
+          <h2 id="historyTitle">历史记录</h2>
+          <span class="panel-tip" id="historyTip">最近 3 条记录，可进入工作台继续编辑</span>
+        </div>
+        <button type="button" id="btnOpenWorkspace" class="mini-btn">管理记录</button>
       </div>
       <div id="historyList" class="history-list">
         <p class="empty">暂无录制记录</p>
@@ -105,7 +114,7 @@
         </div>
       </div>
 
-      <div class="detail-status" id="detailStatus">选择一条历史记录后可查看和编辑教程。</div>
+      <div class="detail-status" id="detailStatus" role="status" aria-live="polite" aria-atomic="true">选择一条历史记录后可查看和编辑教程。</div>
 
       <div class="detail-content" id="detailContent" hidden>
         <label class="field">
