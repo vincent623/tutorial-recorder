@@ -438,6 +438,7 @@ body {
 .detail-head-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .detail-status {
@@ -534,6 +535,17 @@ body {
   background: #ffffff;
 }
 
+.detail-preview-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.detail-preview-btn:disabled {
+  cursor: not-allowed;
+}
+
 .detail-step textarea {
   width: 100%;
   min-height: 88px;
@@ -550,6 +562,36 @@ body {
   outline: none;
   border-color: rgba(22, 119, 255, 0.6);
   box-shadow: 0 0 0 4px rgba(22, 119, 255, 0.12);
+}
+
+.detail-step-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.btn-inline {
+  border: none;
+  border-radius: 10px;
+  padding: 9px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-inline:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-inline-light {
+  background: #eef5ff;
+  color: var(--primary-strong);
+}
+
+.btn-inline-danger {
+  background: #ffe3e4;
+  color: #c62828;
 }
 
 .detail-actions {

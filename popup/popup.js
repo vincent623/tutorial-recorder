@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const DEFAULT_OUTPUT_DIR = 'tutorial-recorder';
+const MAX_DETAIL_IMAGE_SIDE = 2000;
 const PROVIDER_LABELS = {
   volcengineArk: '火山方舟',
   siliconFlow: '硅基流动',
@@ -51,6 +52,8 @@ const elements = {
   detailMeta: $('detailMeta'),
   detailExportPath: $('detailExportPath'),
   detailSteps: $('detailSteps'),
+  detailImageInput: $('detailImageInput'),
+  btnAddStepAtStart: $('btnAddStepAtStart'),
   btnCloseDetail: $('btnCloseDetail'),
   btnSaveDetail: $('btnSaveDetail'),
   btnDetailExport: $('btnDetailExport')
@@ -93,7 +96,9 @@ function createDetailState() {
     saving: false,
     original: null,
     draft: null,
-    statusMessage: ''
+    statusMessage: '',
+    imageTarget: null,
+    importingImage: false
   };
 }
 
@@ -151,10 +156,13 @@ function bindEvents() {
   elements.historyList.addEventListener('click', handleHistoryAction);
 
   elements.btnCloseDetail.addEventListener('click', closeDetail);
+  elements.btnAddStepAtStart.addEventListener('click', () => queueDetailImageSelection({ mode: 'insert', index: 0 }));
   elements.btnSaveDetail.addEventListener('click', saveDetail);
   elements.btnDetailExport.addEventListener('click', exportDetail);
   elements.detailTitle.addEventListener('input', handleDetailInput);
   elements.detailSteps.addEventListener('input', handleDetailInput);
+  elements.detailSteps.addEventListener('click', handleDetailStepAction);
+  elements.detailImageInput.addEventListener('change', handleDetailImageSelection);
 }
 
 async function saveSettings() {
@@ -285,7 +293,9 @@ async function openDetail(id) {
     saving: false,
     original: cloneRecordingDetail(result.recording),
     draft: cloneRecordingDetail(result.recording),
-    statusMessage: '可直接修改标题和步骤说明，保存后导出新的 ZIP。'
+    statusMessage: '可直接修改标题、步骤文案和每一步截图，保存后导出新的 ZIP。',
+    imageTarget: null,
+    importingImage: false
   };
   renderHistory(historyItems);
   renderDetailPanel();
@@ -314,6 +324,38 @@ function handleDetailInput(event) {
   syncDetailActionState('已修改，记得保存后再导出。');
 }
 
+function handleDetailStepAction(event) {
+  const button = event.target.closest('button[data-step-action]');
+  if (!button || !detailState.draft || detailState.saving || state.isGenerating || detailState.importingImage) {
+    return;
+  }
+
+  const stepIndex = Number.parseInt(button.dataset.stepIndex || '', 10);
+  if (Number.isNaN(stepIndex)) {
+    return;
+  }
+
+  const action = button.dataset.stepAction;
+  if (action === 'preview') {
+    openStepPreview(stepIndex);
+    return;
+  }
+
+  if (action === 'replace') {
+    queueDetailImageSelection({ mode: 'replace', stepIndex });
+    return;
+  }
+
+  if (action === 'insert-after') {
+    queueDetailImageSelection({ mode: 'insert', index: stepIndex + 1 });
+    return;
+  }
+
+  if (action === 'delete') {
+    deleteDraftScreenshot(stepIndex);
+  }
+}
+
 async function saveDetail() {
   if (!detailState.draft || !detailState.openId || detailState.saving) {
     return;
@@ -327,7 +369,11 @@ async function saveDetail() {
     updates: {
       title: detailState.draft.title,
       screenshots: detailState.draft.screenshots.map((screenshot) => ({
-        description: screenshot.description
+        id: screenshot.id,
+        description: screenshot.description,
+        data: screenshot.data,
+        timeOffsetMs: screenshot.timeOffsetMs,
+        timestamp: screenshot.timestamp
       }))
     }
   });
@@ -636,6 +682,7 @@ function renderDetailPanel() {
     elements.detailMeta.innerHTML = '';
     elements.detailExportPath.textContent = '';
     elements.detailSteps.innerHTML = '';
+    elements.detailImageInput.value = '';
     return;
   }
 
@@ -646,10 +693,11 @@ function renderDetailPanel() {
   }
 
   elements.detailContent.hidden = false;
-  elements.detailStatus.textContent = detailState.statusMessage || '可直接修改标题和步骤说明，保存后导出新的 ZIP。';
+  elements.detailStatus.textContent = detailState.statusMessage || '可直接修改标题、步骤文案和每一步截图，保存后导出新的 ZIP。';
   elements.detailTitle.value = detailState.draft.title || '';
   elements.detailMeta.innerHTML = renderDetailMeta(detailState.draft);
   elements.detailExportPath.textContent = renderDetailExportPath(detailState.draft);
+  const busy = detailState.saving || state.isGenerating || detailState.importingImage;
   elements.detailSteps.innerHTML = detailState.draft.screenshots
     .map(
       (screenshot, index) => `
@@ -658,10 +706,28 @@ function renderDetailPanel() {
             <div class="detail-step-title">步骤 ${index + 1}</div>
             <div class="detail-step-time">${escapeHtml(screenshot.timestampLabel || formatDuration(screenshot.timeOffsetMs || 0))}</div>
           </div>
-          <img src="${escapeHtml(screenshot.data)}" alt="步骤 ${index + 1} 截图">
+          <button type="button" class="detail-preview-btn" data-step-action="preview" data-step-index="${index}" ${
+            busy ? 'disabled' : ''
+          }>
+            <img src="${escapeHtml(screenshot.data)}" alt="步骤 ${index + 1} 截图">
+          </button>
           <textarea data-step-index="${index}" placeholder="为这一步写一句清晰说明">${escapeHtml(
             screenshot.description || `步骤 ${index + 1}`
           )}</textarea>
+          <div class="detail-step-actions">
+            <button type="button" class="btn-inline btn-inline-light" data-step-action="preview" data-step-index="${index}" ${
+              busy ? 'disabled' : ''
+            }>查看原图</button>
+            <button type="button" class="btn-inline btn-inline-light" data-step-action="replace" data-step-index="${index}" ${
+              busy ? 'disabled' : ''
+            }>替换截图</button>
+            <button type="button" class="btn-inline btn-inline-light" data-step-action="insert-after" data-step-index="${index}" ${
+              busy ? 'disabled' : ''
+            }>在后面添加</button>
+            <button type="button" class="btn-inline btn-inline-danger" data-step-action="delete" data-step-index="${index}" ${
+              busy ? 'disabled' : ''
+            }>删除</button>
+          </div>
         </article>
       `
     )
@@ -674,7 +740,7 @@ function renderDetailMeta(detail) {
   const chips = [
     ['创建时间', new Date(detail.createdAt).toLocaleString()],
     ['录制时长', formatDuration(detail.durationMs || 0)],
-    ['步骤数量', String(detail.screenshotCount || detail.screenshots.length || 0)],
+    ['步骤数量', String(detail.screenshots?.length || detail.screenshotCount || 0)],
     ['录制模式', detail.captureMode === 'tabCapture' ? '当前标签页兼容模式' : '共享屏幕 / 标签页'],
     ['媒体导出', getHistoryMediaLabel(detail)]
   ];
@@ -719,6 +785,8 @@ function syncDetailActionState(statusMessage = '') {
     detailState.statusMessage = statusMessage;
   } else if (detailState.saving) {
     detailState.statusMessage = '正在保存修改...';
+  } else if (detailState.importingImage) {
+    detailState.statusMessage = '正在处理截图，请稍候...';
   } else if (state.isGenerating) {
     detailState.statusMessage = '正在生成文件，请稍候。';
   } else if (detailState.statusMessage.startsWith('ZIP 导出完成')) {
@@ -726,12 +794,21 @@ function syncDetailActionState(statusMessage = '') {
   } else if (isDetailDirty()) {
     detailState.statusMessage = '已修改，记得保存后再导出。';
   } else {
-    detailState.statusMessage = '可直接修改标题和步骤说明，保存后导出新的 ZIP。';
+    detailState.statusMessage = '可直接修改标题、步骤文案和每一步截图，保存后导出新的 ZIP。';
   }
 
   elements.detailStatus.textContent = detailState.statusMessage;
-  elements.btnSaveDetail.disabled = detailState.saving || state.isGenerating || !isDetailDirty();
-  elements.btnDetailExport.disabled = detailState.saving || state.isGenerating || !detailState.openId;
+  const busy = detailState.saving || state.isGenerating || detailState.importingImage;
+  elements.btnSaveDetail.disabled = busy || !isDetailDirty();
+  elements.btnDetailExport.disabled = busy || !detailState.openId;
+  elements.btnAddStepAtStart.disabled = busy || !detailState.openId;
+  elements.detailImageInput.disabled = busy;
+  elements.detailTitle.disabled = busy;
+  elements.detailSteps
+    .querySelectorAll('textarea, button[data-step-action]')
+    .forEach((element) => {
+      element.disabled = busy;
+    });
 }
 
 function isDetailDirty() {
@@ -743,10 +820,161 @@ function isDetailDirty() {
     return true;
   }
 
+  if (detailState.original.screenshots.length !== detailState.draft.screenshots.length) {
+    return true;
+  }
+
   return detailState.draft.screenshots.some(
     (screenshot, index) =>
-      (detailState.original.screenshots[index]?.description || '') !== (screenshot.description || '')
+      (detailState.original.screenshots[index]?.description || '') !== (screenshot.description || '') ||
+      (detailState.original.screenshots[index]?.data || '') !== (screenshot.data || '') ||
+      (detailState.original.screenshots[index]?.timeOffsetMs || 0) !== (screenshot.timeOffsetMs || 0)
   );
+}
+
+function openStepPreview(stepIndex) {
+  const screenshot = detailState.draft?.screenshots?.[stepIndex];
+  if (!screenshot?.data) {
+    return;
+  }
+
+  window.open(screenshot.data, '_blank', 'noopener,noreferrer');
+}
+
+function queueDetailImageSelection(target) {
+  if (!detailState.draft || detailState.saving || state.isGenerating || detailState.importingImage) {
+    return;
+  }
+
+  detailState.imageTarget = target;
+  elements.detailImageInput.value = '';
+  elements.detailImageInput.click();
+}
+
+async function handleDetailImageSelection(event) {
+  const file = event.target.files?.[0];
+  const target = detailState.imageTarget;
+  detailState.imageTarget = null;
+  elements.detailImageInput.value = '';
+
+  if (!file || !target || !detailState.draft) {
+    return;
+  }
+
+  detailState.importingImage = true;
+  syncDetailActionState('正在处理截图，请稍候...');
+
+  try {
+    const dataUrl = await readImageFileAsPngDataUrl(file);
+    if (target.mode === 'replace') {
+      replaceDraftScreenshot(target.stepIndex, dataUrl);
+    } else if (target.mode === 'insert') {
+      insertDraftScreenshot(target.index, dataUrl);
+    }
+  } catch (error) {
+    alert(`处理图片失败：${error.message || '未知错误'}`);
+  } finally {
+    detailState.importingImage = false;
+    renderDetailPanel();
+  }
+}
+
+function insertDraftScreenshot(index, dataUrl) {
+  if (!detailState.draft) {
+    return;
+  }
+
+  const stepIndex = Math.max(0, Math.min(index, detailState.draft.screenshots.length));
+  detailState.draft.screenshots.splice(stepIndex, 0, createDraftScreenshot(dataUrl, stepIndex));
+  syncDetailActionState('已添加新截图，记得保存后再导出。');
+}
+
+function replaceDraftScreenshot(stepIndex, dataUrl) {
+  const screenshot = detailState.draft?.screenshots?.[stepIndex];
+  if (!screenshot) {
+    return;
+  }
+
+  screenshot.data = dataUrl;
+  syncDetailActionState('已替换截图，记得保存后再导出。');
+}
+
+function deleteDraftScreenshot(stepIndex) {
+  if (!detailState.draft?.screenshots?.[stepIndex]) {
+    return;
+  }
+
+  if (detailState.draft.screenshots.length <= 1) {
+    alert('至少保留一张截图。若需要重做，请先添加新截图再删除旧步骤。');
+    return;
+  }
+
+  const confirmed = window.confirm(`确定删除步骤 ${stepIndex + 1} 吗？`);
+  if (!confirmed) {
+    return;
+  }
+
+  detailState.draft.screenshots.splice(stepIndex, 1);
+  syncDetailActionState('已删除截图，记得保存后再导出。');
+  renderDetailPanel();
+}
+
+function createDraftScreenshot(dataUrl, insertIndex) {
+  const timeOffsetMs = computeInsertedTimeOffsetMs(detailState.draft?.screenshots || [], insertIndex);
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    data: dataUrl,
+    description: '',
+    timeOffsetMs,
+    timestamp: (detailState.draft?.createdAt || Date.now()) + timeOffsetMs,
+    timestampLabel: formatDuration(timeOffsetMs)
+  };
+}
+
+function computeInsertedTimeOffsetMs(screenshots, insertIndex) {
+  const previous = screenshots[insertIndex - 1] || null;
+  const next = screenshots[insertIndex] || null;
+  const previousOffset = previous?.timeOffsetMs || 0;
+  const nextOffset = next?.timeOffsetMs;
+
+  if (previous && next) {
+    const gap = nextOffset - previousOffset;
+    return gap > 1 ? Math.floor(previousOffset + gap / 2) : previousOffset + 1;
+  }
+
+  if (next) {
+    return Math.max(0, Math.floor(nextOffset / 2));
+  }
+
+  if (previous) {
+    return previousOffset + 1000;
+  }
+
+  return 0;
+}
+
+async function readImageFileAsPngDataUrl(file) {
+  if (!(file instanceof File) || !file.type.startsWith('image/')) {
+    throw new Error('请选择一张图片文件');
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_DETAIL_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    bitmap.close();
+    throw new Error('浏览器无法处理这张图片');
+  }
+
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  return canvas.toDataURL('image/png');
 }
 
 function sanitizeOutputDir(value) {

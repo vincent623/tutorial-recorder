@@ -14,6 +14,8 @@ const profileDir = path.join(artifactsDir, 'profile');
 const reportPath = path.join(artifactsDir, 'report.json');
 const popupShotPath = path.join(artifactsDir, 'popup.png');
 const fixturePath = path.join(__dirname, 'fixture.html');
+const detailInsertImagePath = path.join(repoRoot, 'icons', 'icon128.png');
+const detailReplaceImagePath = path.join(repoRoot, 'icons', 'icon48.png');
 const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48123', 10);
 const headless = process.env.PW_HEADLESS !== '0';
 const customOutputDir = process.env.PW_OUTPUT_SUBDIR || 'codex-e2e/tutorial-recorder';
@@ -236,6 +238,41 @@ async function main() {
     await historyPopup.waitForSelector('#detailContent:not([hidden])');
     console.log('[e2e] detail panel opened');
 
+    const detailCrudState = {
+      countBefore: await historyPopup.evaluate(() => document.querySelectorAll('.detail-step').length)
+    };
+    const firstImageSrcBefore = await historyPopup.evaluate(
+      () => document.querySelector('.detail-step img')?.getAttribute('src') || ''
+    );
+
+    await historyPopup.locator('button[data-step-action="insert-after"][data-step-index="0"]').click();
+    await historyPopup.locator('#detailImageInput').setInputFiles(detailInsertImagePath);
+    await historyPopup.waitForFunction(() => document.querySelectorAll('.detail-step').length === 4);
+    detailCrudState.countAfterInsert = await historyPopup.evaluate(
+      () => document.querySelectorAll('.detail-step').length
+    );
+
+    await historyPopup.locator('button[data-step-action="replace"][data-step-index="0"]').click();
+    await historyPopup.locator('#detailImageInput').setInputFiles(detailReplaceImagePath);
+    await historyPopup.waitForFunction(
+      (beforeSrc) => {
+        const currentSrc = document.querySelector('.detail-step img')?.getAttribute('src') || '';
+        return Boolean(currentSrc) && currentSrc !== beforeSrc;
+      },
+      firstImageSrcBefore
+    );
+    detailCrudState.firstImageChanged = await historyPopup.evaluate(
+      (beforeSrc) => (document.querySelector('.detail-step img')?.getAttribute('src') || '') !== beforeSrc,
+      firstImageSrcBefore
+    );
+
+    historyPopup.once('dialog', (dialog) => dialog.accept());
+    await historyPopup.locator('button[data-step-action="delete"][data-step-index="1"]').click();
+    await historyPopup.waitForFunction(() => document.querySelectorAll('.detail-step').length === 3);
+    detailCrudState.countAfterDelete = await historyPopup.evaluate(
+      () => document.querySelectorAll('.detail-step').length
+    );
+
     await historyPopup.locator('#detailTitle').fill(editedTitle);
     await historyPopup.locator('textarea[data-step-index="0"]').fill('发布版步骤 1');
     await historyPopup.locator('#btnSaveDetail').click();
@@ -292,6 +329,7 @@ async function main() {
       aiConfig: redactAiConfig(aiConfig),
       historyState,
       generatedDescriptions,
+      detailCrudState,
       downloadItems,
       filesOnDisk,
       fileTypes,
@@ -326,6 +364,11 @@ async function main() {
           popupSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`) &&
           popupSummary.firstHistoryExport.includes('.zip'),
         detailTitleSaved: popupSummary.firstHistoryTitle === editedTitle,
+        detailStepCrudWorked:
+          detailCrudState.countBefore === 3 &&
+          detailCrudState.countAfterInsert === 4 &&
+          detailCrudState.countAfterDelete === 3 &&
+          detailCrudState.firstImageChanged === true,
         aiDescriptionsActionable:
           !aiEnabled ||
           generatedDescriptions.some((item) => /(点击|切换|修改|提交|输入|进入)/.test(item)),

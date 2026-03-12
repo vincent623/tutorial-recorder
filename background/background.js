@@ -887,6 +887,7 @@ function buildRecordingDetail(recording) {
       index: index + 1,
       description: screenshot.description || `步骤 ${index + 1}`,
       timeOffsetMs: screenshot.timeOffsetMs || 0,
+      timestamp: screenshot.timestamp || recording.startTime + (screenshot.timeOffsetMs || 0),
       timestampLabel: formatDuration(screenshot.timeOffsetMs || 0),
       data: screenshot.data
     }))
@@ -1120,16 +1121,13 @@ async function updateRecordingDetails(id, updates) {
   }
 
   const nextTitle = sanitizeEditableText(updates.title, 80);
-  const nextScreenshots = Array.isArray(updates.screenshots) ? updates.screenshots : [];
+  const nextScreenshots = Array.isArray(updates.screenshots) ? updates.screenshots : null;
+
+  if (nextScreenshots) {
+    recording.screenshots = sanitizeUpdatedScreenshots(recording, nextScreenshots);
+  }
 
   recording.title = nextTitle || buildRecordingTitle(recording);
-  recording.screenshots = recording.screenshots.map((screenshot, index) => ({
-    ...screenshot,
-    description:
-      sanitizeEditableText(nextScreenshots[index]?.description, 400) ||
-      screenshot.description ||
-      `步骤 ${index + 1}`
-  }));
   recording.updatedAt = Date.now();
 
   await putRecording(recording);
@@ -1138,12 +1136,95 @@ async function updateRecordingDetails(id, updates) {
   return buildRecordingDetail(recording);
 }
 
+function sanitizeUpdatedScreenshots(recording, screenshotUpdates) {
+  const existingById = new Map(
+    recording.screenshots
+      .filter((screenshot) => typeof screenshot?.id === 'string' && screenshot.id)
+      .map((screenshot) => [screenshot.id, screenshot])
+  );
+
+  const nextScreenshots = screenshotUpdates
+    .map((screenshot, index) =>
+      sanitizeUpdatedScreenshot(
+        screenshot,
+        index,
+        recording.startTime,
+        existingById,
+        recording.screenshots[index] || null
+      )
+    )
+    .filter(Boolean);
+
+  if (!nextScreenshots.length) {
+    throw new Error('至少保留一张截图');
+  }
+
+  return nextScreenshots;
+}
+
+function sanitizeUpdatedScreenshot(screenshot, index, startTime, existingById, fallbackExisting) {
+  if (!screenshot || typeof screenshot !== 'object') {
+    return null;
+  }
+
+  const nextId = sanitizeTextValue(screenshot.id || '', 80);
+  const existing = nextId ? existingById.get(nextId) || null : fallbackExisting || null;
+  const data = sanitizeImageDataUrl(screenshot.data) || existing?.data || '';
+  if (!data) {
+    return null;
+  }
+
+  const timeOffsetMs = sanitizeTimeOffsetMs(screenshot.timeOffsetMs, existing?.timeOffsetMs ?? index * 1000);
+  const timestamp = sanitizeTimestampValue(screenshot.timestamp, startTime + timeOffsetMs);
+
+  return {
+    ...existing,
+    id: nextId || existing?.id || `${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    data,
+    timestamp,
+    timeOffsetMs,
+    description:
+      sanitizeEditableText(screenshot.description, 400) ||
+      existing?.description ||
+      `步骤 ${index + 1}`,
+    trigger: existing?.trigger || 'manual-edit',
+    pageContext: existing?.pageContext || null
+  };
+}
+
 function sanitizeEditableText(value, maxLength) {
   if (typeof value !== 'string') {
     return '';
   }
 
   return value.replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function sanitizeImageDataUrl(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim();
+  return /^data:image\/[-+\w.]+;base64,/i.test(trimmed) ? trimmed : '';
+}
+
+function sanitizeTimeOffsetMs(value, fallbackValue = 0) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return Math.max(0, Number.parseInt(fallbackValue, 10) || 0);
+  }
+
+  return Math.min(parsed, 24 * 60 * 60 * 1000);
+}
+
+function sanitizeTimestampValue(value, fallbackValue) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return fallbackValue;
+  }
+
+  return parsed;
 }
 
 async function deleteRecordingById(id) {
