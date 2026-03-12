@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+npm-debug.log*
+output/playwright/downloads/
+output/playwright/profile/
+output/playwright/report.json
+output/playwright/popup.png
+output/playwright/runner/

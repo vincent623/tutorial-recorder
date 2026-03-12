@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>教程录制器</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Tutorial Recorder</p>
+        <h1>教程自动录制</h1>
+      </div>
+      <div class="status" id="status">
+        <span class="status-dot"></span>
+        <span class="status-text">等待开始</span>
+      </div>
+    </header>
+
+    <section class="controls">
+      <button id="btnStart" class="btn btn-primary">开始</button>
+      <button id="btnPause" class="btn btn-warning" disabled>暂停</button>
+      <button id="btnStop" class="btn btn-danger" disabled>停止</button>
+      <button id="btnCapture" class="btn btn-secondary" disabled>截图</button>
+    </section>
+
+    <section class="stats">
+      <div class="stat-card">
+        <span class="stat-label">截图数量</span>
+        <strong class="stat-value" id="screenshotCount">0</strong>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">录制时长</span>
+        <strong class="stat-value" id="recordTime">00:00</strong>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">音频状态</span>
+        <strong class="stat-value" id="audioStatus">待启动</strong>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>设置</h2>
+        <span class="panel-tip">未配置 AI 时会使用默认步骤说明</span>
+      </div>
+
+      <label class="field">
+        <span>火山方舟 API Key</span>
+        <input type="password" id="apiKey" placeholder="可选：用于自动生成步骤说明">
+      </label>
+
+      <label class="field">
+        <span>Endpoint ID</span>
+        <input type="text" id="endpointId" placeholder="可选：你的视觉模型接入点 ID">
+      </label>
+
+      <label class="field">
+        <span>导出目录</span>
+        <div class="field-inline">
+          <input type="text" id="outputDir" placeholder="默认：tutorial-recorder">
+          <button type="button" id="btnResetDir" class="mini-btn">默认</button>
+        </div>
+        <small class="field-hint">只支持下载目录下的相对子目录，例如 `tutorial-recorder/runs`。</small>
+      </label>
+
+      <div class="field toggle-field">
+        <div class="toggle-row">
+          <span>导出时询问保存位置</span>
+          <input type="checkbox" id="promptForSaveAs">
+        </div>
+        <small class="field-hint">开启后，Chrome 会为 Markdown、PDF、音频和每张截图分别弹出保存对话框。</small>
+      </div>
+
+      <div class="grid">
+        <label class="field">
+          <span>自动截图间隔（秒）</span>
+          <input type="number" id="interval" min="1" max="60" value="5">
+        </label>
+
+        <label class="field checkbox-field">
+          <span>自动截图</span>
+          <input type="checkbox" id="autoScreenshot" checked>
+        </label>
+      </div>
+    </section>
+
+    <section class="panel history-panel">
+      <div class="panel-head">
+        <h2>历史记录</h2>
+        <span class="panel-tip">支持重新导出和删除</span>
+      </div>
+      <div id="historyList" class="history-list">
+        <p class="empty">暂无录制记录</p>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>快捷键：Ctrl / Command + Shift + S</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
