@@ -6,7 +6,7 @@
 
 - 自动截图和手动截图
 - 真实视频录制 + 麦克风录音
-- 基于火山方舟、OpenAI 或任意 OpenAI 兼容视觉端点生成步骤说明
+- 基于火山方舟、硅基流动、阿里云百炼、OpenRouter、Google Gemini、Claude、OpenAI 或任意 OpenAI 兼容视觉端点生成步骤说明
 - 导出单个 `ZIP`，内含 `Markdown + PDF + 音频 WebM + 视频 WebM + PNG`
 - 历史记录查看、编辑、重新导出和删除
 - 自定义下载子目录，或为 ZIP 弹出一次保存位置选择
@@ -98,9 +98,14 @@ npm run validate:e2e
 
 ## AI 端点接入
 
-当前内置了 4 类接入方式：
+当前内置了这些常用接入方式：
 
 - `火山方舟`：默认基地址 `https://ark.cn-beijing.volces.com/api/v3`，推荐 `Chat Completions`
+- `硅基流动`：默认基地址 `https://api.siliconflow.com/v1`
+- `阿里云百炼`：默认基地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`
+- `OpenRouter`：默认基地址 `https://openrouter.ai/api/v1`
+- `Google Gemini`：默认基地址 `https://generativelanguage.googleapis.com/v1beta/openai`
+- `Claude`：默认基地址 `https://api.anthropic.com/v1`，直接走原生 `Messages`
 - `OpenAI`：默认基地址 `https://api.openai.com/v1`，推荐 `Responses`
 - `OpenAI Compatible`：适合各类兼容 OpenAI 的模型网关
 - `自定义`：完全手填 `Base URL + API 风格 + Model`

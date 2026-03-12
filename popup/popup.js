@@ -9,6 +9,46 @@ const PROVIDER_PRESETS = {
     modelHint: '火山方舟填 Endpoint ID，例如 ep-xxxx。',
     apiBaseHint: '会自动补成 /chat/completions，适合方舟视觉模型。'
   },
+  siliconFlow: {
+    label: '硅基流动',
+    apiBaseUrl: 'https://api.siliconflow.com/v1',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: '硅基流动填支持视觉的模型 ID，例如 Qwen/QVQ/VLM 系列。',
+    apiBaseHint: '走 OpenAI 兼容 Chat Completions，基地址会自动补成 /chat/completions。'
+  },
+  aliyunDashScope: {
+    label: '阿里云百炼',
+    apiBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: '阿里云百炼填视觉模型 ID，例如 qwen-vl 系列。',
+    apiBaseHint: '走百炼 OpenAI 兼容模式，基地址会自动补成 /chat/completions。'
+  },
+  openRouter: {
+    label: 'OpenRouter',
+    apiBaseUrl: 'https://openrouter.ai/api/v1',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: 'OpenRouter 填模型路由名，例如 anthropic/claude-3.5-sonnet 或 google/gemini-2.5-flash。',
+    apiBaseHint: '建议配合附加 Header JSON 一起使用，例如 HTTP-Referer 和 X-Title。'
+  },
+  googleGemini: {
+    label: 'Google Gemini',
+    apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: 'Google Gemini 填模型 ID，例如 gemini-2.0-flash 或 gemini-2.5-flash。',
+    apiBaseHint: '使用 Google 官方 OpenAI 兼容入口，基地址会自动补成 /chat/completions。'
+  },
+  anthropicClaude: {
+    label: 'Claude',
+    apiBaseUrl: 'https://api.anthropic.com/v1',
+    apiStyle: 'anthropicMessages',
+    modelLabel: 'Claude 模型 ID',
+    modelHint: 'Claude 建议填官方模型名，例如 claude-3-7-sonnet-latest。',
+    apiBaseHint: '会直接调用 Anthropic 原生 /messages 接口，不走 OpenAI 兼容层。'
+  },
   openai: {
     label: 'OpenAI',
     apiBaseUrl: 'https://api.openai.com/v1',

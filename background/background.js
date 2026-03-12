@@ -13,6 +13,31 @@ const PROVIDER_PRESETS = {
     apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     apiStyle: 'chatCompletions'
   },
+  siliconFlow: {
+    label: '硅基流动',
+    apiBaseUrl: 'https://api.siliconflow.com/v1',
+    apiStyle: 'chatCompletions'
+  },
+  aliyunDashScope: {
+    label: '阿里云百炼',
+    apiBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiStyle: 'chatCompletions'
+  },
+  openRouter: {
+    label: 'OpenRouter',
+    apiBaseUrl: 'https://openrouter.ai/api/v1',
+    apiStyle: 'chatCompletions'
+  },
+  googleGemini: {
+    label: 'Google Gemini',
+    apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    apiStyle: 'chatCompletions'
+  },
+  anthropicClaude: {
+    label: 'Claude',
+    apiBaseUrl: 'https://api.anthropic.com/v1',
+    apiStyle: 'anthropicMessages'
+  },
   openai: {
     label: 'OpenAI',
     apiBaseUrl: 'https://api.openai.com/v1',
@@ -225,7 +250,15 @@ function getProviderPreset(value) {
 }
 
 function normalizeApiStyle(value) {
-  return value === 'responses' ? 'responses' : 'chatCompletions';
+  if (value === 'responses') {
+    return 'responses';
+  }
+
+  if (value === 'anthropicMessages') {
+    return 'anthropicMessages';
+  }
+
+  return 'chatCompletions';
 }
 
 function normalizeCaptureMode(value) {
@@ -1059,12 +1092,51 @@ function applyMediaResult(recording, mediaResult, fallbackDurationMs) {
 
 function buildVisionRequest(imageData, settings) {
   const apiStyle = normalizeApiStyle(settings.apiStyle);
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${settings.apiKey}`,
-    ...parseExtraHeaders(settings.extraHeadersJson)
-  };
+  const extraHeaders = parseExtraHeaders(settings.extraHeadersJson);
+  const headers =
+    apiStyle === 'anthropicMessages'
+      ? {
+          'Content-Type': 'application/json',
+          'x-api-key': settings.apiKey,
+          'anthropic-version': '2023-06-01',
+          ...extraHeaders
+        }
+      : {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.apiKey}`,
+          ...extraHeaders
+        };
   const url = resolveVisionUrl(settings.apiBaseUrl, apiStyle);
+
+  if (apiStyle === 'anthropicMessages') {
+    const { mediaType, base64 } = parseImageDataUrl(imageData);
+
+    return {
+      url,
+      headers,
+      body: {
+        model: settings.modelId,
+        system: '你是教程录制助手。请用简洁中文总结截图里的当前操作步骤，不要重复截图里不重要的细节。',
+        max_tokens: 160,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '请用一句话描述这个截图代表的操作步骤。' },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: base64
+                }
+              }
+            ]
+          }
+        ]
+      }
+    };
+  }
 
   if (apiStyle === 'responses') {
     return {
@@ -1114,9 +1186,18 @@ function resolveVisionUrl(apiBaseUrl, apiStyle) {
   const base = sanitizeApiBaseUrl(apiBaseUrl || getProviderPreset(DEFAULT_SETTINGS.providerPreset).apiBaseUrl);
   const normalizedBase = base
     .replace(/\/chat\/completions$/i, '')
-    .replace(/\/responses$/i, '');
+    .replace(/\/responses$/i, '')
+    .replace(/\/messages$/i, '');
 
-  return `${normalizedBase}${apiStyle === 'responses' ? '/responses' : '/chat/completions'}`;
+  if (apiStyle === 'responses') {
+    return `${normalizedBase}/responses`;
+  }
+
+  if (apiStyle === 'anthropicMessages') {
+    return `${normalizedBase}/messages`;
+  }
+
+  return `${normalizedBase}/chat/completions`;
 }
 
 function parseExtraHeaders(extraHeadersJson) {
@@ -1160,6 +1241,15 @@ function extractVisionText(data, apiStyle) {
     return '';
   }
 
+  if (apiStyle === 'anthropicMessages') {
+    return (data?.content || [])
+      .filter((part) => part?.type === 'text' && typeof part?.text === 'string')
+      .map((part) => part.text.trim())
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content === 'string') {
     return content.trim();
@@ -1173,6 +1263,18 @@ function extractVisionText(data, apiStyle) {
   }
 
   return '';
+}
+
+function parseImageDataUrl(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:(image\/[-+\w.]+);base64,(.*)$/);
+  if (!match) {
+    throw new Error('无法解析截图数据');
+  }
+
+  return {
+    mediaType: match[1],
+    base64: match[2]
+  };
 }
 
 async function updateBadge() {
