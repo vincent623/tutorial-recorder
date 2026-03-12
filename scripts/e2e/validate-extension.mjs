@@ -18,6 +18,8 @@ const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48123', 10);
 const headless = process.env.PW_HEADLESS !== '0';
 const customOutputDir = process.env.PW_OUTPUT_SUBDIR || 'codex-e2e/tutorial-recorder';
 const editedTitle = '发布版教程';
+const aiConfig = buildAiConfigFromEnv();
+const aiEnabled = Boolean(aiConfig.apiKey && aiConfig.modelId);
 
 async function main() {
   await mkdir(artifactsDir, { recursive: true });
@@ -107,25 +109,27 @@ async function main() {
     await settingsPage.locator('#outputDir').fill(customOutputDir);
     await settingsPage.locator('#outputDir').dispatchEvent('change');
     console.log(`[e2e] output dir set in settings page: ${customOutputDir}`);
-    const saveSettingsResult = await settingsPage.evaluate((outputDir) =>
+    const saveSettingsResult = await settingsPage.evaluate(({ outputDir, aiConfig }) =>
       chrome.runtime.sendMessage({
         action: 'saveSettings',
         settings: {
-          providerPreset: 'volcengineArk',
-          apiStyle: 'chatCompletions',
-          apiKey: '',
-          apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-          modelId: '',
-          extraHeadersJson: '',
+          providerPreset: aiConfig.providerPreset,
+          apiStyle: aiConfig.apiStyle,
+          apiKey: aiConfig.apiKey,
+          apiBaseUrl: aiConfig.apiBaseUrl,
+          modelId: aiConfig.modelId,
+          extraHeadersJson: aiConfig.extraHeadersJson,
           captureMode: 'displayMedia',
           outputDir,
           screenshotInterval: 5,
           autoScreenshot: true
         }
       }),
-      customOutputDir
+      { outputDir: customOutputDir, aiConfig }
     );
-    console.log(`[e2e] save settings result: ${JSON.stringify(saveSettingsResult)}`);
+    console.log(
+      `[e2e] save settings result: ${JSON.stringify(redactValue(saveSettingsResult))}`
+    );
     const settingsPageSummary = await settingsPage.evaluate(() => ({
       title: document.title,
       outputPreviewValue: document.getElementById('outputPreviewValue')?.textContent?.trim() || ''
@@ -141,7 +145,8 @@ async function main() {
       const { settings = null } = await chrome.storage.local.get(['settings']);
       return settings;
     });
-    console.log(`[e2e] settings snapshot: ${JSON.stringify(settingsState)}`);
+    const safeSettingsState = redactSettings(settingsState);
+    console.log(`[e2e] settings snapshot: ${JSON.stringify(safeSettingsState)}`);
 
     await page.waitForTimeout(1200);
     const contentFeedbackObserved = await page.evaluate(() =>
@@ -211,6 +216,22 @@ async function main() {
     );
     console.log('[e2e] history rendered in popup');
 
+    const recordingDetail = historyState[0]
+      ? await historyPopup.evaluate(
+          (id) => chrome.runtime.sendMessage({ action: 'getRecordingDetail', id }),
+          historyState[0].id
+        )
+      : null;
+    const generatedDescriptions =
+      recordingDetail?.ok && recordingDetail.recording
+        ? recordingDetail.recording.screenshots.map((item) => item.description || '')
+        : [];
+    if (generatedDescriptions.length) {
+      console.log(
+        `[e2e] generated descriptions: ${JSON.stringify(generatedDescriptions.slice(0, 3))}`
+      );
+    }
+
     await historyPopup.locator('button[data-action="details"]').first().click();
     await historyPopup.waitForSelector('#detailContent:not([hidden])');
     console.log('[e2e] detail panel opened');
@@ -265,8 +286,10 @@ async function main() {
       contentFeedbackObserved,
       popup: popupSummary,
       settingsPage: settingsPageSummary,
-      settingsState,
+      settingsState: safeSettingsState,
+      aiConfig: redactAiConfig(aiConfig),
       historyState,
+      generatedDescriptions,
       downloadItems,
       filesOnDisk,
       fileTypes,
@@ -299,6 +322,9 @@ async function main() {
           popupSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`) &&
           popupSummary.firstHistoryExport.includes('.zip'),
         detailTitleSaved: popupSummary.firstHistoryTitle === editedTitle,
+        aiDescriptionsActionable:
+          !aiEnabled ||
+          generatedDescriptions.some((item) => /(点击|切换|修改|提交|输入|进入)/.test(item)),
         archiveContainsEditedTitle: archiveContents.some((archive) =>
           archive.entries.some(
             (entry) => entry.kind === 'markdown' && entry.preview.includes(`# ${editedTitle}`)
@@ -313,6 +339,132 @@ async function main() {
     await context?.close().catch(() => {});
     server.close();
   }
+}
+
+function buildAiConfigFromEnv() {
+  const providerPreset = process.env.PW_PROVIDER_PRESET?.trim() || 'volcengineArk';
+  const apiStyle = process.env.PW_API_STYLE?.trim() || getDefaultApiStyle(providerPreset);
+  const apiBaseUrl = process.env.PW_API_BASE_URL?.trim() || getDefaultApiBaseUrl(providerPreset);
+  const apiKey = process.env.PW_API_KEY?.trim() || '';
+  const modelId = process.env.PW_MODEL_ID?.trim() || '';
+  const extraHeadersJson = process.env.PW_EXTRA_HEADERS_JSON?.trim() || '';
+  const hasCustomAiInput = Boolean(
+    process.env.PW_API_KEY ||
+      process.env.PW_MODEL_ID ||
+      process.env.PW_API_BASE_URL ||
+      process.env.PW_API_STYLE ||
+      process.env.PW_EXTRA_HEADERS_JSON ||
+      process.env.PW_PROVIDER_PRESET
+  );
+
+  if (hasCustomAiInput) {
+    const missing = [];
+    if (!apiKey) {
+      missing.push('PW_API_KEY');
+    }
+    if (!modelId) {
+      missing.push('PW_MODEL_ID');
+    }
+
+    if (missing.length) {
+      throw new Error(`AI 回归缺少必要环境变量：${missing.join(', ')}`);
+    }
+  }
+
+  return {
+    providerPreset,
+    apiStyle,
+    apiBaseUrl,
+    apiKey,
+    modelId,
+    extraHeadersJson
+  };
+}
+
+function getDefaultApiBaseUrl(providerPreset) {
+  switch (providerPreset) {
+    case 'siliconFlow':
+      return 'https://api.siliconflow.cn/v1';
+    case 'aliyunDashScope':
+      return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    case 'openRouter':
+      return 'https://openrouter.ai/api/v1';
+    case 'googleGemini':
+      return 'https://generativelanguage.googleapis.com/v1beta/openai';
+    case 'anthropicClaude':
+      return 'https://api.anthropic.com/v1';
+    case 'openai':
+    case 'openaiCompatible':
+      return 'https://api.openai.com/v1';
+    case 'custom':
+      return '';
+    case 'volcengineArk':
+    default:
+      return 'https://ark.cn-beijing.volces.com/api/v3';
+  }
+}
+
+function getDefaultApiStyle(providerPreset) {
+  return providerPreset === 'anthropicClaude'
+    ? 'anthropicMessages'
+    : providerPreset === 'openai'
+      ? 'responses'
+      : 'chatCompletions';
+}
+
+function redactAiConfig(config) {
+  return {
+    providerPreset: config.providerPreset,
+    apiStyle: config.apiStyle,
+    apiBaseUrl: config.apiBaseUrl,
+    modelId: config.modelId,
+    apiKeyConfigured: Boolean(config.apiKey),
+    extraHeadersConfigured: Boolean(config.extraHeadersJson)
+  };
+}
+
+function redactSettings(settings) {
+  if (!settings || typeof settings !== 'object') {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    apiKey: settings.apiKey ? '[REDACTED]' : '',
+    extraHeadersJson: settings.extraHeadersJson ? '[REDACTED]' : ''
+  };
+}
+
+function redactValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValue(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const next = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'settings') {
+      next[key] = redactSettings(item);
+      continue;
+    }
+
+    if (key === 'apiKey') {
+      next[key] = item ? '[REDACTED]' : '';
+      continue;
+    }
+
+    if (key === 'extraHeadersJson') {
+      next[key] = item ? '[REDACTED]' : '';
+      continue;
+    }
+
+    next[key] = redactValue(item);
+  }
+
+  return next;
 }
 
 async function startFixtureServer() {

@@ -95,6 +95,12 @@ npm run validate:e2e
 - `PW_HEADLESS=0`：以有界面模式运行验证
 - `PW_OUTPUT_SUBDIR=foo/bar`：覆盖 e2e 中写入插件设置的导出目录
 - `PW_FIXTURE_PORT=48123`：覆盖本地验证页端口
+- `PW_PROVIDER_PRESET=siliconFlow`：用指定 provider 预设跑真实模型回归
+- `PW_MODEL_ID=Qwen/Qwen3-VL-32B-Instruct`：指定视觉模型
+- `PW_API_KEY=...`：从环境变量注入 API Key，不落到源码和报告文件
+- `PW_API_BASE_URL=https://api.siliconflow.cn`：可选覆盖 provider 默认基地址
+- `PW_API_STYLE=chatCompletions`：可选覆盖 API 风格
+- `PW_EXTRA_HEADERS_JSON='{\"HTTP-Referer\":\"https://example.com\"}'`：可选附加请求头
 
 验证产物会写到：
 
@@ -102,6 +108,19 @@ npm run validate:e2e
 - `output/playwright/popup.png`
 - `output/playwright/downloads/`
 - `output/playwright/profile/`
+
+例如用硅基流动跑一轮真实模型验证：
+
+```bash
+PW_PROVIDER_PRESET=siliconFlow \
+PW_MODEL_ID=Qwen/Qwen3-VL-32B-Instruct \
+PW_API_BASE_URL=https://api.siliconflow.cn \
+PW_API_KEY=你的密钥 \
+PW_HEADLESS=0 \
+npm run validate:e2e
+```
+
+验证脚本会把 `API Key` 和附加请求头从控制台输出与 `report.json` 中自动脱敏。
 
 ## AI 端点接入
 
