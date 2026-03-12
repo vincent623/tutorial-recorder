@@ -255,6 +255,7 @@ async function main() {
       const historyCount = document.querySelectorAll('.history-item').length;
       const mediaStatus = document.getElementById('mediaStatus')?.textContent?.trim() || '';
       const providerSummary = document.getElementById('providerSummary')?.textContent?.trim() || '';
+      const promptSummary = document.getElementById('promptSummary')?.textContent?.trim() || '';
       const outputDirSummary = document.getElementById('outputDirSummary')?.textContent?.trim() || '';
       const firstHistoryTitle = document.querySelector('.history-title')?.textContent?.trim() || '';
       const firstHistoryExport = document.querySelector('.history-export')?.textContent?.trim() || '';
@@ -266,6 +267,7 @@ async function main() {
         historyCount,
         mediaStatus,
         providerSummary,
+        promptSummary,
         outputDirSummary,
         firstHistoryTitle,
         firstHistoryExport,
@@ -317,7 +319,9 @@ async function main() {
           settingsPageSummary.outputPreviewValue.includes(`Downloads/${customOutputDir}/tutorial-`) &&
           settingsPageSummary.outputPreviewValue.endsWith('.zip'),
         popupSummaryRendered:
-          popupSummary.providerSummary.length > 0 && popupSummary.outputDirSummary === customOutputDir,
+          popupSummary.providerSummary.length > 0 &&
+          popupSummary.promptSummary.length > 0 &&
+          popupSummary.outputDirSummary === customOutputDir,
         historyExportRendered:
           popupSummary.firstHistoryExport.includes(`Downloads/${customOutputDir}/tutorial-`) &&
           popupSummary.firstHistoryExport.includes('.zip'),

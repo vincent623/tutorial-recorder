@@ -12,6 +12,14 @@ const PROVIDER_LABELS = {
   custom: '自定义'
 };
 
+const PROMPT_PRESET_LABELS = {
+  default: '默认（平衡）',
+  actionFirst: '动作优先',
+  controlFocused: '控件定位',
+  concise: '简洁短句',
+  custom: '自定义'
+};
+
 const CAPTURE_MODE_HINTS = {
   displayMedia: '开始录制时会弹出共享画面选择，并额外请求麦克风权限。',
   tabCapture: '直接录制当前标签页，适合自动化验证或兼容场景，通常不会弹出共享选择。'
@@ -33,6 +41,7 @@ const elements = {
   interval: $('interval'),
   autoScreenshot: $('autoScreenshot'),
   providerSummary: $('providerSummary'),
+  promptSummary: $('promptSummary'),
   outputDirSummary: $('outputDirSummary'),
   historyList: $('historyList'),
   detailPanel: $('detailPanel'),
@@ -502,7 +511,10 @@ function updateCaptureModeHint() {
 
 function updateSettingsSummary() {
   const providerKey = currentSettings.providerPreset || 'volcengineArk';
+  const promptPresetKey = currentSettings.promptPreset || 'default';
   elements.providerSummary.textContent = PROVIDER_LABELS[providerKey] || PROVIDER_LABELS.custom;
+  elements.promptSummary.textContent =
+    PROMPT_PRESET_LABELS[promptPresetKey] || PROMPT_PRESET_LABELS.default;
   elements.outputDirSummary.textContent = currentSettings.outputDir || DEFAULT_OUTPUT_DIR;
 }
 
