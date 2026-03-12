@@ -6,6 +6,7 @@ const HISTORY_KEY = 'recordings';
 const RUNTIME_KEY = 'recordingRuntime';
 const OFFSCREEN_PATH = 'offscreen/offscreen.html';
 const OFFSCREEN_MESSAGE_TIMEOUT_MS = 120_000;
+const AI_ANALYZE_TIMEOUT_MS = 45_000;
 
 const PROVIDER_PRESETS = {
   volcengineArk: {
@@ -768,6 +769,11 @@ async function generateTutorial() {
         );
       } catch (error) {
         console.error('[Background] Analyze error:', error);
+        if (isAiTimeoutError(error)) {
+          notifyPopup('warning', {
+            message: `步骤 ${index + 1} AI 识别超时，已改用默认说明继续导出。`
+          });
+        }
         currentRecording.screenshots[index].description = getFallbackDescription(
           currentRecording.screenshots[index],
           index
@@ -827,18 +833,32 @@ async function generateTutorial() {
 
 async function analyzeImage(screenshot, settings, index, screenshots) {
   const request = buildVisionRequest(screenshot, settings, index, screenshots);
-  const response = await fetch(request.url, {
-    method: 'POST',
-    headers: request.headers,
-    body: JSON.stringify(request.body)
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_ANALYZE_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error((await response.text()).slice(0, 200));
+  try {
+    const response = await fetch(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error((await response.text()).slice(0, 200));
+    }
+
+    const data = await response.json();
+    return extractVisionText(data, settings.apiStyle) || '未命名步骤';
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw createAiTimeoutError();
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const data = await response.json();
-  return extractVisionText(data, settings.apiStyle) || '未命名步骤';
 }
 
 function buildRecordingTitle(recording) {
@@ -1424,6 +1444,16 @@ function buildVisionRequest(screenshot, settings, index, screenshots) {
       max_tokens: 120
     }
   };
+}
+
+function createAiTimeoutError() {
+  const error = new Error(`AI 识别超时（${Math.round(AI_ANALYZE_TIMEOUT_MS / 1000)} 秒）`);
+  error.name = 'AITimeoutError';
+  return error;
+}
+
+function isAiTimeoutError(error) {
+  return error?.name === 'AITimeoutError';
 }
 
 function resolveVisionUrl(apiBaseUrl, apiStyle) {

@@ -61,6 +61,7 @@ tutorial-recorder/
 - 历史记录面板支持查看教程详情、修改标题和步骤说明，然后重新导出新的 ZIP
 - 未配置 AI 时，插件仍然可以录制和导出，只是步骤说明会回退到默认文案
 - 截图分析会附带页面标题、地址和最近一次交互动作，帮助视觉模型更准确地判断“用户正在做什么”
+- 单张截图的 AI 识别默认带超时保护；如果模型响应过慢，会自动回退到默认说明并继续导出
 - AI 提示词支持 4 个内置版本和 1 个自定义版本；自定义模板可使用 `{{stepIndex}}`、`{{totalSteps}}`、`{{pageTitle}}`、`{{pageUrl}}`、`{{pageUrlLine}}`、`{{interactionSummary}}`、`{{previousDescription}}`
 - `API Base URL` 只需要填到版本根路径，例如 `https://ark.cn-beijing.volces.com/api/v3` 或 `https://api.openai.com/v1`，插件会按 `Chat Completions / Responses` 自动补齐路径
 - `附加请求头 JSON` 适合 OpenAI 兼容网关，例如：
