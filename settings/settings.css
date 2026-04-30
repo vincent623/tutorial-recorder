@@ -115,6 +115,10 @@ body {
   grid-template-columns: 160px;
 }
 
+.crop-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -274,5 +278,9 @@ body {
 
   .grid-equal {
     grid-template-columns: 1fr;
+  }
+
+  .crop-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -81,6 +81,51 @@
 
     <section class="panel">
       <div class="panel-head">
+        <h2>截图引擎</h2>
+        <span class="panel-tip">CDP 模式用于后台截图和后续 AI 自动录制</span>
+      </div>
+
+      <label class="field">
+        <span>截图引擎</span>
+        <select id="screenshotEngine">
+          <option value="standard">标准截图（captureVisibleTab）</option>
+          <option value="cdp">CDP 精确截图（chrome.debugger）</option>
+        </select>
+        <small class="field-hint" id="screenshotEngineHint">标准模式不触发 Chrome 调试提示，适合日常录制。</small>
+      </label>
+
+      <div class="field toggle-field">
+        <div class="toggle-row">
+          <span>启用 CDP 裁切区域</span>
+          <input type="checkbox" id="cdpCropEnabled">
+        </div>
+        <small class="field-hint">开启后，CDP 截图只保留下面设置的视口像素区域。</small>
+      </div>
+
+      <div class="grid crop-grid">
+        <label class="field">
+          <span>X</span>
+          <input type="number" id="cdpCropX" min="0" value="0">
+        </label>
+        <label class="field">
+          <span>Y</span>
+          <input type="number" id="cdpCropY" min="0" value="0">
+        </label>
+        <label class="field">
+          <span>宽度</span>
+          <input type="number" id="cdpCropWidth" min="0" value="0">
+        </label>
+        <label class="field">
+          <span>高度</span>
+          <input type="number" id="cdpCropHeight" min="0" value="0">
+        </label>
+      </div>
+
+      <button type="button" id="btnClearCdpCrop" class="mini-btn">清除裁切区域</button>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
         <h2>AI 设置</h2>
         <span class="panel-tip">支持多家视觉模型和 OpenAI 兼容网关</span>
       </div>

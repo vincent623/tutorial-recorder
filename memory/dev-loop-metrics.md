@@ -18,3 +18,11 @@
 - First pending task selected: `v1.3.1-regression-checks`.
 - Regression checks added: version alignment, paused manual screenshot behavior, AI API HTTP-status fallback warning, history cap/export path display.
 - Stage result: `v1.3.1-regression-checks` completed and verified through `npm run watchdog`.
+
+## 2026-05-01 - v1.4.0 CDP Metrics
+
+- New permission surface: `debugger`.
+- New settings keys: `screenshotEngine`, `cdpCropEnabled`, `cdpCropX`, `cdpCropY`, `cdpCropWidth`, `cdpCropHeight`.
+- New CDP commands used: `Page.enable`, `DOM.enable`, `Page.captureScreenshot`, `DOM.getNodeForLocation`, `DOM.describeNode`.
+- New regression checks added: 5.
+- Stage result: `v1.4.0-cdp-engine` completed and verified through `npm run check`.

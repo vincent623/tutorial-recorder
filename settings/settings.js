@@ -139,12 +139,25 @@ const CAPTURE_MODE_HINTS = {
   tabCapture: '直接录制当前标签页，适合自动化验证或兼容场景，通常不会弹出共享选择。'
 };
 
+const SCREENSHOT_ENGINE_HINTS = {
+  standard: '标准模式不触发 Chrome 调试提示，适合日常录制。',
+  cdp: 'CDP 模式会使用 chrome.debugger 截图，可在目标标签页不在前台时继续捕获画面。'
+};
+
 const elements = {
   saveStatus: $('saveStatus'),
   captureMode: $('captureMode'),
   captureModeHint: $('captureModeHint'),
   interval: $('interval'),
   autoScreenshot: $('autoScreenshot'),
+  screenshotEngine: $('screenshotEngine'),
+  screenshotEngineHint: $('screenshotEngineHint'),
+  cdpCropEnabled: $('cdpCropEnabled'),
+  cdpCropX: $('cdpCropX'),
+  cdpCropY: $('cdpCropY'),
+  cdpCropWidth: $('cdpCropWidth'),
+  cdpCropHeight: $('cdpCropHeight'),
+  btnClearCdpCrop: $('btnClearCdpCrop'),
   outputDir: $('outputDir'),
   btnResetDir: $('btnResetDir'),
   outputPreviewValue: $('outputPreviewValue'),
@@ -193,6 +206,13 @@ function bindEvents() {
   elements.captureMode.addEventListener('change', saveSettings);
   elements.interval.addEventListener('change', saveSettings);
   elements.autoScreenshot.addEventListener('change', saveSettings);
+  elements.screenshotEngine.addEventListener('change', handleScreenshotEngineChange);
+  elements.cdpCropEnabled.addEventListener('change', saveSettings);
+  elements.cdpCropX.addEventListener('change', saveSettings);
+  elements.cdpCropY.addEventListener('change', saveSettings);
+  elements.cdpCropWidth.addEventListener('change', saveSettings);
+  elements.cdpCropHeight.addEventListener('change', saveSettings);
+  elements.btnClearCdpCrop.addEventListener('click', clearCdpCrop);
   elements.outputDir.addEventListener('input', updateOutputPreview);
   elements.outputDir.addEventListener('change', saveSettings);
   elements.btnResetDir.addEventListener('click', resetOutputDir);
@@ -246,6 +266,12 @@ function readSettingsFromForm() {
     captureMode: elements.captureMode.value,
     screenshotInterval: parseInt(elements.interval.value, 10),
     autoScreenshot: elements.autoScreenshot.checked,
+    screenshotEngine: elements.screenshotEngine.value,
+    cdpCropEnabled: elements.cdpCropEnabled.checked,
+    cdpCropX: parseInt(elements.cdpCropX.value, 10),
+    cdpCropY: parseInt(elements.cdpCropY.value, 10),
+    cdpCropWidth: parseInt(elements.cdpCropWidth.value, 10),
+    cdpCropHeight: parseInt(elements.cdpCropHeight.value, 10),
     outputDir: elements.outputDir.value.trim(),
     promptForSaveAs: elements.promptForSaveAs.checked,
     providerPreset: elements.providerPreset.value,
@@ -278,6 +304,11 @@ async function handleProviderPresetChange() {
 
 async function handlePromptForSaveAsChange() {
   updateOutputPreview();
+  await saveSettings();
+}
+
+async function handleScreenshotEngineChange() {
+  updateScreenshotEngineUi();
   await saveSettings();
 }
 
@@ -315,10 +346,25 @@ async function resetOutputDir() {
   await saveSettings();
 }
 
+async function clearCdpCrop() {
+  elements.cdpCropEnabled.checked = false;
+  elements.cdpCropX.value = 0;
+  elements.cdpCropY.value = 0;
+  elements.cdpCropWidth.value = 0;
+  elements.cdpCropHeight.value = 0;
+  await saveSettings();
+}
+
 function applySettingsToForm(settings = {}) {
   elements.captureMode.value = settings.captureMode || 'displayMedia';
   elements.interval.value = settings.screenshotInterval || 5;
   elements.autoScreenshot.checked = settings.autoScreenshot !== false;
+  elements.screenshotEngine.value = settings.screenshotEngine === 'cdp' ? 'cdp' : 'standard';
+  elements.cdpCropEnabled.checked = settings.cdpCropEnabled === true;
+  elements.cdpCropX.value = settings.cdpCropX || 0;
+  elements.cdpCropY.value = settings.cdpCropY || 0;
+  elements.cdpCropWidth.value = settings.cdpCropWidth || 0;
+  elements.cdpCropHeight.value = settings.cdpCropHeight || 0;
   elements.outputDir.value = settings.outputDir || DEFAULT_OUTPUT_DIR;
   elements.promptForSaveAs.checked = settings.promptForSaveAs === true;
   elements.providerPreset.value = settings.providerPreset || 'volcengineArk';
@@ -333,6 +379,7 @@ function applySettingsToForm(settings = {}) {
     userPromptTemplate: settings.customUserPrompt || ''
   };
   updateCaptureModeHint();
+  updateScreenshotEngineUi();
   updateProviderUi();
   updatePromptUi();
   updateOutputPreview();
@@ -341,6 +388,18 @@ function applySettingsToForm(settings = {}) {
 function updateCaptureModeHint() {
   elements.captureModeHint.textContent =
     CAPTURE_MODE_HINTS[elements.captureMode.value] || CAPTURE_MODE_HINTS.displayMedia;
+}
+
+function updateScreenshotEngineUi() {
+  const engine = elements.screenshotEngine.value === 'cdp' ? 'cdp' : 'standard';
+  elements.screenshotEngineHint.textContent = SCREENSHOT_ENGINE_HINTS[engine];
+  const cropDisabled = engine !== 'cdp';
+  elements.cdpCropEnabled.disabled = cropDisabled;
+  elements.cdpCropX.disabled = cropDisabled;
+  elements.cdpCropY.disabled = cropDisabled;
+  elements.cdpCropWidth.disabled = cropDisabled;
+  elements.cdpCropHeight.disabled = cropDisabled;
+  elements.btnClearCdpCrop.disabled = cropDisabled;
 }
 
 function updateProviderUi() {

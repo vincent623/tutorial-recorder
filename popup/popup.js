@@ -42,6 +42,7 @@ const elements = {
   screenshotCount: $('screenshotCount'),
   recordTime: $('recordTime'),
   mediaStatus: $('mediaStatus'),
+  cdpBanner: $('cdpBanner'),
   btnOpenWorkspace: $('btnOpenWorkspace'),
   btnOpenSettings: $('btnOpenSettings'),
   btnOpenSettingsHero: $('btnOpenSettingsHero'),
@@ -96,6 +97,8 @@ function createIdleState() {
     mediaStatus: '待启动',
     recordingId: null,
     captureMode: 'displayMedia',
+    screenshotEngine: 'standard',
+    cdpAttached: false,
     audioStarted: false,
     videoStarted: false
   };
@@ -585,6 +588,8 @@ function handleRuntimeMessage(message) {
       state.pausedDurationMs = 0;
       state.pauseStartedAt = null;
       state.captureMode = message.captureMode || state.captureMode;
+      state.screenshotEngine = message.screenshotEngine || state.screenshotEngine;
+      state.cdpAttached = message.cdpAttached === true;
       state.audioStarted = message.audioStarted === true;
       state.videoStarted = message.videoStarted === true;
       state.mediaStatus = message.mediaStatus || getMediaStatusLabel(state.audioStarted, state.videoStarted);
@@ -616,6 +621,12 @@ function handleRuntimeMessage(message) {
       state.audioStarted = message.audioStarted === true;
       state.videoStarted = message.videoStarted === true;
       state.mediaStatus = message.mediaStatus || getMediaStatusLabel(state.audioStarted, state.videoStarted);
+      break;
+    case 'cdpStatus':
+      state.cdpAttached = message.active === true;
+      if (message.message) {
+        elements.cdpBanner.textContent = message.message;
+      }
       break;
     case 'generating':
       state.isGenerating = true;
@@ -695,6 +706,7 @@ function updateUi() {
   elements.btnStop.disabled = !state.isRecording || state.isGenerating;
   elements.btnCapture.disabled = !state.isRecording || state.isGenerating;
   elements.btnPause.textContent = state.isPaused ? '继续' : '暂停';
+  elements.cdpBanner.hidden = !(state.isRecording && state.cdpAttached);
 
   renderHistory(historyItems);
   updateSettingsSummary();

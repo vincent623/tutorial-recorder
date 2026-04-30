@@ -2,6 +2,16 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [1.4.0] - 2026-05-01
+
+### Added
+- Optional CDP screenshot engine using `chrome.debugger` and `Page.captureScreenshot`.
+- CDP debugger lifecycle handling with attach on recording start and detach before tutorial generation.
+- Automatic fallback from CDP screenshots to standard `captureVisibleTab` screenshots when attach or capture fails.
+- CDP crop-region settings and a popup status banner for Chrome debugging visibility.
+- Click coordinate reporting and CDP DOM node lookup for more precise interaction context in CDP mode.
+- v1.4.0 regression checks covering permission, settings UI, CDP paths, interaction coordinates, and popup status.
+
 ## [1.3.1] - 2026-05-01
 
 ### Fixed

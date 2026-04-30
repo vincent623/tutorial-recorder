@@ -27,7 +27,10 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 document.addEventListener('click', (event) => {
-  reportInteraction('click', event.target);
+  reportInteraction('click', event.target, {
+    clientX: event.clientX,
+    clientY: event.clientY
+  });
 }, true);
 
 document.addEventListener('change', (event) => {
@@ -151,6 +154,8 @@ function reportInteraction(type, target, extra = {}) {
         type,
         summary,
         target: describeTarget(target),
+        clientX: Number.isFinite(extra.clientX) ? extra.clientX : null,
+        clientY: Number.isFinite(extra.clientY) ? extra.clientY : null,
         timestamp: now
       }
     })

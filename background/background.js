@@ -7,6 +7,7 @@ const RUNTIME_KEY = 'recordingRuntime';
 const OFFSCREEN_PATH = 'offscreen/offscreen.html';
 const OFFSCREEN_MESSAGE_TIMEOUT_MS = 120_000;
 const AI_ANALYZE_TIMEOUT_MS = 45_000;
+const CDP_PROTOCOL_VERSION = '1.3';
 
 const PROVIDER_PRESETS = {
   volcengineArk: {
@@ -138,7 +139,13 @@ const DEFAULT_SETTINGS = {
   outputDir: 'tutorial-recorder',
   promptForSaveAs: false,
   screenshotInterval: 5,
-  autoScreenshot: true
+  autoScreenshot: true,
+  screenshotEngine: 'standard',
+  cdpCropEnabled: false,
+  cdpCropX: 0,
+  cdpCropY: 0,
+  cdpCropWidth: 0,
+  cdpCropHeight: 0
 };
 
 let currentRecording = null;
@@ -288,6 +295,10 @@ function createIdleRuntime() {
     windowId: null,
     recordingId: null,
     captureMode: DEFAULT_SETTINGS.captureMode,
+    screenshotEngine: DEFAULT_SETTINGS.screenshotEngine,
+    cdpAttached: false,
+    cdpWarningShown: false,
+    cdpCrop: null,
     captureIntervalMs: DEFAULT_SETTINGS.screenshotInterval * 1000,
     autoScreenshot: DEFAULT_SETTINGS.autoScreenshot,
     audioStarted: false,
@@ -321,6 +332,12 @@ function normalizeSettings(settings = {}) {
       PROMPT_PRESETS.default.userPromptTemplate.length * 8
     ),
     captureMode: normalizeCaptureMode(settings.captureMode),
+    screenshotEngine: normalizeScreenshotEngine(settings.screenshotEngine),
+    cdpCropEnabled: settings.cdpCropEnabled === true,
+    cdpCropX: sanitizeNonNegativeInteger(settings.cdpCropX),
+    cdpCropY: sanitizeNonNegativeInteger(settings.cdpCropY),
+    cdpCropWidth: sanitizeNonNegativeInteger(settings.cdpCropWidth),
+    cdpCropHeight: sanitizeNonNegativeInteger(settings.cdpCropHeight),
     promptForSaveAs: settings.promptForSaveAs === true,
     screenshotInterval: clampInterval(settings.screenshotInterval ?? DEFAULT_SETTINGS.screenshotInterval),
     autoScreenshot: settings.autoScreenshot !== false
@@ -357,6 +374,37 @@ function normalizeApiStyle(value) {
 
 function normalizeCaptureMode(value) {
   return value === 'tabCapture' ? 'tabCapture' : 'displayMedia';
+}
+
+function normalizeScreenshotEngine(value) {
+  return value === 'cdp' ? 'cdp' : 'standard';
+}
+
+function sanitizeNonNegativeInteger(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return Math.min(parsed, 100_000);
+}
+
+function buildCdpCropFromSettings(settings = {}) {
+  if (
+    settings.cdpCropEnabled !== true ||
+    !settings.cdpCropWidth ||
+    !settings.cdpCropHeight
+  ) {
+    return null;
+  }
+
+  return {
+    x: sanitizeNonNegativeInteger(settings.cdpCropX),
+    y: sanitizeNonNegativeInteger(settings.cdpCropY),
+    width: sanitizeNonNegativeInteger(settings.cdpCropWidth),
+    height: sanitizeNonNegativeInteger(settings.cdpCropHeight),
+    scale: 1
+  };
 }
 
 function sanitizeApiBaseUrl(value, providerPreset = DEFAULT_SETTINGS.providerPreset) {
@@ -534,6 +582,10 @@ async function startRecording(tabId) {
     windowId: tab.windowId,
     recordingId: currentRecording.id,
     captureMode: settings.captureMode,
+    screenshotEngine: settings.screenshotEngine,
+    cdpAttached: false,
+    cdpWarningShown: false,
+    cdpCrop: buildCdpCropFromSettings(settings),
     captureIntervalMs: settings.screenshotInterval * 1000,
     autoScreenshot: settings.autoScreenshot,
     mediaStatus: '正在请求授权...'
@@ -544,6 +596,19 @@ async function startRecording(tabId) {
   await updateBadge();
 
   try {
+    if (settings.screenshotEngine === 'cdp') {
+      await attachCdpDebugger(tab.id).catch(async (error) => {
+        currentRuntime.screenshotEngine = 'standard';
+        currentRuntime.cdpAttached = false;
+        currentRuntime.cdpWarningShown = true;
+        currentRuntime.cdpCrop = null;
+        await persistRuntime();
+        notifyPopup('warning', {
+          message: `CDP 截图启动失败，已回退到标准模式：${error.message || '未知错误'}`
+        });
+      });
+    }
+
     let captureStreamId = '';
 
     if (settings.captureMode === 'tabCapture') {
@@ -585,12 +650,15 @@ async function startRecording(tabId) {
       recordingId: currentRuntime.recordingId,
       count: currentRuntime.count,
       captureMode: currentRuntime.captureMode,
+      screenshotEngine: currentRuntime.screenshotEngine,
+      cdpAttached: currentRuntime.cdpAttached,
       audioStarted: currentRuntime.audioStarted,
       videoStarted: currentRuntime.videoStarted,
       mediaStatus: currentRuntime.mediaStatus
     });
     notifyContent('recordingStarted');
   } catch (error) {
+    await detachCdpDebugger();
     await closeOffscreenDocument();
     await deleteRecording(currentRecording.id).catch(() => {});
     currentRecording = null;
@@ -682,6 +750,7 @@ async function stopRecording() {
   applyMediaResult(currentRecording, mediaResult, currentRuntime.durationMs);
 
   await putRecording(currentRecording);
+  await detachCdpDebugger();
 
   try {
     await generateTutorial();
@@ -694,6 +763,7 @@ async function stopRecording() {
     currentRecording = null;
     throw error;
   } finally {
+    await detachCdpDebugger();
     await closeOffscreenDocument();
   }
 }
@@ -713,9 +783,7 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
   }
 
   currentRuntime.windowId = tab.windowId;
-  const dataUrl = await chrome.tabs.captureVisibleTab(currentRuntime.windowId, {
-    format: 'png'
-  });
+  const dataUrl = await captureScreenshotDataUrl(tab);
 
   const timestamp = Date.now();
   currentRecording.screenshots.push({
@@ -744,6 +812,71 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
   notifyContent('screenshotFeedback', { count: currentRuntime.count });
 
   return { ok: true, captured: true, count: currentRuntime.count };
+}
+
+async function captureScreenshotDataUrl(tab) {
+  if (currentRuntime.screenshotEngine === 'cdp' && currentRuntime.cdpAttached) {
+    try {
+      return await captureVisibleTabWithCdp(tab.id);
+    } catch (error) {
+      currentRuntime.screenshotEngine = 'standard';
+      currentRuntime.cdpAttached = false;
+      currentRuntime.cdpCrop = null;
+      await persistRuntime();
+      notifyPopup('warning', {
+        message: `CDP 截图失败，已回退到标准模式：${error.message || '未知错误'}`
+      });
+      await detachCdpDebugger(tab.id);
+    }
+  }
+
+  return chrome.tabs.captureVisibleTab(currentRuntime.windowId, {
+    format: 'png'
+  });
+}
+
+async function attachCdpDebugger(tabId) {
+  const target = { tabId };
+  await chrome.debugger.attach(target, CDP_PROTOCOL_VERSION);
+  currentRuntime.cdpAttached = true;
+  currentRuntime.screenshotEngine = 'cdp';
+  await chrome.debugger.sendCommand(target, 'Page.enable').catch(() => {});
+  await chrome.debugger.sendCommand(target, 'DOM.enable').catch(() => {});
+  await persistRuntime();
+  notifyPopup('cdpStatus', {
+    active: true,
+    message: '录制中使用 CDP 精确截图，Chrome 可能显示调试提示，录制结束后会自动消失。'
+  });
+}
+
+async function detachCdpDebugger(tabId = currentRuntime.tabId) {
+  if (!tabId || !currentRuntime.cdpAttached) {
+    return;
+  }
+
+  await chrome.debugger.detach({ tabId }).catch(() => {});
+  currentRuntime.cdpAttached = false;
+  await persistRuntime().catch(() => {});
+  notifyPopup('cdpStatus', { active: false });
+}
+
+async function captureVisibleTabWithCdp(tabId) {
+  const target = { tabId };
+  const params = {
+    format: 'png',
+    fromSurface: true
+  };
+
+  if (currentRuntime.cdpCrop) {
+    params.clip = currentRuntime.cdpCrop;
+  }
+
+  const result = await chrome.debugger.sendCommand(target, 'Page.captureScreenshot', params);
+  if (!result?.data) {
+    throw new Error('CDP 未返回截图数据');
+  }
+
+  return `data:image/png;base64,${result.data}`;
 }
 
 async function generateTutorial() {
@@ -1331,14 +1464,116 @@ async function recordInteraction(payload, sender) {
     return;
   }
 
+  const cdpElement = await locateElementWithCdp(payload).catch(() => null);
+  const cdpSummary = cdpElement ? buildCdpInteractionSummary(payload.type, cdpElement) : '';
+
   currentRuntime.lastInteraction = {
     type: sanitizeEditableText(payload.type, 40) || 'interaction',
-    summary: sanitizeEditableText(payload.summary, 160),
-    target: sanitizeEditableText(payload.target, 160),
+    summary: sanitizeEditableText(cdpSummary || payload.summary, 160),
+    target: sanitizeEditableText(cdpElement?.target || payload.target, 160),
+    cdpElement,
     timestamp: Number.isFinite(payload.timestamp) ? payload.timestamp : Date.now()
   };
 
   await persistRuntime();
+}
+
+async function locateElementWithCdp(payload = {}) {
+  if (
+    currentRuntime.screenshotEngine !== 'cdp' ||
+    !currentRuntime.cdpAttached ||
+    !Number.isFinite(payload.clientX) ||
+    !Number.isFinite(payload.clientY) ||
+    payload.type !== 'click'
+  ) {
+    return null;
+  }
+
+  const target = { tabId: currentRuntime.tabId };
+  const location = await chrome.debugger.sendCommand(target, 'DOM.getNodeForLocation', {
+    x: Math.round(payload.clientX),
+    y: Math.round(payload.clientY),
+    includeUserAgentShadowDOM: true,
+    ignorePointerEventsNone: true
+  });
+
+  const nodeRef = location?.backendNodeId
+    ? { backendNodeId: location.backendNodeId }
+    : location?.nodeId
+      ? { nodeId: location.nodeId }
+      : null;
+
+  if (!nodeRef) {
+    return null;
+  }
+
+  const described = await chrome.debugger.sendCommand(target, 'DOM.describeNode', nodeRef);
+  return describeCdpNode(described?.node);
+}
+
+function describeCdpNode(node) {
+  if (!node?.nodeName) {
+    return null;
+  }
+
+  const attributes = {};
+  const rawAttributes = Array.isArray(node.attributes) ? node.attributes : [];
+  for (let index = 0; index < rawAttributes.length; index += 2) {
+    attributes[String(rawAttributes[index] || '').toLowerCase()] = String(rawAttributes[index + 1] || '');
+  }
+
+  const tagName = String(node.nodeName || '').toLowerCase();
+  const label = sanitizeEditableText(
+    attributes['aria-label'] ||
+      attributes.title ||
+      attributes.placeholder ||
+      attributes.name ||
+      attributes['data-testid'] ||
+      attributes.role ||
+      '',
+    60
+  );
+  const kind = getCdpNodeKind(tagName, attributes.role);
+  const target = label ? `“${label}”${kind}` : kind || tagName || '页面元素';
+
+  return {
+    tagName,
+    role: sanitizeEditableText(attributes.role, 40),
+    label,
+    target
+  };
+}
+
+function getCdpNodeKind(tagName, role) {
+  if (role === 'button' || tagName === 'button') {
+    return '按钮';
+  }
+
+  if (tagName === 'input' || tagName === 'textarea') {
+    return '输入框';
+  }
+
+  if (tagName === 'select') {
+    return '下拉框';
+  }
+
+  if (tagName === 'a') {
+    return '链接';
+  }
+
+  return '页面元素';
+}
+
+function buildCdpInteractionSummary(type, element) {
+  if (!element?.target) {
+    return '';
+  }
+
+  if (type === 'click') {
+    return `点击${element.target}`;
+  }
+
+  return '';
 }
 
 function getRelevantInteraction(timestamp) {

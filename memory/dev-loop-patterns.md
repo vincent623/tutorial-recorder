@@ -13,3 +13,9 @@
 - Keep a repo-local progress file (`memory/dev-loop-progress.md`) as the single readable queue for automated dev-loop execution.
 - Map watchdog tasks to deterministic local commands instead of arbitrary shell text from markdown; this keeps the automation auditable and avoids command injection through progress notes.
 - Start patch work by converting known `.42cog` acceptance mismatches into regression checks, then make the smallest product change needed to satisfy the checks.
+
+## 2026-05-01 - CDP Engine Pattern
+
+- Keep `captureMode` for media capture separate from `screenshotEngine` for still-image capture; mixing them would make the existing displayMedia/tabCapture behavior harder to preserve.
+- Detach the debugger before tutorial generation resets runtime state, otherwise the detach guard can lose the active tab reference.
+- Use CDP as an optional enhancement with standard screenshot fallback; a debugger failure should degrade precision, not lose the recording.
