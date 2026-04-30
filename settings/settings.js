@@ -164,6 +164,7 @@ const elements = {
   outputPreviewHint: $('outputPreviewHint'),
   promptForSaveAs: $('promptForSaveAs'),
   providerPreset: $('providerPreset'),
+  realtimeSuggestions: $('realtimeSuggestions'),
   advancedAiSettings: $('advancedAiSettings'),
   apiStyle: $('apiStyle'),
   apiKey: $('apiKey'),
@@ -218,6 +219,7 @@ function bindEvents() {
   elements.btnResetDir.addEventListener('click', resetOutputDir);
   elements.promptForSaveAs.addEventListener('change', handlePromptForSaveAsChange);
   elements.providerPreset.addEventListener('change', handleProviderPresetChange);
+  elements.realtimeSuggestions.addEventListener('change', saveSettings);
   elements.apiStyle.addEventListener('change', saveSettings);
   elements.apiKey.addEventListener('change', saveSettings);
   elements.apiBaseUrl.addEventListener('change', saveSettings);
@@ -275,6 +277,7 @@ function readSettingsFromForm() {
     outputDir: elements.outputDir.value.trim(),
     promptForSaveAs: elements.promptForSaveAs.checked,
     providerPreset: elements.providerPreset.value,
+    realtimeSuggestions: elements.realtimeSuggestions.checked,
     apiStyle: elements.apiStyle.value,
     apiKey: elements.apiKey.value.trim(),
     apiBaseUrl: elements.apiBaseUrl.value.trim(),
@@ -368,6 +371,7 @@ function applySettingsToForm(settings = {}) {
   elements.outputDir.value = settings.outputDir || DEFAULT_OUTPUT_DIR;
   elements.promptForSaveAs.checked = settings.promptForSaveAs === true;
   elements.providerPreset.value = settings.providerPreset || 'volcengineArk';
+  elements.realtimeSuggestions.checked = settings.realtimeSuggestions === true;
   elements.apiStyle.value = settings.apiStyle || 'chatCompletions';
   elements.apiKey.value = settings.apiKey || '';
   elements.apiBaseUrl.value = settings.apiBaseUrl || '';

@@ -365,7 +365,7 @@ button:focus-visible,
 }
 
 .compact-grid {
-  grid-template-columns: 150px;
+  grid-template-columns: repeat(2, minmax(0, 150px));
 }
 
 .compact-summary {
@@ -394,13 +394,33 @@ button:focus-visible,
 }
 
 .checkbox-field {
+  flex-direction: row;
   justify-content: space-between;
+  align-items: center;
 }
 
 .checkbox-field input {
   width: 20px;
   height: 20px;
   accent-color: var(--primary);
+}
+
+.suggestion-panel {
+  border-color: rgba(124, 58, 237, 0.22);
+}
+
+.suggestion-panel .panel-tip {
+  color: #6d28d9;
+}
+
+.suggestion-panel textarea {
+  min-height: 80px;
+  font: 13px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+}
+
+.suggestion-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .history-list {

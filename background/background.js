@@ -140,6 +140,7 @@ const DEFAULT_SETTINGS = {
   promptForSaveAs: false,
   screenshotInterval: 5,
   autoScreenshot: true,
+  realtimeSuggestions: false,
   screenshotEngine: 'standard',
   cdpCropEnabled: false,
   cdpCropX: 0,
@@ -152,6 +153,10 @@ let currentRecording = null;
 let currentRuntime = createIdleRuntime();
 let initPromise = null;
 let offscreenCreationPromise = null;
+let realtimeSuggestionQueue = {
+  active: false,
+  pending: null
+};
 
 console.log('[Background] Service worker booted');
 
@@ -218,6 +223,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ok: true,
           recording: await updateRecordingDetails(message.id, message.updates || {}),
           history: await getHistory()
+        });
+        break;
+      case 'updateRealtimeSuggestion':
+        sendResponse({
+          ok: true,
+          suggestion: await updateRealtimeSuggestionOverride(message)
         });
         break;
       case 'deleteRecording':
@@ -304,7 +315,21 @@ function createIdleRuntime() {
     audioStarted: false,
     videoStarted: false,
     mediaStatus: '待启动',
-    lastInteraction: null
+    lastInteraction: null,
+    realtimeSuggestion: createRealtimeSuggestionState()
+  };
+}
+
+function createRealtimeSuggestionState(overrides = {}) {
+  return {
+    enabled: DEFAULT_SETTINGS.realtimeSuggestions,
+    status: DEFAULT_SETTINGS.realtimeSuggestions ? 'idle' : 'disabled',
+    screenshotId: '',
+    stepIndex: 0,
+    text: '',
+    message: '',
+    updatedAt: 0,
+    ...overrides
   };
 }
 
@@ -340,7 +365,8 @@ function normalizeSettings(settings = {}) {
     cdpCropHeight: sanitizeNonNegativeInteger(settings.cdpCropHeight),
     promptForSaveAs: settings.promptForSaveAs === true,
     screenshotInterval: clampInterval(settings.screenshotInterval ?? DEFAULT_SETTINGS.screenshotInterval),
-    autoScreenshot: settings.autoScreenshot !== false
+    autoScreenshot: settings.autoScreenshot !== false,
+    realtimeSuggestions: settings.realtimeSuggestions === true
   };
 }
 
@@ -491,7 +517,12 @@ async function saveSettings(settings) {
   if (currentRuntime.isRecording) {
     currentRuntime.captureIntervalMs = nextSettings.screenshotInterval * 1000;
     currentRuntime.autoScreenshot = nextSettings.autoScreenshot;
+    currentRuntime.realtimeSuggestion = normalizeRealtimeSuggestionForSettings(
+      currentRuntime.realtimeSuggestion,
+      nextSettings
+    );
     await persistRuntime();
+    notifyRealtimeSuggestion();
 
     await sendOffscreenMessage('updateSession', {
       intervalMs: currentRuntime.captureIntervalMs,
@@ -569,6 +600,7 @@ async function startRecording(tabId) {
     audioMeta: null,
     videoDataUrl: null,
     videoMeta: null,
+    realtimeSuggestionsEnabled: settings.realtimeSuggestions === true,
     exportBaseName: '',
     lastExportAt: null,
     lastExportPrompted: false
@@ -588,6 +620,7 @@ async function startRecording(tabId) {
     cdpCrop: buildCdpCropFromSettings(settings),
     captureIntervalMs: settings.screenshotInterval * 1000,
     autoScreenshot: settings.autoScreenshot,
+    realtimeSuggestion: createRealtimeSuggestionStateForSettings(settings),
     mediaStatus: '正在请求授权...'
   };
 
@@ -654,7 +687,8 @@ async function startRecording(tabId) {
       cdpAttached: currentRuntime.cdpAttached,
       audioStarted: currentRuntime.audioStarted,
       videoStarted: currentRuntime.videoStarted,
-      mediaStatus: currentRuntime.mediaStatus
+      mediaStatus: currentRuntime.mediaStatus,
+      realtimeSuggestion: currentRuntime.realtimeSuggestion
     });
     notifyContent('recordingStarted');
   } catch (error) {
@@ -726,6 +760,7 @@ async function stopRecording() {
   currentRuntime.isPaused = true;
   currentRuntime.pauseStartedAt = null;
   currentRuntime.isGenerating = true;
+  realtimeSuggestionQueue.pending = null;
   currentRuntime.durationMs = getElapsedMs(stoppedAt);
   await persistRuntime();
   await updateBadge();
@@ -786,7 +821,7 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
   const dataUrl = await captureScreenshotDataUrl(tab);
 
   const timestamp = Date.now();
-  currentRecording.screenshots.push({
+  const screenshot = {
     id: timestamp.toString(),
     data: dataUrl,
     timestamp,
@@ -798,7 +833,9 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
       url: tab.url || '',
       interaction: getRelevantInteraction(timestamp)
     }
-  });
+  };
+
+  currentRecording.screenshots.push(screenshot);
 
   currentRuntime.count = currentRecording.screenshots.length;
   await putRecording(currentRecording);
@@ -810,6 +847,12 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
     elapsedMs: getElapsedMs(timestamp)
   });
   notifyContent('screenshotFeedback', { count: currentRuntime.count });
+
+  if (!currentRuntime.isGenerating) {
+    queueRealtimeSuggestion(currentRecording.id, screenshot.id).catch((error) => {
+      console.warn('[Background] Realtime suggestion queue failed:', error);
+    });
+  }
 
   return { ok: true, captured: true, count: currentRuntime.count };
 }
@@ -885,10 +928,14 @@ async function generateTutorial() {
   }
 
   const settings = await getSettings();
-  const canAnalyze = Boolean(settings.apiKey && settings.modelId && settings.apiBaseUrl);
+  const canAnalyze = hasVisionAnalysisConfig(settings);
 
   if (canAnalyze) {
     for (let index = 0; index < currentRecording.screenshots.length; index += 1) {
+      if (hasStepDescription(currentRecording.screenshots[index])) {
+        continue;
+      }
+
       notifyPopup('generating', {
         message: `正在分析步骤 ${index + 1}/${currentRecording.screenshots.length}...`
       });
@@ -900,6 +947,8 @@ async function generateTutorial() {
           index,
           currentRecording.screenshots
         );
+        currentRecording.screenshots[index].descriptionSource = 'batch-ai';
+        currentRecording.screenshots[index].descriptionUpdatedAt = Date.now();
       } catch (error) {
         console.error('[Background] Analyze error:', error);
         notifyPopup('warning', {
@@ -909,6 +958,8 @@ async function generateTutorial() {
           currentRecording.screenshots[index],
           index
         );
+        currentRecording.screenshots[index].descriptionSource = 'fallback';
+        currentRecording.screenshots[index].descriptionUpdatedAt = Date.now();
       }
     }
   } else {
@@ -992,6 +1043,247 @@ async function analyzeImage(screenshot, settings, index, screenshots) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+function hasVisionAnalysisConfig(settings = {}) {
+  return Boolean(settings.apiKey && settings.modelId && settings.apiBaseUrl);
+}
+
+function hasStepDescription(screenshot) {
+  return Boolean(sanitizeEditableText(screenshot?.description, 400));
+}
+
+function createRealtimeSuggestionStateForSettings(settings = {}) {
+  if (settings.realtimeSuggestions !== true) {
+    return createRealtimeSuggestionState({
+      enabled: false,
+      status: 'disabled'
+    });
+  }
+
+  if (!hasVisionAnalysisConfig(settings)) {
+    return createRealtimeSuggestionState({
+      enabled: true,
+      status: 'unconfigured',
+      message: '请先配置 AI Provider、API Key 和模型。'
+    });
+  }
+
+  return createRealtimeSuggestionState({
+    enabled: true,
+    status: 'idle'
+  });
+}
+
+function normalizeRealtimeSuggestionForSettings(currentSuggestion = {}, settings = {}) {
+  const base = createRealtimeSuggestionStateForSettings(settings);
+  if (settings.realtimeSuggestions !== true || !hasVisionAnalysisConfig(settings)) {
+    return {
+      ...base,
+      updatedAt: Date.now()
+    };
+  }
+
+  return {
+    ...base,
+    ...currentSuggestion,
+    enabled: true,
+    status:
+      currentSuggestion.status && currentSuggestion.status !== 'disabled' && currentSuggestion.status !== 'unconfigured'
+        ? currentSuggestion.status
+        : 'idle',
+    updatedAt: Date.now()
+  };
+}
+
+async function queueRealtimeSuggestion(recordingId, screenshotId) {
+  if (!recordingId || !screenshotId || currentRuntime.isGenerating) {
+    return;
+  }
+
+  const settings = await getSettings();
+  currentRuntime.realtimeSuggestion = normalizeRealtimeSuggestionForSettings(
+    currentRuntime.realtimeSuggestion,
+    settings
+  );
+
+  if (settings.realtimeSuggestions !== true) {
+    realtimeSuggestionQueue.pending = null;
+    await updateRealtimeSuggestionState(currentRuntime.realtimeSuggestion);
+    return;
+  }
+
+  if (!hasVisionAnalysisConfig(settings)) {
+    realtimeSuggestionQueue.pending = null;
+    await updateRealtimeSuggestionState(currentRuntime.realtimeSuggestion);
+    return;
+  }
+
+  const located = findCurrentScreenshot(recordingId, screenshotId);
+  if (!located || hasStepDescription(located.screenshot)) {
+    return;
+  }
+
+  realtimeSuggestionQueue.pending = { recordingId, screenshotId };
+  await updateRealtimeSuggestionState({
+    enabled: true,
+    status: 'queued',
+    screenshotId,
+    stepIndex: located.index + 1,
+    text: '',
+    message: '等待 AI 建议...'
+  });
+
+  if (!realtimeSuggestionQueue.active) {
+    drainRealtimeSuggestionQueue().catch((error) => {
+      console.warn('[Background] Realtime suggestion worker failed:', error);
+    });
+  }
+}
+
+async function drainRealtimeSuggestionQueue() {
+  if (realtimeSuggestionQueue.active) {
+    return;
+  }
+
+  realtimeSuggestionQueue.active = true;
+
+  try {
+    while (realtimeSuggestionQueue.pending) {
+      const job = realtimeSuggestionQueue.pending;
+      realtimeSuggestionQueue.pending = null;
+      await processRealtimeSuggestion(job);
+    }
+  } finally {
+    realtimeSuggestionQueue.active = false;
+  }
+}
+
+async function processRealtimeSuggestion(job) {
+  if (!job || currentRuntime.isGenerating) {
+    return;
+  }
+
+  const settings = await getSettings();
+  if (settings.realtimeSuggestions !== true || !hasVisionAnalysisConfig(settings)) {
+    currentRuntime.realtimeSuggestion = normalizeRealtimeSuggestionForSettings(
+      currentRuntime.realtimeSuggestion,
+      settings
+    );
+    await updateRealtimeSuggestionState(currentRuntime.realtimeSuggestion);
+    return;
+  }
+
+  const located = findCurrentScreenshot(job.recordingId, job.screenshotId);
+  if (!located) {
+    return;
+  }
+
+  if (hasStepDescription(located.screenshot)) {
+    await updateRealtimeSuggestionState({
+      enabled: true,
+      status: 'ready',
+      screenshotId: job.screenshotId,
+      stepIndex: located.index + 1,
+      text: sanitizeEditableText(located.screenshot.description, 400),
+      message: '已保存到最终导出。'
+    });
+    return;
+  }
+
+  await updateRealtimeSuggestionState({
+    enabled: true,
+    status: 'analyzing',
+    screenshotId: job.screenshotId,
+    stepIndex: located.index + 1,
+    text: '',
+    message: '正在分析...'
+  });
+
+  try {
+    const suggestionText =
+      sanitizeEditableText(
+        await analyzeImage(located.screenshot, settings, located.index, currentRecording.screenshots),
+        400
+      ) || getFallbackDescription(located.screenshot, located.index);
+    const latest = findCurrentScreenshot(job.recordingId, job.screenshotId);
+    const latestSettings = await getSettings();
+
+    if (!latest || currentRuntime.isGenerating || latestSettings.realtimeSuggestions !== true) {
+      return;
+    }
+
+    if (!hasStepDescription(latest.screenshot)) {
+      latest.screenshot.description = suggestionText;
+      latest.screenshot.descriptionSource = 'realtime-ai';
+      latest.screenshot.descriptionUpdatedAt = Date.now();
+      await putRecording(currentRecording);
+    }
+
+    await updateRealtimeSuggestionState({
+      enabled: true,
+      status: 'ready',
+      screenshotId: job.screenshotId,
+      stepIndex: latest.index + 1,
+      text: sanitizeEditableText(latest.screenshot.description || suggestionText, 400),
+      message: '已保存到最终导出。'
+    });
+  } catch (error) {
+    console.warn('[Background] Realtime suggestion failed:', error);
+
+    if (!findCurrentScreenshot(job.recordingId, job.screenshotId) || currentRuntime.isGenerating) {
+      return;
+    }
+
+    await updateRealtimeSuggestionState({
+      enabled: true,
+      status: 'error',
+      screenshotId: job.screenshotId,
+      stepIndex: located.index + 1,
+      text: '',
+      message: describeAiFailureForUser(error)
+    });
+  }
+}
+
+function findCurrentScreenshot(recordingId, screenshotId) {
+  if (
+    !currentRecording ||
+    !currentRuntime.isRecording ||
+    currentRuntime.recordingId !== recordingId ||
+    currentRecording.id !== recordingId
+  ) {
+    return null;
+  }
+
+  const index = currentRecording.screenshots.findIndex((screenshot) => screenshot.id === screenshotId);
+  if (index < 0) {
+    return null;
+  }
+
+  return {
+    index,
+    screenshot: currentRecording.screenshots[index]
+  };
+}
+
+async function updateRealtimeSuggestionState(patch = {}) {
+  currentRuntime.realtimeSuggestion = {
+    ...createRealtimeSuggestionState(),
+    ...currentRuntime.realtimeSuggestion,
+    ...patch,
+    updatedAt: Date.now()
+  };
+
+  await persistRuntime().catch(() => {});
+  notifyRealtimeSuggestion();
+  return currentRuntime.realtimeSuggestion;
+}
+
+function notifyRealtimeSuggestion() {
+  notifyPopup('realtimeSuggestion', {
+    suggestion: currentRuntime.realtimeSuggestion || createRealtimeSuggestionState()
+  });
 }
 
 function buildRecordingTitle(recording) {
@@ -1267,6 +1559,34 @@ async function updateRecordingDetails(id, updates) {
   await upsertHistoryEntry(buildHistoryEntry(recording));
   notifyPopup('historyUpdated', { history: await getHistory() });
   return buildRecordingDetail(recording);
+}
+
+async function updateRealtimeSuggestionOverride(payload = {}) {
+  if (!currentRuntime.isRecording || !currentRecording) {
+    throw new Error('当前没有活动录制');
+  }
+
+  const screenshotId = sanitizeTextValue(payload.screenshotId, 80);
+  const description = sanitizeEditableText(payload.description, 400);
+  const located = findCurrentScreenshot(currentRecording.id, screenshotId);
+
+  if (!located) {
+    throw new Error('这条实时建议已失效');
+  }
+
+  located.screenshot.description = description;
+  located.screenshot.descriptionSource = description ? 'realtime-user' : 'realtime-cleared';
+  located.screenshot.descriptionUpdatedAt = Date.now();
+  await putRecording(currentRecording);
+
+  return updateRealtimeSuggestionState({
+    enabled: currentRuntime.realtimeSuggestion?.enabled === true,
+    status: description ? 'saved' : 'ready',
+    screenshotId,
+    stepIndex: located.index + 1,
+    text: description,
+    message: description ? '已保存到最终导出。' : '已清空，停止后会重新生成。'
+  });
 }
 
 function sanitizeUpdatedScreenshots(recording, screenshotUpdates) {

@@ -43,6 +43,11 @@ const elements = {
   recordTime: $('recordTime'),
   mediaStatus: $('mediaStatus'),
   cdpBanner: $('cdpBanner'),
+  suggestionPanel: $('suggestionPanel'),
+  suggestionStatus: $('suggestionStatus'),
+  suggestionStepLabel: $('suggestionStepLabel'),
+  suggestionText: $('suggestionText'),
+  btnSaveSuggestion: $('btnSaveSuggestion'),
   btnOpenWorkspace: $('btnOpenWorkspace'),
   btnOpenSettings: $('btnOpenSettings'),
   btnOpenSettingsHero: $('btnOpenSettingsHero'),
@@ -50,6 +55,7 @@ const elements = {
   captureModeHint: $('captureModeHint'),
   interval: $('interval'),
   autoScreenshot: $('autoScreenshot'),
+  realtimeSuggestions: $('realtimeSuggestions'),
   providerSummary: $('providerSummary'),
   promptSummary: $('promptSummary'),
   outputDirSummary: $('outputDirSummary'),
@@ -100,7 +106,21 @@ function createIdleState() {
     screenshotEngine: 'standard',
     cdpAttached: false,
     audioStarted: false,
-    videoStarted: false
+    videoStarted: false,
+    realtimeSuggestion: createRealtimeSuggestionState()
+  };
+}
+
+function createRealtimeSuggestionState(overrides = {}) {
+  return {
+    enabled: false,
+    status: 'disabled',
+    screenshotId: '',
+    stepIndex: 0,
+    text: '',
+    message: '',
+    updatedAt: 0,
+    ...overrides
   };
 }
 
@@ -153,6 +173,7 @@ async function hydrate() {
           ? snapshot.runtime?.mediaStatus || '录制中'
           : '待启动'
   };
+  state.realtimeSuggestion = normalizeRealtimeSuggestion(snapshot.runtime?.realtimeSuggestion);
 
   historyItems = snapshot.history || [];
   renderHistory(historyItems);
@@ -168,6 +189,10 @@ function bindEvents() {
   elements.captureMode.addEventListener('change', handleCaptureModeChange);
   elements.interval.addEventListener('change', saveSettings);
   elements.autoScreenshot.addEventListener('change', saveSettings);
+  elements.realtimeSuggestions.addEventListener('change', saveSettings);
+  elements.suggestionText.addEventListener('input', handleSuggestionInput);
+  elements.suggestionText.addEventListener('change', saveRealtimeSuggestion);
+  elements.btnSaveSuggestion.addEventListener('click', saveRealtimeSuggestion);
   elements.btnOpenSettings.addEventListener('click', openSettingsPage);
   elements.btnOpenSettingsHero.addEventListener('click', openSettingsPage);
   elements.btnOpenWorkspace.addEventListener('click', () => openWorkspace());
@@ -199,6 +224,12 @@ async function saveSettings() {
 
   if (result?.ok && result.settings) {
     applySettingsToForm(result.settings);
+    state.realtimeSuggestion = {
+      ...createRealtimeSuggestionState(),
+      ...state.realtimeSuggestion,
+      enabled: result.settings.realtimeSuggestions === true
+    };
+    updateUi();
   }
 
   return result;
@@ -208,7 +239,8 @@ function readSettingsFromForm() {
   return {
     captureMode: elements.captureMode.value,
     screenshotInterval: parseInt(elements.interval.value, 10),
-    autoScreenshot: elements.autoScreenshot.checked
+    autoScreenshot: elements.autoScreenshot.checked,
+    realtimeSuggestions: elements.realtimeSuggestions.checked
   };
 }
 
@@ -255,6 +287,40 @@ async function captureManually() {
   if (!result?.ok) {
     alert(`截图失败：${result?.error || '当前没有活动录制'}`);
   }
+}
+
+function handleSuggestionInput() {
+  state.realtimeSuggestion = {
+    ...createRealtimeSuggestionState(),
+    ...state.realtimeSuggestion,
+    status: 'editing',
+    text: elements.suggestionText.value
+  };
+  renderRealtimeSuggestionPanel();
+}
+
+async function saveRealtimeSuggestion() {
+  const suggestion = state.realtimeSuggestion || createRealtimeSuggestionState();
+  if (!suggestion.screenshotId || elements.btnSaveSuggestion.disabled) {
+    return;
+  }
+
+  elements.btnSaveSuggestion.disabled = true;
+  elements.suggestionStatus.textContent = '正在保存';
+
+  const result = await sendAction('updateRealtimeSuggestion', {
+    screenshotId: suggestion.screenshotId,
+    description: elements.suggestionText.value
+  });
+
+  if (!result?.ok || !result.suggestion) {
+    elements.suggestionStatus.textContent = result?.error || '保存失败';
+    elements.btnSaveSuggestion.disabled = false;
+    return;
+  }
+
+  state.realtimeSuggestion = normalizeRealtimeSuggestion(result.suggestion);
+  renderRealtimeSuggestionPanel();
 }
 
 function openSettingsPage() {
@@ -593,6 +659,7 @@ function handleRuntimeMessage(message) {
       state.audioStarted = message.audioStarted === true;
       state.videoStarted = message.videoStarted === true;
       state.mediaStatus = message.mediaStatus || getMediaStatusLabel(state.audioStarted, state.videoStarted);
+      state.realtimeSuggestion = normalizeRealtimeSuggestion(message.realtimeSuggestion);
       break;
     case 'screenshot':
       state.count = message.count ?? state.count;
@@ -627,6 +694,9 @@ function handleRuntimeMessage(message) {
       if (message.message) {
         elements.cdpBanner.textContent = message.message;
       }
+      break;
+    case 'realtimeSuggestion':
+      state.realtimeSuggestion = normalizeRealtimeSuggestion(message.suggestion);
       break;
     case 'generating':
       state.isGenerating = true;
@@ -707,6 +777,7 @@ function updateUi() {
   elements.btnCapture.disabled = !state.isRecording || state.isGenerating;
   elements.btnPause.textContent = state.isPaused ? '继续' : '暂停';
   elements.cdpBanner.hidden = !(state.isRecording && state.cdpAttached);
+  renderRealtimeSuggestionPanel();
 
   renderHistory(historyItems);
   updateSettingsSummary();
@@ -719,8 +790,75 @@ function applySettingsToForm(settings = {}) {
   elements.captureMode.value = settings.captureMode || 'displayMedia';
   elements.interval.value = settings.screenshotInterval || 5;
   elements.autoScreenshot.checked = settings.autoScreenshot !== false;
+  elements.realtimeSuggestions.checked = settings.realtimeSuggestions === true;
   updateCaptureModeHint();
   updateSettingsSummary();
+}
+
+function normalizeRealtimeSuggestion(suggestion = {}) {
+  return {
+    ...createRealtimeSuggestionState(),
+    ...suggestion,
+    enabled: suggestion?.enabled === true,
+    stepIndex: Number.parseInt(suggestion?.stepIndex, 10) || 0,
+    text: typeof suggestion?.text === 'string' ? suggestion.text : '',
+    message: typeof suggestion?.message === 'string' ? suggestion.message : ''
+  };
+}
+
+function renderRealtimeSuggestionPanel() {
+  const suggestion = normalizeRealtimeSuggestion(state.realtimeSuggestion);
+  const hasSuggestion =
+    Boolean(suggestion.screenshotId) &&
+    suggestion.status !== 'disabled' &&
+    suggestion.status !== 'unconfigured';
+  const shouldShow = state.isRecording && suggestion.enabled && hasSuggestion;
+
+  elements.suggestionPanel.hidden = !shouldShow;
+  if (!shouldShow) {
+    return;
+  }
+
+  elements.suggestionStatus.textContent = getSuggestionStatusText(suggestion);
+  elements.suggestionStepLabel.textContent = suggestion.stepIndex
+    ? `步骤 ${suggestion.stepIndex} AI 建议`
+    : 'AI 建议';
+
+  if (document.activeElement !== elements.suggestionText) {
+    elements.suggestionText.value = suggestion.text || '';
+  }
+
+  const isBusy = suggestion.status === 'queued' || suggestion.status === 'analyzing';
+  elements.suggestionText.disabled = isBusy;
+  elements.btnSaveSuggestion.disabled = isBusy || !suggestion.screenshotId;
+}
+
+function getSuggestionStatusText(suggestion) {
+  if (suggestion.status === 'queued') {
+    return '等待分析';
+  }
+
+  if (suggestion.status === 'analyzing') {
+    return '正在分析...';
+  }
+
+  if (suggestion.status === 'ready') {
+    return '已生成';
+  }
+
+  if (suggestion.status === 'saved') {
+    return '已保存';
+  }
+
+  if (suggestion.status === 'editing') {
+    return '正在编辑';
+  }
+
+  if (suggestion.status === 'error') {
+    return suggestion.message || '生成失败';
+  }
+
+  return suggestion.message || '等待截图';
 }
 
 function updateCaptureModeHint() {

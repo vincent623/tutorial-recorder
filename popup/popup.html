@@ -51,6 +51,20 @@
       录制中使用 CDP 精确截图，Chrome 可能显示调试提示，录制结束后会自动消失。
     </section>
 
+    <section class="panel suggestion-panel" id="suggestionPanel" hidden>
+      <div class="panel-head">
+        <h2>实时建议</h2>
+        <span class="panel-tip" id="suggestionStatus">等待截图</span>
+      </div>
+      <label class="field">
+        <span id="suggestionStepLabel">AI 建议</span>
+        <textarea id="suggestionText" rows="3" placeholder="截图后显示最新步骤说明"></textarea>
+      </label>
+      <div class="suggestion-actions">
+        <button type="button" id="btnSaveSuggestion" class="mini-btn">保存建议</button>
+      </div>
+    </section>
+
     <section class="panel quick-panel">
       <div class="panel-head">
         <h2>快速设置</h2>
@@ -77,6 +91,10 @@
         <label class="field checkbox-field">
           <span>自动截图</span>
           <input type="checkbox" id="autoScreenshot" checked>
+        </label>
+        <label class="field checkbox-field">
+          <span>实时 AI 建议</span>
+          <input type="checkbox" id="realtimeSuggestions">
         </label>
       </div>
 

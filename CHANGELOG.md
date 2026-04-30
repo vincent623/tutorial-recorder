@@ -2,6 +2,18 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [1.5.0] - 2026-05-01
+
+### Added
+- Optional realtime AI suggestion toggle in popup and the full settings page.
+- Non-blocking latest-only realtime suggestion queue triggered after screenshot completion.
+- Popup realtime suggestion panel with loading, generated, error, editing, and saved states.
+- Editable realtime suggestion overrides that persist into the final Markdown, PDF, and ZIP export.
+- v1.5.0 regression checks covering version alignment, toggle persistence, queue behavior, popup editing, and final-export precedence.
+
+### Changed
+- Final tutorial generation now preserves already-saved step descriptions and only batch-analyzes missing descriptions.
+
 ## [1.4.0] - 2026-05-01
 
 ### Added

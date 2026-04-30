@@ -26,3 +26,12 @@
 - New CDP commands used: `Page.enable`, `DOM.enable`, `Page.captureScreenshot`, `DOM.getNodeForLocation`, `DOM.describeNode`.
 - New regression checks added: 5.
 - Stage result: `v1.4.0-cdp-engine` completed and verified through `npm run check`.
+
+## 2026-05-01 - v1.5.0 Realtime Suggestion Metrics
+
+- New setting key: `realtimeSuggestions`.
+- New runtime message/action surface: `realtimeSuggestion`, `updateRealtimeSuggestion`.
+- Queue capacity policy: one active AI analysis plus one latest pending screenshot.
+- New popup UI surface: realtime suggestion toggle, status panel, editable suggestion textarea, save action.
+- New regression checks added: 6.
+- Stage result: `v1.5.0-realtime-suggestions` completed and verified through `npm run check`.

@@ -19,3 +19,10 @@
 - Keep `captureMode` for media capture separate from `screenshotEngine` for still-image capture; mixing them would make the existing displayMedia/tabCapture behavior harder to preserve.
 - Detach the debugger before tutorial generation resets runtime state, otherwise the detach guard can lose the active tab reference.
 - Use CDP as an optional enhancement with standard screenshot fallback; a debugger failure should degrade precision, not lose the recording.
+
+## 2026-05-01 - Realtime Suggestion Pattern
+
+- Treat realtime AI as an optional recording overlay, not as part of the screenshot critical path; screenshots are saved first, then AI work is queued asynchronously.
+- Use a single active AI request plus one replaceable pending job so slow providers cannot build an unbounded backlog during fast screenshot bursts.
+- Persist realtime suggestions directly onto screenshot descriptions so later batch generation can skip completed steps and user edits naturally become prompt context for following steps.
+- Keep the realtime panel hidden when AI is unconfigured; the popup toggle controls API cost without changing the stop-time batch analysis path.
