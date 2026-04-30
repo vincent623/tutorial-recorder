@@ -26,3 +26,10 @@
 - Use a single active AI request plus one replaceable pending job so slow providers cannot build an unbounded backlog during fast screenshot bursts.
 - Persist realtime suggestions directly onto screenshot descriptions so later batch generation can skip completed steps and user edits naturally become prompt context for following steps.
 - Keep the realtime panel hidden when AI is unconfigured; the popup toggle controls API cost without changing the stop-time batch analysis path.
+
+## 2026-05-01 - AI Recording Pattern
+
+- Keep AI recording as a new recording mode that reuses the existing screenshot, tutorial generation, history, and ZIP export pipeline instead of creating a separate artifact path.
+- Let the Agent loop own only the browser-control cycle: capture page state, request one next action, execute one CDP tool, then repeat.
+- Use explicit stop, pause, failure, and takeover states so a model failure preserves completed screenshots and lets the user decide whether to continue manually or export.
+- Enforce step and time limits inside the loop before taking the next screenshot; limits should stop gracefully through the same export flow.

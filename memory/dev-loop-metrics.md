@@ -35,3 +35,13 @@
 - New popup UI surface: realtime suggestion toggle, status panel, editable suggestion textarea, save action.
 - New regression checks added: 6.
 - Stage result: `v1.5.0-realtime-suggestions` completed and verified through `npm run check`.
+
+## 2026-05-01 - v2.0.0 AI Recording Metrics
+
+- New recording mode: `ai` with `captureMode: agent`.
+- New runtime message/action surface: `startAiRecording`, `pauseAiAgent`, `resumeAiAgent`, `takeoverRecording`, `aiStatus`, `agentStep`.
+- New Agent limits: 50 steps, 10 minutes.
+- New CDP tool commands used: `Input.dispatchMouseEvent`, `Input.insertText`.
+- New Agent tools: `click_at_xy`, `type_text`, `scroll`, `finish`.
+- New regression checks added: 7.
+- Stage result: `v2.0.0-ai-recording` completed and verified through `npm run check`.

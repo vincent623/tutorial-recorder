@@ -423,6 +423,47 @@ button:focus-visible,
   justify-content: flex-end;
 }
 
+.ai-panel {
+  border-color: rgba(124, 58, 237, 0.22);
+}
+
+.ai-panel .panel-tip {
+  color: #6d28d9;
+}
+
+.ai-panel textarea {
+  min-height: 76px;
+  font: 13px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+}
+
+.ai-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-step-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.ai-step {
+  padding: 9px 10px;
+  border: 1px solid #e9ddff;
+  border-radius: 12px;
+  background: #fbf8ff;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-step strong {
+  color: #6d28d9;
+}
+
 .history-list {
   display: flex;
   flex-direction: column;
@@ -770,8 +811,11 @@ body.workspace-mode .status {
 }
 
 body.workspace-mode .recording-panel,
+body.workspace-mode .ai-panel,
 body.workspace-mode .stats,
 body.workspace-mode .quick-panel,
+body.workspace-mode .suggestion-panel,
+body.workspace-mode .cdp-banner,
 body.workspace-mode .footer {
   display: none;
 }

@@ -8,6 +8,9 @@ const OFFSCREEN_PATH = 'offscreen/offscreen.html';
 const OFFSCREEN_MESSAGE_TIMEOUT_MS = 120_000;
 const AI_ANALYZE_TIMEOUT_MS = 45_000;
 const CDP_PROTOCOL_VERSION = '1.3';
+const AI_AGENT_MAX_STEPS = 50;
+const AI_AGENT_MAX_DURATION_MS = 10 * 60 * 1000;
+const AI_AGENT_STEP_DELAY_MS = 800;
 
 const PROVIDER_PRESETS = {
   volcengineArk: {
@@ -192,12 +195,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await startRecording(message.tabId);
         sendResponse({ ok: true });
         break;
+      case 'startAiRecording':
+        await startAiRecording(message.tabId, message.targetDescription || '');
+        sendResponse({ ok: true });
+        break;
       case 'pauseRecording':
         await pauseRecording();
         sendResponse({ ok: true });
         break;
       case 'resumeRecording':
         await resumeRecording();
+        sendResponse({ ok: true });
+        break;
+      case 'pauseAiAgent':
+        await pauseAiAgent();
+        sendResponse({ ok: true });
+        break;
+      case 'resumeAiAgent':
+        await resumeAiAgent();
+        sendResponse({ ok: true });
+        break;
+      case 'takeoverRecording':
+        await takeoverRecording();
         sendResponse({ ok: true });
         break;
       case 'stopRecording':
@@ -305,6 +324,7 @@ function createIdleRuntime() {
     tabId: null,
     windowId: null,
     recordingId: null,
+    recordingMode: 'manual',
     captureMode: DEFAULT_SETTINGS.captureMode,
     screenshotEngine: DEFAULT_SETTINGS.screenshotEngine,
     cdpAttached: false,
@@ -316,7 +336,26 @@ function createIdleRuntime() {
     videoStarted: false,
     mediaStatus: '待启动',
     lastInteraction: null,
-    realtimeSuggestion: createRealtimeSuggestionState()
+    realtimeSuggestion: createRealtimeSuggestionState(),
+    aiAgent: createAiAgentState()
+  };
+}
+
+function createAiAgentState(overrides = {}) {
+  return {
+    status: 'idle',
+    goal: '',
+    steps: [],
+    iteration: 0,
+    maxSteps: AI_AGENT_MAX_STEPS,
+    startedAt: null,
+    deadlineAt: null,
+    paused: false,
+    awaitingTakeover: false,
+    lastAction: '',
+    message: '',
+    updatedAt: 0,
+    ...overrides
   };
 }
 
@@ -594,6 +633,7 @@ async function startRecording(tabId) {
     startTime: startedAt,
     title: '',
     status: 'recording',
+    recordingMode: 'manual',
     captureMode: settings.captureMode,
     screenshots: [],
     audioDataUrl: null,
@@ -613,6 +653,7 @@ async function startRecording(tabId) {
     tabId: tab.id,
     windowId: tab.windowId,
     recordingId: currentRecording.id,
+    recordingMode: 'manual',
     captureMode: settings.captureMode,
     screenshotEngine: settings.screenshotEngine,
     cdpAttached: false,
@@ -681,6 +722,7 @@ async function startRecording(tabId) {
     notifyPopup('started', {
       startTime: currentRuntime.startTime,
       recordingId: currentRuntime.recordingId,
+      recordingMode: currentRuntime.recordingMode,
       count: currentRuntime.count,
       captureMode: currentRuntime.captureMode,
       screenshotEngine: currentRuntime.screenshotEngine,
@@ -688,7 +730,8 @@ async function startRecording(tabId) {
       audioStarted: currentRuntime.audioStarted,
       videoStarted: currentRuntime.videoStarted,
       mediaStatus: currentRuntime.mediaStatus,
-      realtimeSuggestion: currentRuntime.realtimeSuggestion
+      realtimeSuggestion: currentRuntime.realtimeSuggestion,
+      aiAgent: currentRuntime.aiAgent
     });
     notifyContent('recordingStarted');
   } catch (error) {
@@ -703,7 +746,109 @@ async function startRecording(tabId) {
   }
 }
 
+async function startAiRecording(tabId, targetDescription) {
+  if (currentRuntime.isRecording) {
+    return;
+  }
+
+  const goal = sanitizeEditableText(targetDescription, 500);
+  if (!goal) {
+    throw new Error('请先填写 AI 录制目标');
+  }
+
+  const settings = await getSettings();
+  if (!hasVisionAnalysisConfig(settings)) {
+    throw new Error('请先在完整设置中配置 AI Provider、API Key 和模型');
+  }
+
+  const tab = await chrome.tabs.get(tabId);
+  const startedAt = Date.now();
+
+  currentRecording = {
+    id: startedAt.toString(),
+    startTime: startedAt,
+    title: goal.slice(0, 36),
+    status: 'recording',
+    recordingMode: 'ai',
+    captureMode: 'agent',
+    screenshots: [],
+    audioDataUrl: null,
+    audioMeta: null,
+    videoDataUrl: null,
+    videoMeta: null,
+    aiGoal: goal,
+    exportBaseName: '',
+    lastExportAt: null,
+    lastExportPrompted: false
+  };
+
+  currentRuntime = {
+    ...createIdleRuntime(),
+    isRecording: true,
+    startTime: startedAt,
+    tabId: tab.id,
+    windowId: tab.windowId,
+    recordingId: currentRecording.id,
+    recordingMode: 'ai',
+    captureMode: 'agent',
+    screenshotEngine: 'cdp',
+    captureIntervalMs: settings.screenshotInterval * 1000,
+    autoScreenshot: false,
+    mediaStatus: 'AI 录制中',
+    aiAgent: createAiAgentState({
+      status: 'running',
+      goal,
+      startedAt,
+      deadlineAt: startedAt + AI_AGENT_MAX_DURATION_MS,
+      message: 'AI 正在观察页面...'
+    })
+  };
+
+  await putRecording(currentRecording);
+  await persistRuntime();
+  await updateBadge();
+
+  try {
+    await attachCdpDebugger(tab.id);
+    notifyPopup('started', {
+      startTime: currentRuntime.startTime,
+      recordingId: currentRuntime.recordingId,
+      recordingMode: currentRuntime.recordingMode,
+      count: currentRuntime.count,
+      captureMode: currentRuntime.captureMode,
+      screenshotEngine: currentRuntime.screenshotEngine,
+      cdpAttached: currentRuntime.cdpAttached,
+      audioStarted: false,
+      videoStarted: false,
+      mediaStatus: currentRuntime.mediaStatus,
+      realtimeSuggestion: currentRuntime.realtimeSuggestion,
+      aiAgent: currentRuntime.aiAgent
+    });
+    notifyContent('recordingStarted');
+    notifyAiStatus();
+
+    runAiAgentLoop(settings).catch((error) => {
+      handleAiAgentFailure(error).catch((failureError) => {
+        console.error('[Background] AI failure handling failed:', failureError);
+      });
+    });
+  } catch (error) {
+    await detachCdpDebugger(tab.id);
+    await deleteRecording(currentRecording.id).catch(() => {});
+    currentRecording = null;
+    currentRuntime = createIdleRuntime();
+    await persistRuntime();
+    await updateBadge();
+    throw error;
+  }
+}
+
 async function pauseRecording() {
+  if (currentRuntime.recordingMode === 'ai') {
+    await pauseAiAgent();
+    return;
+  }
+
   if (!currentRuntime.isRecording || currentRuntime.isPaused) {
     return;
   }
@@ -722,6 +867,11 @@ async function pauseRecording() {
 }
 
 async function resumeRecording() {
+  if (currentRuntime.recordingMode === 'ai') {
+    await resumeAiAgent();
+    return;
+  }
+
   if (!currentRuntime.isRecording || !currentRuntime.isPaused) {
     return;
   }
@@ -760,10 +910,25 @@ async function stopRecording() {
   currentRuntime.isPaused = true;
   currentRuntime.pauseStartedAt = null;
   currentRuntime.isGenerating = true;
+  if (currentRuntime.recordingMode === 'ai') {
+    currentRuntime.aiAgent = {
+      ...currentRuntime.aiAgent,
+      status: 'stopping',
+      paused: false,
+      message: '正在停止 AI 录制并生成教程...',
+      updatedAt: Date.now()
+    };
+  }
   realtimeSuggestionQueue.pending = null;
   currentRuntime.durationMs = getElapsedMs(stoppedAt);
   await persistRuntime();
   await updateBadge();
+
+  if (currentRuntime.recordingMode === 'ai') {
+    await detachCdpDebugger();
+    currentRuntime.screenshotEngine = 'standard';
+    await persistRuntime();
+  }
 
   try {
     await captureScreenshot({ trigger: 'final', allowWhenPaused: true });
@@ -848,7 +1013,7 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
   });
   notifyContent('screenshotFeedback', { count: currentRuntime.count });
 
-  if (!currentRuntime.isGenerating) {
+  if (!currentRuntime.isGenerating && currentRuntime.recordingMode !== 'ai' && trigger !== 'agent') {
     queueRealtimeSuggestion(currentRecording.id, screenshot.id).catch((error) => {
       console.warn('[Background] Realtime suggestion queue failed:', error);
     });
@@ -920,6 +1085,680 @@ async function captureVisibleTabWithCdp(tabId) {
   }
 
   return `data:image/png;base64,${result.data}`;
+}
+
+async function pauseAiAgent() {
+  if (!currentRuntime.isRecording || currentRuntime.recordingMode !== 'ai') {
+    return;
+  }
+
+  if (!currentRuntime.isPaused) {
+    currentRuntime.isPaused = true;
+    currentRuntime.pauseStartedAt = Date.now();
+  }
+
+  await updateAiAgentState({
+    status: 'paused',
+    paused: true,
+    message: 'AI 已暂停，等待继续或接管。'
+  });
+  await updateBadge();
+  notifyPopup('paused');
+  notifyContent('recordingPaused');
+}
+
+async function resumeAiAgent() {
+  if (!currentRuntime.isRecording || currentRuntime.recordingMode !== 'ai') {
+    return;
+  }
+
+  if (currentRuntime.aiAgent?.status === 'failed') {
+    throw new Error('AI 已失败，请接管操作或停止导出');
+  }
+
+  if (currentRuntime.pauseStartedAt) {
+    currentRuntime.pausedDurationMs += Date.now() - currentRuntime.pauseStartedAt;
+  }
+
+  currentRuntime.isPaused = false;
+  currentRuntime.pauseStartedAt = null;
+  await updateAiAgentState({
+    status: 'running',
+    paused: false,
+    awaitingTakeover: false,
+    message: 'AI 正在继续执行...'
+  });
+  await updateBadge();
+  notifyPopup('resumed');
+  notifyContent('recordingResumed');
+}
+
+async function takeoverRecording() {
+  if (!currentRuntime.isRecording || currentRuntime.recordingMode !== 'ai') {
+    return;
+  }
+
+  if (currentRuntime.pauseStartedAt) {
+    currentRuntime.pausedDurationMs += Date.now() - currentRuntime.pauseStartedAt;
+  }
+
+  currentRuntime.recordingMode = 'manual';
+  currentRuntime.isPaused = false;
+  currentRuntime.pauseStartedAt = null;
+  currentRuntime.mediaStatus = '人工接管';
+  await updateAiAgentState({
+    status: 'takeover',
+    paused: false,
+    awaitingTakeover: false,
+    message: '已切换为人工接管，可继续截图或停止导出。'
+  });
+  await updateBadge();
+  notifyPopup('resumed');
+  notifyContent('recordingResumed');
+}
+
+async function runAiAgentLoop(initialSettings) {
+  let settings = initialSettings;
+
+  while (isAiAgentLoopActive()) {
+    await waitForAiAgentResume();
+    if (!isAiAgentLoopActive()) {
+      return;
+    }
+
+    if (isAiAgentLimitReached()) {
+      await updateAiAgentState({
+        status: 'limit',
+        message: '已达到 AI 录制上限，正在保留已完成步骤并导出。'
+      });
+      await stopRecording();
+      return;
+    }
+
+    await updateAiAgentState({
+      status: 'running',
+      message: `正在执行第 ${currentRuntime.aiAgent.iteration + 1} 步...`
+    });
+
+    const captureResult = await captureScreenshot({ trigger: 'agent', allowWhenPaused: true });
+    if (!captureResult?.captured) {
+      throw new Error('AI 录制无法截取当前页面');
+    }
+
+    const screenshot = currentRecording.screenshots[currentRecording.screenshots.length - 1];
+    settings = await getSettings();
+    const action = await decideNextAgentAction(screenshot, settings);
+
+    if (!isAiAgentLoopActive()) {
+      return;
+    }
+
+    const description = action.description || describeAgentAction(action);
+    await updateAgentScreenshotDescription(screenshot.id, description);
+    await appendAiAgentStep(action, screenshot.id, description);
+
+    await waitForAiAgentResume();
+    if (!isAiAgentLoopActive()) {
+      return;
+    }
+
+    if (action.action === 'finish') {
+      await updateAiAgentState({
+        status: 'finishing',
+        message: 'AI 已完成目标，正在生成教程。'
+      });
+      await stopRecording();
+      return;
+    }
+
+    await executeAiAgentAction(action);
+    await updateAiAgentState({
+      iteration: currentRuntime.aiAgent.iteration + 1,
+      lastAction: action.action,
+      message: `已执行：${description}`
+    });
+    await delay(AI_AGENT_STEP_DELAY_MS);
+  }
+}
+
+async function decideNextAgentAction(screenshot, settings) {
+  if (!hasVisionAnalysisConfig(settings)) {
+    throw new Error('AI 配置不完整，无法继续 AI 录制');
+  }
+
+  const request = buildAgentDecisionRequest(screenshot, settings);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_ANALYZE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(request.url, {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const responseText = (await response.text()).slice(0, 200).trim();
+      const statusText = response.statusText ? ` ${response.statusText}` : '';
+      throw new Error(`HTTP ${response.status}${statusText}${responseText ? `: ${responseText}` : ''}`);
+    }
+
+    const data = await response.json();
+    return extractAgentAction(data, settings.apiStyle);
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw createAiTimeoutError();
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function buildAgentDecisionRequest(screenshot, settings) {
+  const apiStyle = normalizeApiStyle(settings.apiStyle);
+  const extraHeaders = parseExtraHeaders(settings.extraHeadersJson);
+  const headers =
+    apiStyle === 'anthropicMessages'
+      ? {
+          'Content-Type': 'application/json',
+          'x-api-key': settings.apiKey,
+          'anthropic-version': '2023-06-01',
+          ...extraHeaders
+        }
+      : {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.apiKey}`,
+          ...extraHeaders
+        };
+  const url = resolveVisionUrl(settings.apiBaseUrl, apiStyle);
+  const prompt = buildAgentDecisionPrompt(screenshot);
+  const tools = buildAgentToolSchema(apiStyle);
+
+  if (apiStyle === 'anthropicMessages') {
+    const { mediaType, base64 } = parseImageDataUrl(screenshot.data);
+
+    return {
+      url,
+      headers,
+      body: {
+        model: settings.modelId,
+        system: '你是浏览器操作 Agent。你必须选择一个安全、具体、单步的浏览器动作。',
+        max_tokens: 360,
+        tools,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType,
+                  data: base64
+                }
+              }
+            ]
+          }
+        ]
+      }
+    };
+  }
+
+  if (apiStyle === 'responses') {
+    return {
+      url,
+      headers,
+      body: {
+        model: settings.modelId,
+        instructions: '你是浏览器操作 Agent。你必须选择一个安全、具体、单步的浏览器动作。',
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: prompt },
+              { type: 'input_image', image_url: screenshot.data }
+            ]
+          }
+        ],
+        tools,
+        max_output_tokens: 360
+      }
+    };
+  }
+
+  return {
+    url,
+    headers,
+    body: {
+      model: settings.modelId,
+      messages: [
+        {
+          role: 'system',
+          content: '你是浏览器操作 Agent。你必须选择一个安全、具体、单步的浏览器动作。'
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: screenshot.data } }
+          ]
+        }
+      ],
+      tools,
+      tool_choice: 'auto',
+      max_tokens: 360
+    }
+  };
+}
+
+function buildAgentDecisionPrompt(screenshot) {
+  const goal = currentRuntime.aiAgent.goal || currentRecording?.aiGoal || '完成当前教程任务';
+  const stepIndex = currentRuntime.aiAgent.iteration + 1;
+  const pageTitle = sanitizePageTitle(screenshot?.pageContext?.title) || '未知页面';
+  const pageUrl = summarizeUrlForPrompt(screenshot?.pageContext?.url) || '未知地址';
+  const completedSteps = currentRuntime.aiAgent.steps
+    .slice(-8)
+    .map((step) => `${step.index}. ${step.description}`)
+    .join('\n');
+
+  return [
+    `教程目标：${goal}`,
+    `当前页面：${pageTitle}（${pageUrl}）`,
+    `当前步数：${stepIndex}/${AI_AGENT_MAX_STEPS}`,
+    completedSteps ? `已完成步骤：\n${completedSteps}` : '已完成步骤：无',
+    '请选择下一步工具调用。只能使用 click_at_xy、type_text、scroll、finish。',
+    '如果目标已完成，调用 finish。',
+    '如果需要点击，给出视口坐标 x/y；如果需要输入，先确保输入框已聚焦；如果需要滚动，给出 deltaY。',
+    '每次只执行一个动作，并写出一句中文教程步骤说明 description。',
+    '如果不能使用工具调用，请只输出 JSON，例如 {"action":"click_at_xy","x":120,"y":240,"description":"点击提交按钮"}。'
+  ].join('\n');
+}
+
+function buildAgentToolSchema(apiStyle) {
+  const baseTools = [
+    {
+      name: 'click_at_xy',
+      description: 'Click a visible page coordinate in the current viewport.',
+      parameters: {
+        type: 'object',
+        properties: {
+          x: { type: 'number' },
+          y: { type: 'number' },
+          description: { type: 'string' }
+        },
+        required: ['x', 'y', 'description']
+      }
+    },
+    {
+      name: 'type_text',
+      description: 'Type text into the currently focused input.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          description: { type: 'string' }
+        },
+        required: ['text', 'description']
+      }
+    },
+    {
+      name: 'scroll',
+      description: 'Scroll the current page.',
+      parameters: {
+        type: 'object',
+        properties: {
+          deltaY: { type: 'number' },
+          x: { type: 'number' },
+          y: { type: 'number' },
+          description: { type: 'string' }
+        },
+        required: ['deltaY', 'description']
+      }
+    },
+    {
+      name: 'finish',
+      description: 'Finish the tutorial recording when the goal is complete.',
+      parameters: {
+        type: 'object',
+        properties: {
+          description: { type: 'string' }
+        },
+        required: ['description']
+      }
+    }
+  ];
+
+  if (apiStyle === 'anthropicMessages') {
+    return baseTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.parameters
+    }));
+  }
+
+  if (apiStyle === 'responses') {
+    return baseTools.map((tool) => ({
+      type: 'function',
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }));
+  }
+
+  return baseTools.map((tool) => ({
+    type: 'function',
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }
+  }));
+}
+
+function extractAgentAction(data, apiStyle) {
+  const toolCall = extractAgentToolCall(data, apiStyle);
+  if (toolCall) {
+    return sanitizeAgentAction({
+      action: toolCall.name,
+      ...toolCall.arguments
+    });
+  }
+
+  const text = extractVisionText(data, apiStyle);
+  return parseAgentActionText(text);
+}
+
+function extractAgentToolCall(data, apiStyle) {
+  if (apiStyle === 'responses') {
+    const output = Array.isArray(data?.output) ? data.output : [];
+    const call = output.find((item) => item?.type === 'function_call' && item.name);
+    if (!call) {
+      return null;
+    }
+
+    return {
+      name: call.name,
+      arguments: parseToolArguments(call.arguments)
+    };
+  }
+
+  if (apiStyle === 'anthropicMessages') {
+    const content = Array.isArray(data?.content) ? data.content : [];
+    const call = content.find((item) => item?.type === 'tool_use' && item.name);
+    if (!call) {
+      return null;
+    }
+
+    return {
+      name: call.name,
+      arguments: call.input && typeof call.input === 'object' ? call.input : {}
+    };
+  }
+
+  const toolCalls = data?.choices?.[0]?.message?.tool_calls;
+  const call = Array.isArray(toolCalls) ? toolCalls[0] : null;
+  if (!call?.function?.name) {
+    return null;
+  }
+
+  return {
+    name: call.function.name,
+    arguments: parseToolArguments(call.function.arguments)
+  };
+}
+
+function parseToolArguments(value) {
+  if (!value) {
+    return {};
+  }
+
+  if (typeof value === 'object') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(String(value));
+  } catch (error) {
+    return {};
+  }
+}
+
+function parseAgentActionText(text) {
+  const raw = String(text || '').trim();
+  const jsonText = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] || raw.match(/\{[\s\S]*\}/)?.[0] || raw;
+
+  try {
+    return sanitizeAgentAction(JSON.parse(jsonText));
+  } catch (error) {
+    throw new Error(`AI 未返回可执行动作：${sanitizeEditableText(raw, 160) || '空响应'}`);
+  }
+}
+
+function sanitizeAgentAction(action = {}) {
+  const rawAction = sanitizeEditableText(action.action || action.type || action.name || action.tool, 40);
+  const normalizedAction = ['click_at_xy', 'type_text', 'scroll', 'finish'].includes(rawAction)
+    ? rawAction
+    : '';
+
+  if (!normalizedAction) {
+    throw new Error('AI 返回了未知工具动作');
+  }
+
+  const description = sanitizeEditableText(action.description, 400) || describeAgentAction({ action: normalizedAction });
+
+  if (normalizedAction === 'click_at_xy') {
+    const x = sanitizeCoordinate(action.x);
+    const y = sanitizeCoordinate(action.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error('AI 点击动作缺少有效坐标');
+    }
+
+    return { action: normalizedAction, x, y, description };
+  }
+
+  if (normalizedAction === 'type_text') {
+    const text = sanitizeEditableText(action.text, 500);
+    if (!text) {
+      throw new Error('AI 输入动作缺少文本');
+    }
+
+    return { action: normalizedAction, text, description };
+  }
+
+  if (normalizedAction === 'scroll') {
+    return {
+      action: normalizedAction,
+      deltaY: clampNumber(action.deltaY, -3000, 3000, 700),
+      x: sanitizeCoordinate(action.x, 400),
+      y: sanitizeCoordinate(action.y, 400),
+      description
+    };
+  }
+
+  return { action: 'finish', description };
+}
+
+function sanitizeCoordinate(value, fallback = NaN) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return clampNumber(parsed, 0, 100_000, fallback);
+}
+
+function clampNumber(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function describeAgentAction(action = {}) {
+  if (action.action === 'click_at_xy') {
+    return '点击页面中的目标位置';
+  }
+
+  if (action.action === 'type_text') {
+    return '在当前输入框中输入内容';
+  }
+
+  if (action.action === 'scroll') {
+    return action.deltaY < 0 ? '向上滚动页面' : '向下滚动页面';
+  }
+
+  return '完成当前教程目标';
+}
+
+async function executeAiAgentAction(action) {
+  if (!currentRuntime.cdpAttached || !currentRuntime.tabId) {
+    throw new Error('CDP 未连接，无法执行 AI 操作');
+  }
+
+  const target = { tabId: currentRuntime.tabId };
+
+  if (action.action === 'click_at_xy') {
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: action.x,
+      y: action.y,
+      button: 'left',
+      clickCount: 1
+    });
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: action.x,
+      y: action.y,
+      button: 'left',
+      clickCount: 1
+    });
+    return;
+  }
+
+  if (action.action === 'type_text') {
+    await chrome.debugger.sendCommand(target, 'Input.insertText', {
+      text: action.text
+    });
+    return;
+  }
+
+  if (action.action === 'scroll') {
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
+      type: 'mouseWheel',
+      x: action.x,
+      y: action.y,
+      deltaY: action.deltaY,
+      deltaX: 0
+    });
+  }
+}
+
+async function updateAgentScreenshotDescription(screenshotId, description) {
+  const located = findCurrentScreenshot(currentRecording.id, screenshotId);
+  if (!located) {
+    return;
+  }
+
+  located.screenshot.description = sanitizeEditableText(description, 400) || `步骤 ${located.index + 1}`;
+  located.screenshot.descriptionSource = 'agent-ai';
+  located.screenshot.descriptionUpdatedAt = Date.now();
+  await putRecording(currentRecording);
+}
+
+async function appendAiAgentStep(action, screenshotId, description) {
+  const steps = Array.isArray(currentRuntime.aiAgent.steps) ? currentRuntime.aiAgent.steps : [];
+  const step = {
+    index: steps.length + 1,
+    action: action.action,
+    description,
+    screenshotId,
+    timestamp: Date.now()
+  };
+
+  await updateAiAgentState({
+    steps: [...steps, step].slice(-AI_AGENT_MAX_STEPS),
+    message: description
+  });
+  notifyPopup('agentStep', { step, aiAgent: currentRuntime.aiAgent });
+}
+
+async function updateAiAgentState(patch = {}) {
+  currentRuntime.aiAgent = {
+    ...createAiAgentState(),
+    ...currentRuntime.aiAgent,
+    ...patch,
+    updatedAt: Date.now()
+  };
+
+  await persistRuntime().catch(() => {});
+  notifyAiStatus();
+  return currentRuntime.aiAgent;
+}
+
+function notifyAiStatus() {
+  notifyPopup('aiStatus', {
+    recordingMode: currentRuntime.recordingMode,
+    aiAgent: currentRuntime.aiAgent || createAiAgentState()
+  });
+}
+
+function isAiAgentLoopActive() {
+  return (
+    currentRuntime.isRecording &&
+    currentRuntime.recordingMode === 'ai' &&
+    currentRecording &&
+    !currentRuntime.isGenerating &&
+    !['failed', 'takeover', 'stopping', 'finishing', 'limit'].includes(currentRuntime.aiAgent?.status)
+  );
+}
+
+function isAiAgentLimitReached() {
+  const now = Date.now();
+  const deadlineAt = currentRuntime.aiAgent?.deadlineAt || currentRuntime.startTime + AI_AGENT_MAX_DURATION_MS;
+  return currentRuntime.aiAgent.iteration >= AI_AGENT_MAX_STEPS || now >= deadlineAt;
+}
+
+async function waitForAiAgentResume() {
+  while (
+    currentRuntime.isRecording &&
+    currentRuntime.recordingMode === 'ai' &&
+    !currentRuntime.isGenerating &&
+    (currentRuntime.isPaused || currentRuntime.aiAgent?.paused)
+  ) {
+    await delay(500);
+  }
+}
+
+async function handleAiAgentFailure(error) {
+  if (!currentRuntime.isRecording || currentRuntime.recordingMode !== 'ai' || !currentRecording) {
+    return;
+  }
+
+  console.error('[Background] AI agent failed:', error);
+  await detachCdpDebugger();
+  currentRuntime.screenshotEngine = 'standard';
+  currentRuntime.isPaused = true;
+  currentRuntime.pauseStartedAt = currentRuntime.pauseStartedAt || Date.now();
+  await updateAiAgentState({
+    status: 'failed',
+    paused: true,
+    awaitingTakeover: true,
+    message: `AI 调用失败：${sanitizeEditableText(error?.message || '未知错误', 180)}。可接管操作或停止导出。`
+  });
+  await updateBadge();
+  notifyPopup('warning', { message: currentRuntime.aiAgent.message });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function generateTutorial() {
@@ -1304,6 +2143,7 @@ function buildRecordingDetail(recording) {
     screenshotCount: recording.screenshots.length,
     hasAudio: Boolean(recording.audioDataUrl),
     hasVideo: Boolean(recording.videoDataUrl),
+    recordingMode: recording.recordingMode || 'manual',
     captureMode: recording.captureMode || DEFAULT_SETTINGS.captureMode,
     exportBaseName: recording.exportBaseName || '',
     lastExportPrompted: recording.lastExportPrompted === true,
@@ -1327,6 +2167,7 @@ function buildPdfPayload(recording) {
     durationMs: getRecordingDuration(recording),
     audioAvailable: Boolean(recording.audioDataUrl),
     videoAvailable: Boolean(recording.videoDataUrl),
+    recordingMode: recording.recordingMode || 'manual',
     screenshots: recording.screenshots.map((screenshot, index) => ({
       index: index + 1,
       description: screenshot.description || `步骤 ${index + 1}`,
@@ -1343,7 +2184,7 @@ function buildMarkdown(recording) {
     `> 创建时间：${new Date(recording.startTime).toLocaleString()}`,
     `> 录制时长：${formatDuration(getRecordingDuration(recording))}`,
     `> 截图数量：${recording.screenshots.length}`,
-    `> 录制模式：${recording.captureMode === 'tabCapture' ? '直接录制当前标签页' : '共享屏幕/标签页'}`,
+    `> 录制模式：${formatRecordingMode(recording)}`,
     `> 音频文件：${recording.audioDataUrl ? 'audio/tutorial-audio.webm' : '未生成'}`,
     `> 视频文件：${recording.videoDataUrl ? 'video/tutorial-video.webm' : '未生成'}`,
     ''
@@ -1362,6 +2203,14 @@ function buildMarkdown(recording) {
   }
 
   return lines.join('\n');
+}
+
+function formatRecordingMode(recording) {
+  if (recording.recordingMode === 'ai' || recording.captureMode === 'agent') {
+    return 'AI 自动录制';
+  }
+
+  return recording.captureMode === 'tabCapture' ? '直接录制当前标签页' : '共享屏幕/标签页';
 }
 
 async function downloadRecordingBundle(recording, markdown, pdfDataUrl, outputDir, promptForSaveAs) {
@@ -1482,6 +2331,7 @@ function buildHistoryEntry(recording) {
     durationMs: getRecordingDuration(recording),
     hasAudio: Boolean(recording.audioDataUrl),
     hasVideo: Boolean(recording.videoDataUrl),
+    recordingMode: recording.recordingMode || 'manual',
     captureMode: recording.captureMode || DEFAULT_SETTINGS.captureMode,
     exportedAt: recording.lastExportAt || Date.now(),
     exportBaseName: recording.exportBaseName || '',
@@ -2206,15 +3056,15 @@ async function updateBadge() {
 
   if (currentRuntime.isRecording && currentRuntime.isPaused) {
     await chrome.action.setBadgeBackgroundColor({ color: '#faad14' });
-    await chrome.action.setBadgeText({ text: 'II' });
-    await chrome.action.setTitle({ title: '教程录制器：已暂停' });
+    await chrome.action.setBadgeText({ text: currentRuntime.recordingMode === 'ai' ? 'AI' : 'II' });
+    await chrome.action.setTitle({ title: currentRuntime.recordingMode === 'ai' ? '教程录制器：AI 已暂停' : '教程录制器：已暂停' });
     return;
   }
 
   if (currentRuntime.isRecording) {
-    await chrome.action.setBadgeBackgroundColor({ color: '#f5222d' });
-    await chrome.action.setBadgeText({ text: 'REC' });
-    await chrome.action.setTitle({ title: '教程录制器：录制中' });
+    await chrome.action.setBadgeBackgroundColor({ color: currentRuntime.recordingMode === 'ai' ? '#7c3aed' : '#f5222d' });
+    await chrome.action.setBadgeText({ text: currentRuntime.recordingMode === 'ai' ? 'AI' : 'REC' });
+    await chrome.action.setTitle({ title: currentRuntime.recordingMode === 'ai' ? '教程录制器：AI 录制中' : '教程录制器：录制中' });
     return;
   }
 

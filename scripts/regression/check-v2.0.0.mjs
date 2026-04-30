@@ -1,0 +1,100 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+const files = {
+  background: 'background/background.js',
+  popupHtml: 'popup/popup.html',
+  popupJs: 'popup/popup.js',
+  packageJson: 'package.json',
+  packageLock: 'package-lock.json',
+  manifest: 'manifest.json'
+};
+
+const source = Object.fromEntries(
+  await Promise.all(
+    Object.entries(files).map(async ([key, relativePath]) => [
+      key,
+      await readFile(path.join(repoRoot, relativePath), 'utf8')
+    ])
+  )
+);
+
+const packageJson = JSON.parse(source.packageJson);
+const packageLock = JSON.parse(source.packageLock);
+const manifest = JSON.parse(source.manifest);
+
+const checks = [
+  {
+    name: 'version metadata is aligned at 2.0.0',
+    pass:
+      packageJson.version === '2.0.0' &&
+      packageLock.version === '2.0.0' &&
+      packageLock.packages?.['']?.version === '2.0.0' &&
+      manifest.version === '2.0.0'
+  },
+  {
+    name: 'popup exposes AI recording entry and takeover control',
+    pass:
+      /id="aiGoal"/.test(source.popupHtml) &&
+      /id="btnAiStart"/.test(source.popupHtml) &&
+      /id="btnAiTakeover"/.test(source.popupHtml) &&
+      /startAiRecording/.test(source.popupJs) &&
+      /takeoverRecording/.test(source.popupJs)
+  },
+  {
+    name: 'background registers AI recording lifecycle messages',
+    pass:
+      /case 'startAiRecording':/.test(source.background) &&
+      /case 'pauseAiAgent':/.test(source.background) &&
+      /case 'resumeAiAgent':/.test(source.background) &&
+      /case 'takeoverRecording':/.test(source.background)
+  },
+  {
+    name: 'AI agent loop captures, decides, executes, and finishes through existing export',
+    pass:
+      /async function runAiAgentLoop/.test(source.background) &&
+      /captureScreenshot\(\{ trigger: 'agent'/.test(source.background) &&
+      /decideNextAgentAction/.test(source.background) &&
+      /executeAiAgentAction/.test(source.background) &&
+      /await stopRecording\(\);/.test(source.background)
+  },
+  {
+    name: 'CDP tool executor supports required browser actions',
+    pass:
+      /click_at_xy/.test(source.background) &&
+      /type_text/.test(source.background) &&
+      /scroll/.test(source.background) &&
+      /finish/.test(source.background) &&
+      /Input\.dispatchMouseEvent/.test(source.background) &&
+      /Input\.insertText/.test(source.background)
+  },
+  {
+    name: 'AI recording has default safety limits and failure takeover path',
+    pass:
+      /const AI_AGENT_MAX_STEPS = 50/.test(source.background) &&
+      /const AI_AGENT_MAX_DURATION_MS = 10 \* 60 \* 1000/.test(source.background) &&
+      /handleAiAgentFailure/.test(source.background) &&
+      /await detachCdpDebugger\(\);[\s\S]*awaitingTakeover: true/.test(source.background)
+  },
+  {
+    name: 'recording export labels AI generated tutorials',
+    pass:
+      /recordingMode: 'ai'/.test(source.background) &&
+      /captureMode: 'agent'/.test(source.background) &&
+      /AI 自动录制/.test(source.background) &&
+      /formatRecordingModeLabel/.test(source.popupJs)
+  }
+];
+
+const failed = checks.filter((check) => !check.pass);
+
+for (const check of checks) {
+  console.log(`${check.pass ? 'ok' : 'not ok'} - ${check.name}`);
+}
+
+if (failed.length) {
+  throw new Error(`AI recording regression checks failed: ${failed.map((check) => check.name).join(', ')}`);
+}

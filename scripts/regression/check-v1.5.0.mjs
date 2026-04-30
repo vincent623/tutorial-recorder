@@ -27,15 +27,17 @@ const source = Object.fromEntries(
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
 const manifest = JSON.parse(source.manifest);
+const metadataVersions = [
+  packageJson.version,
+  packageLock.version,
+  packageLock.packages?.['']?.version,
+  manifest.version
+];
 
 const checks = [
   {
-    name: 'version metadata is aligned at 1.5.0',
-    pass:
-      packageJson.version === '1.5.0' &&
-      packageLock.version === '1.5.0' &&
-      packageLock.packages?.['']?.version === '1.5.0' &&
-      manifest.version === '1.5.0'
+    name: 'version metadata remains aligned after v1.5.0',
+    pass: metadataVersions.every((version) => version === packageJson.version)
   },
   {
     name: 'realtime suggestions have a persisted toggle in popup and settings',

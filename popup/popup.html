@@ -32,6 +32,22 @@
       <button id="btnCapture" class="btn btn-secondary" disabled>截图</button>
     </section>
 
+    <section class="panel ai-panel" id="aiPanel">
+      <div class="panel-head">
+        <h2>AI 录制</h2>
+        <span class="panel-tip" id="aiStatus">待启动</span>
+      </div>
+      <label class="field">
+        <span>教程目标</span>
+        <textarea id="aiGoal" rows="3" placeholder="描述你想要的教程"></textarea>
+      </label>
+      <div class="ai-actions">
+        <button type="button" id="btnAiStart" class="btn btn-primary">AI 录制</button>
+        <button type="button" id="btnAiTakeover" class="btn btn-secondary" disabled>接管操作</button>
+      </div>
+      <div class="ai-step-list" id="aiStepList" hidden></div>
+    </section>
+
     <section class="stats">
       <div class="stat-card">
         <span class="stat-label">截图数量</span>

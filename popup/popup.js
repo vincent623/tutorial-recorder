@@ -39,6 +39,12 @@ const elements = {
   btnPause: $('btnPause'),
   btnStop: $('btnStop'),
   btnCapture: $('btnCapture'),
+  aiPanel: $('aiPanel'),
+  aiStatus: $('aiStatus'),
+  aiGoal: $('aiGoal'),
+  btnAiStart: $('btnAiStart'),
+  btnAiTakeover: $('btnAiTakeover'),
+  aiStepList: $('aiStepList'),
   screenshotCount: $('screenshotCount'),
   recordTime: $('recordTime'),
   mediaStatus: $('mediaStatus'),
@@ -102,12 +108,29 @@ function createIdleState() {
     elapsedMs: 0,
     mediaStatus: '待启动',
     recordingId: null,
+    recordingMode: 'manual',
     captureMode: 'displayMedia',
     screenshotEngine: 'standard',
     cdpAttached: false,
     audioStarted: false,
     videoStarted: false,
-    realtimeSuggestion: createRealtimeSuggestionState()
+    realtimeSuggestion: createRealtimeSuggestionState(),
+    aiAgent: createAiAgentState()
+  };
+}
+
+function createAiAgentState(overrides = {}) {
+  return {
+    status: 'idle',
+    goal: '',
+    steps: [],
+    iteration: 0,
+    maxSteps: 50,
+    paused: false,
+    awaitingTakeover: false,
+    message: '',
+    updatedAt: 0,
+    ...overrides
   };
 }
 
@@ -174,6 +197,7 @@ async function hydrate() {
           : '待启动'
   };
   state.realtimeSuggestion = normalizeRealtimeSuggestion(snapshot.runtime?.realtimeSuggestion);
+  state.aiAgent = normalizeAiAgent(snapshot.runtime?.aiAgent);
 
   historyItems = snapshot.history || [];
   renderHistory(historyItems);
@@ -201,6 +225,8 @@ function bindEvents() {
   elements.btnPause.addEventListener('click', togglePause);
   elements.btnStop.addEventListener('click', stopRecording);
   elements.btnCapture.addEventListener('click', captureManually);
+  elements.btnAiStart.addEventListener('click', startAiRecording);
+  elements.btnAiTakeover.addEventListener('click', takeoverRecording);
   elements.historyList.addEventListener('click', handleHistoryAction);
 
   elements.btnCloseDetail.addEventListener('click', closeDetail);
@@ -267,11 +293,52 @@ async function startRecording() {
 }
 
 async function togglePause() {
-  const action = state.isPaused ? 'resumeRecording' : 'pauseRecording';
+  const isAiRecording = state.recordingMode === 'ai';
+  const action = isAiRecording
+    ? state.isPaused
+      ? 'resumeAiAgent'
+      : 'pauseAiAgent'
+    : state.isPaused
+      ? 'resumeRecording'
+      : 'pauseRecording';
   const result = await sendAction(action);
 
   if (!result?.ok) {
     alert(`${state.isPaused ? '恢复' : '暂停'}录制失败：${result?.error || '未知错误'}`);
+  }
+}
+
+async function startAiRecording() {
+  const saveResult = await saveSettings();
+  if (!saveResult?.ok) {
+    return;
+  }
+
+  const targetDescription = elements.aiGoal.value.trim();
+  if (!targetDescription) {
+    alert('请先填写 AI 录制目标');
+    return;
+  }
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    alert('未找到当前活动标签页');
+    return;
+  }
+
+  const result = await sendAction('startAiRecording', {
+    tabId: tab.id,
+    targetDescription
+  });
+  if (!result?.ok) {
+    alert(`AI 录制启动失败：${result?.error || '未知错误'}`);
+  }
+}
+
+async function takeoverRecording() {
+  const result = await sendAction('takeoverRecording');
+  if (!result?.ok) {
+    alert(`接管失败：${result?.error || '未知错误'}`);
   }
 }
 
@@ -651,6 +718,7 @@ function handleRuntimeMessage(message) {
       state.count = message.count || 0;
       state.startTime = message.startTime || Date.now();
       state.recordingId = message.recordingId || state.recordingId;
+      state.recordingMode = message.recordingMode || 'manual';
       state.pausedDurationMs = 0;
       state.pauseStartedAt = null;
       state.captureMode = message.captureMode || state.captureMode;
@@ -660,6 +728,7 @@ function handleRuntimeMessage(message) {
       state.videoStarted = message.videoStarted === true;
       state.mediaStatus = message.mediaStatus || getMediaStatusLabel(state.audioStarted, state.videoStarted);
       state.realtimeSuggestion = normalizeRealtimeSuggestion(message.realtimeSuggestion);
+      state.aiAgent = normalizeAiAgent(message.aiAgent);
       break;
     case 'screenshot':
       state.count = message.count ?? state.count;
@@ -697,6 +766,17 @@ function handleRuntimeMessage(message) {
       break;
     case 'realtimeSuggestion':
       state.realtimeSuggestion = normalizeRealtimeSuggestion(message.suggestion);
+      break;
+    case 'aiStatus':
+      state.recordingMode = message.recordingMode || state.recordingMode;
+      state.aiAgent = normalizeAiAgent(message.aiAgent);
+      state.mediaStatus =
+        state.recordingMode === 'ai' && state.isRecording
+          ? getAiStatusText(state.aiAgent)
+          : state.mediaStatus;
+      break;
+    case 'agentStep':
+      state.aiAgent = normalizeAiAgent(message.aiAgent);
       break;
     case 'generating':
       state.isGenerating = true;
@@ -761,6 +841,12 @@ function updateUi() {
   if (state.isGenerating) {
     elements.status.classList.add('processing');
     elements.statusText.textContent = '正在生成教程...';
+  } else if (state.isRecording && state.recordingMode === 'ai' && state.isPaused) {
+    elements.status.classList.add('paused');
+    elements.statusText.textContent = 'AI 已暂停';
+  } else if (state.isRecording && state.recordingMode === 'ai') {
+    elements.status.classList.add('recording');
+    elements.statusText.textContent = 'AI 录制中';
   } else if (state.isRecording && state.isPaused) {
     elements.status.classList.add('paused');
     elements.statusText.textContent = '已暂停';
@@ -772,11 +858,14 @@ function updateUi() {
   }
 
   elements.btnStart.disabled = state.isRecording || state.isGenerating;
-  elements.btnPause.disabled = !state.isRecording || state.isGenerating;
+  elements.btnPause.disabled =
+    !state.isRecording || state.isGenerating || (state.recordingMode === 'ai' && state.aiAgent.status === 'failed');
   elements.btnStop.disabled = !state.isRecording || state.isGenerating;
   elements.btnCapture.disabled = !state.isRecording || state.isGenerating;
-  elements.btnPause.textContent = state.isPaused ? '继续' : '暂停';
+  elements.btnPause.textContent =
+    state.recordingMode === 'ai' ? (state.isPaused ? '继续 AI' : '暂停 AI') : state.isPaused ? '继续' : '暂停';
   elements.cdpBanner.hidden = !(state.isRecording && state.cdpAttached);
+  renderAiPanel();
   renderRealtimeSuggestionPanel();
 
   renderHistory(historyItems);
@@ -804,6 +893,81 @@ function normalizeRealtimeSuggestion(suggestion = {}) {
     text: typeof suggestion?.text === 'string' ? suggestion.text : '',
     message: typeof suggestion?.message === 'string' ? suggestion.message : ''
   };
+}
+
+function normalizeAiAgent(aiAgent = {}) {
+  return {
+    ...createAiAgentState(),
+    ...aiAgent,
+    steps: Array.isArray(aiAgent?.steps) ? aiAgent.steps : [],
+    iteration: Number.parseInt(aiAgent?.iteration, 10) || 0,
+    maxSteps: Number.parseInt(aiAgent?.maxSteps, 10) || 50,
+    paused: aiAgent?.paused === true,
+    awaitingTakeover: aiAgent?.awaitingTakeover === true,
+    message: typeof aiAgent?.message === 'string' ? aiAgent.message : ''
+  };
+}
+
+function renderAiPanel() {
+  const aiAgent = normalizeAiAgent(state.aiAgent);
+  const isAiRecording = state.isRecording && state.recordingMode === 'ai';
+  const aiConfigured = Boolean(currentSettings.apiKey && currentSettings.modelId && currentSettings.apiBaseUrl);
+
+  elements.aiStatus.textContent = isAiRecording
+    ? getAiStatusText(aiAgent)
+    : aiConfigured
+      ? '待启动'
+      : '需配置 AI';
+  elements.btnAiStart.disabled = state.isRecording || state.isGenerating || !aiConfigured;
+  elements.btnAiTakeover.disabled =
+    !isAiRecording || state.isGenerating || (!aiAgent.awaitingTakeover && aiAgent.status !== 'running' && aiAgent.status !== 'paused');
+  elements.aiGoal.disabled = state.isRecording || state.isGenerating;
+
+  if (!elements.aiGoal.value && aiAgent.goal) {
+    elements.aiGoal.value = aiAgent.goal;
+  }
+
+  const steps = aiAgent.steps || [];
+  elements.aiStepList.hidden = !steps.length;
+  elements.aiStepList.innerHTML = steps
+    .slice(-8)
+    .map(
+      (step) => `
+        <div class="ai-step">
+          <strong>${escapeHtml(String(step.index || ''))}</strong>
+          ${escapeHtml(step.description || step.action || '')}
+        </div>
+      `
+    )
+    .join('');
+}
+
+function getAiStatusText(aiAgent = {}) {
+  if (aiAgent.status === 'running') {
+    return aiAgent.message || 'AI 录制中';
+  }
+
+  if (aiAgent.status === 'paused') {
+    return 'AI 已暂停';
+  }
+
+  if (aiAgent.status === 'failed') {
+    return aiAgent.message || 'AI 异常';
+  }
+
+  if (aiAgent.status === 'takeover') {
+    return '人工接管';
+  }
+
+  if (aiAgent.status === 'limit') {
+    return '达到上限';
+  }
+
+  if (aiAgent.status === 'finishing' || aiAgent.status === 'stopping') {
+    return '正在收尾';
+  }
+
+  return aiAgent.message || '待启动';
 }
 
 function renderRealtimeSuggestionPanel() {
@@ -1085,7 +1249,7 @@ function renderDetailMeta(detail) {
     ['创建时间', new Date(detail.createdAt).toLocaleString()],
     ['录制时长', formatDuration(detail.durationMs || 0)],
     ['步骤数量', String(detail.screenshots?.length || detail.screenshotCount || 0)],
-    ['录制模式', detail.captureMode === 'tabCapture' ? '当前标签页兼容模式' : '共享屏幕 / 标签页'],
+    ['录制模式', formatRecordingModeLabel(detail)],
     ['媒体导出', getHistoryMediaLabel(detail)]
   ];
 
@@ -1099,6 +1263,14 @@ function renderDetailMeta(detail) {
       `
     )
     .join('');
+}
+
+function formatRecordingModeLabel(item = {}) {
+  if (item.recordingMode === 'ai' || item.captureMode === 'agent') {
+    return 'AI 自动录制';
+  }
+
+  return item.captureMode === 'tabCapture' ? '当前标签页兼容模式' : '共享屏幕 / 标签页';
 }
 
 function renderDetailExportPath(detail) {

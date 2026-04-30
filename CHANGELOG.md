@@ -2,6 +2,20 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.0.0] - 2026-05-01
+
+### Added
+- AI recording panel in popup with goal input, AI start, status list, and takeover control.
+- Background AI recording lifecycle actions: `startAiRecording`, `pauseAiAgent`, `resumeAiAgent`, and `takeoverRecording`.
+- CDP Agent loop that captures the page, asks the configured model for the next browser action, executes CDP tools, and reuses the existing stop/export pipeline.
+- Agent tool schema and executor for `click_at_xy`, `type_text`, `scroll`, and `finish`.
+- Default AI recording safety limits: 50 steps and 10 minutes.
+- Failure handling that preserves completed screenshots, detaches the debugger, and offers takeover or stop/export.
+- v2.0.0 regression checks covering AI UI, message routing, Agent loop, CDP tools, limits, failure handling, and export labels.
+
+### Changed
+- Tutorials created through AI recording are labeled as `AI 自动录制` in exported Markdown and detail metadata.
+
 ## [1.5.0] - 2026-05-01
 
 ### Added
