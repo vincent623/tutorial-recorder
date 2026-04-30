@@ -2,6 +2,16 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [1.3.1] - 2026-05-01
+
+### Fixed
+- Keep manual screenshot capture available while recording is paused, matching the `.42cog` acceptance criteria.
+- Include HTTP status details in AI analysis failure warnings before falling back to default step descriptions.
+
+### Added
+- Repo-local dev watchdog entry point and progress queue.
+- Focused v1.3.1 regression checks for version alignment, paused manual capture, AI API error feedback, and history/export display.
+
 ## [1.3.0] - 2026-05-01
 
 ### Added

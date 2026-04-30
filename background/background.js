@@ -193,7 +193,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       case 'manualCapture':
-        sendResponse(await captureScreenshot({ trigger: 'manual' }));
+        sendResponse(await captureScreenshot({ trigger: 'manual', allowWhenPaused: true }));
         break;
       case 'recordInteraction':
         await recordInteraction(message.payload || {}, sender);
@@ -769,11 +769,9 @@ async function generateTutorial() {
         );
       } catch (error) {
         console.error('[Background] Analyze error:', error);
-        if (isAiTimeoutError(error)) {
-          notifyPopup('warning', {
-            message: `步骤 ${index + 1} AI 识别超时，已改用默认说明继续导出。`
-          });
-        }
+        notifyPopup('warning', {
+          message: `步骤 ${index + 1} ${describeAiFailureForUser(error)}，已改用默认说明继续导出。`
+        });
         currentRecording.screenshots[index].description = getFallbackDescription(
           currentRecording.screenshots[index],
           index
@@ -845,7 +843,9 @@ async function analyzeImage(screenshot, settings, index, screenshots) {
     });
 
     if (!response.ok) {
-      throw new Error((await response.text()).slice(0, 200));
+      const responseText = (await response.text()).slice(0, 200).trim();
+      const statusText = response.statusText ? ` ${response.statusText}` : '';
+      throw new Error(`HTTP ${response.status}${statusText}${responseText ? `: ${responseText}` : ''}`);
     }
 
     const data = await response.json();
@@ -1535,6 +1535,15 @@ function createAiTimeoutError() {
 
 function isAiTimeoutError(error) {
   return error?.name === 'AITimeoutError';
+}
+
+function describeAiFailureForUser(error) {
+  if (isAiTimeoutError(error)) {
+    return 'AI 识别超时';
+  }
+
+  const message = sanitizeEditableText(error?.message || 'AI 识别失败', 220);
+  return `AI 识别失败：${message}`;
 }
 
 function resolveVisionUrl(apiBaseUrl, apiStyle) {

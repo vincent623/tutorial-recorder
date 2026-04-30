@@ -7,3 +7,9 @@
 - Keep semantic-version planning aligned to risk: patch for metadata/tests/docs, minor for additive capabilities, major for AI browser-control behavior and new permission surfaces.
 - Do not mix Phase 1 CDP implementation with Phase 3 Agent work; CDP capture and debugger lifecycle are prerequisites for reliable AI-driven recording.
 - When introducing realtime AI calls, make them non-blocking and latest-only by design so recording cadence is independent from model latency.
+
+## 2026-05-01 - Watchdog Task Execution
+
+- Keep a repo-local progress file (`memory/dev-loop-progress.md`) as the single readable queue for automated dev-loop execution.
+- Map watchdog tasks to deterministic local commands instead of arbitrary shell text from markdown; this keeps the automation auditable and avoids command injection through progress notes.
+- Start patch work by converting known `.42cog` acceptance mismatches into regression checks, then make the smallest product change needed to satisfy the checks.

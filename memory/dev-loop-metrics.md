@@ -10,3 +10,11 @@
 - Missing Phase 2 UI/control surface: no realtime suggestion panel, no realtime suggestion toggle, no screenshot-time AI queue.
 - Missing Phase 3 message/API surface: no `startAiRecording`, `takeoverRecording`, `pauseAiAgent`, `resumeAiAgent`, or `agentStep` implementation.
 - Verification run before planning: `npm run check` passed.
+
+## 2026-05-01 - v1.3.1 Watchdog Start Metrics
+
+- Watchdog queue file: `memory/dev-loop-progress.md`.
+- Watchdog script: `scripts/dev-watchdog.mjs`.
+- First pending task selected: `v1.3.1-regression-checks`.
+- Regression checks added: version alignment, paused manual screenshot behavior, AI API HTTP-status fallback warning, history cap/export path display.
+- Stage result: `v1.3.1-regression-checks` completed and verified through `npm run watchdog`.

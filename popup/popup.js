@@ -693,7 +693,7 @@ function updateUi() {
   elements.btnStart.disabled = state.isRecording || state.isGenerating;
   elements.btnPause.disabled = !state.isRecording || state.isGenerating;
   elements.btnStop.disabled = !state.isRecording || state.isGenerating;
-  elements.btnCapture.disabled = !state.isRecording || state.isPaused || state.isGenerating;
+  elements.btnCapture.disabled = !state.isRecording || state.isGenerating;
   elements.btnPause.textContent = state.isPaused ? '继续' : '暂停';
 
   renderHistory(historyItems);
