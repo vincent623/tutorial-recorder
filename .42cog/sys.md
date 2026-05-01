@@ -191,10 +191,11 @@ while (!done && stepCount < maxSteps && !timeout) {
 **组件：**
 - MarkdownBuilder：生成 tutorial.md，含元信息头 + 每步骤截图引用 + 描述
 - PdfRenderer：在 Offscreen Document 中通过 Canvas 渲染封面页和步骤页，使用 jsPDF 输出
-- ZipBundler：使用 fflate 将 MD + PDF + 音视频 + 截图打包为 ZIP
+- PdfGuard：对超大录制按截图数量和图片体积阈值跳过 PDF，保留非 PDF 素材导出
+- ZipBundler：使用 fflate `Zip` / `ZipDeflate` 逐条写入 MD + PDF + 音视频 + 截图，并向 Popup 报告打包进度
 - DownloadManager：通过 chrome.downloads API 触发下载，支持自定义目录和 saveAs 弹窗
 
-**ZIP 结构：**
+**ZIP 结构（普通规模含 PDF；超大录制可能跳过 PDF）：**
 ```
 tutorial-YYYYMMDD-HHMMSS-<id>/
 ├── tutorial.md

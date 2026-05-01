@@ -36,9 +36,9 @@
 - 媒体：Offscreen Document + MediaRecorder API（屏幕录制、麦克风录音）
 - 截图：chrome.tabs.captureVisibleTab / chrome.debugger CDP Page.captureScreenshot
 - AI 接入：多 Provider 视觉模型（OpenAI/Claude/Gemini/火山方舟/硅基流动/阿里云百炼/OpenRouter/兼容接口），支持 Chat Completions / Responses / Anthropic Messages 三种 API 风格
-- 导出：fflate（ZIP 压缩）+ jsPDF（PDF 生成）+ 手写 Canvas 渲染
+- 导出：fflate streaming ZIP 压缩 + jsPDF（PDF 生成）+ 手写 Canvas 渲染；超大录制可跳过 PDF 但仍导出 Markdown 和全部素材
 - 测试：Playwright e2e 验证脚本
-- 已落地演进：v1.4.0 引入 CDP 截图增强，v1.5.0 引入实时 AI 建议，v2.0.0 引入 AI 驱动录制 MVP，v2.1.0 引入录制资产分片存储
+- 已落地演进：v1.4.0 引入 CDP 截图增强，v1.5.0 引入实时 AI 建议，v2.0.0 引入 AI 驱动录制 MVP，v2.1.0 引入录制资产分片存储，v2.1.1 引入流式 ZIP 导出和超大 PDF 保护
 </stack>
 </environment>
 

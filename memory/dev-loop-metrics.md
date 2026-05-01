@@ -84,3 +84,13 @@
 - E2E asset observation: `5` assets for the fixture recording (`3` screenshots, `1` audio, `1` video), all with data payloads.
 - E2E report checks added: `assetStoreSplitWorked`, `assetHydrationWorked`, `assetStoreHasScreenshotPayloads`, and `mediaAssetsSplitWorked`.
 - Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
+
+## 2026-05-01 - v2.1.1 Export Scaling Metrics
+
+- Version metadata aligned at `2.1.1` across `package.json`, `package-lock.json`, and `manifest.json`.
+- ZIP bundling switched from `zipSync(archiveEntries)` to `Zip` + `ZipDeflate` incremental entry writes.
+- ZIP progress cadence: first entry, every `10` entries, and final entry.
+- PDF protection thresholds: `150` screenshots or `200 MB` of estimated screenshot payload.
+- Oversized PDF behavior: skip PDF with warning, while ZIP still includes Markdown, all screenshots, and available audio/video.
+- E2E result: standard fixture still produced `2` valid ZIP downloads with Markdown, PDF, audio, video, and screenshots after the streaming ZIP change.
+- Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.

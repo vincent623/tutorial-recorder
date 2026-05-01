@@ -1,4 +1,4 @@
-import { strToU8, zipSync } from '../lib/fflate.js';
+import { strToU8, Zip, ZipDeflate } from '../lib/fflate.js';
 import {
   deleteRecording,
   getRecording,
@@ -19,6 +19,9 @@ const AI_AGENT_MAX_STEPS = 50;
 const AI_AGENT_MAX_DURATION_MS = 10 * 60 * 1000;
 const AI_AGENT_STEP_DELAY_MS = 800;
 const OPERATION_RESULT_TTL_MS = 5 * 60 * 1000;
+const EXPORT_PDF_MAX_SCREENSHOTS = 150;
+const EXPORT_PDF_MAX_IMAGE_BYTES = 200 * 1024 * 1024;
+const EXPORT_PROGRESS_STEP_FILES = 10;
 const ASSET_KINDS = Object.freeze({
   SCREENSHOT: 'screenshot',
   AUDIO: 'audio',
@@ -2385,12 +2388,10 @@ async function performGenerateTutorial(operationId = '') {
     status: 'ready'
   });
 
-  notifyPopup('generating', { message: '正在生成 PDF 和 Markdown...' });
+  notifyPopup('generating', { message: '正在生成 Markdown 和导出素材...' });
 
   const markdown = buildMarkdown(currentRecording);
-  const pdfResult = await sendOffscreenMessage('generatePdf', {
-    recording: buildPdfPayload(currentRecording)
-  }).catch((error) => ({ pdfDataUrl: null, error: error.message || 'PDF 生成失败' }));
+  const pdfResult = await generatePdfForRecording(currentRecording);
 
   if (pdfResult?.error) {
     notifyPopup('warning', { message: `PDF 生成失败：${pdfResult.error}` });
@@ -2746,6 +2747,42 @@ function buildRecordingDetail(recording) {
   };
 }
 
+async function generatePdfForRecording(recording) {
+  const plan = getPdfGenerationPlan(recording);
+
+  if (!plan.shouldGenerate) {
+    notifyPopup('warning', {
+      message: `${plan.reason}，已跳过 PDF；ZIP 仍包含 Markdown、全部截图和可用音视频。`
+    });
+    return { pdfDataUrl: null, skipped: true, reason: plan.reason };
+  }
+
+  notifyPopup('generating', { message: '正在生成 PDF...' });
+  return ensureOffscreenDocument()
+    .then(() => sendOffscreenMessage('generatePdf', { recording: buildPdfPayload(recording) }))
+    .catch((error) => ({ pdfDataUrl: null, error: error.message || 'PDF 生成失败' }));
+}
+
+function getPdfGenerationPlan(recording) {
+  const screenshotCount = recording?.screenshots?.length || 0;
+  if (screenshotCount > EXPORT_PDF_MAX_SCREENSHOTS) {
+    return {
+      shouldGenerate: false,
+      reason: `截图数量 ${screenshotCount} 超过 PDF 保护阈值 ${EXPORT_PDF_MAX_SCREENSHOTS}`
+    };
+  }
+
+  const imageBytes = estimateScreenshotPayloadBytes(recording);
+  if (imageBytes > EXPORT_PDF_MAX_IMAGE_BYTES) {
+    return {
+      shouldGenerate: false,
+      reason: `截图体积约 ${formatBytes(imageBytes)} 超过 PDF 保护阈值 ${formatBytes(EXPORT_PDF_MAX_IMAGE_BYTES)}`
+    };
+  }
+
+  return { shouldGenerate: true, reason: '' };
+}
+
 function buildPdfPayload(recording) {
   return {
     id: recording.id,
@@ -2808,35 +2845,132 @@ function hasRecordingVideo(recording = {}) {
   return Boolean(recording.videoDataUrl || recording.videoAssetId);
 }
 
+function estimateScreenshotPayloadBytes(recording = {}) {
+  return (recording.screenshots || []).reduce((total, screenshot) => {
+    const storedSize = Number.parseInt(screenshot?.dataSize, 10) || 0;
+    if (storedSize > 0) {
+      return total + storedSize;
+    }
+
+    return total + getDataUrlDetails(screenshot?.data || '').size;
+  }, 0);
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0;
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 async function downloadRecordingBundle(recording, markdown, pdfDataUrl, outputDir, promptForSaveAs) {
   const bundleName = buildBundleName(recording, outputDir);
   const archiveRoot = getArchiveRootName(bundleName);
-  const archiveEntries = {
-    [`${archiveRoot}/tutorial.md`]: strToU8(markdown)
+  const zipFilename = `${bundleName}.zip`;
+  const zipBlob = await buildRecordingZipBlob(recording, markdown, pdfDataUrl, archiveRoot);
+
+  await downloadBlob(zipFilename, zipBlob, promptForSaveAs);
+  return zipFilename;
+}
+
+async function buildRecordingZipBlob(recording, markdown, pdfDataUrl, archiveRoot) {
+  const chunks = [];
+  const totalEntries = getRecordingZipEntryCount(recording, pdfDataUrl);
+  let processedEntries = 0;
+  let rejectZip;
+  let resolveZip;
+  const completion = new Promise((resolve, reject) => {
+    resolveZip = resolve;
+    rejectZip = reject;
+  });
+  const zip = new Zip((error, data, final) => {
+    if (error) {
+      rejectZip(error);
+      return;
+    }
+
+    if (data?.length) {
+      chunks.push(data);
+    }
+
+    if (final) {
+      resolveZip();
+    }
+  });
+
+  const addEntry = async (filename, bytes) => {
+    const file = new ZipDeflate(filename, { level: 6 });
+    zip.add(file);
+    file.push(bytes, true);
+    processedEntries += 1;
+    notifyExportProgress(processedEntries, totalEntries);
+
+    if (processedEntries % EXPORT_PROGRESS_STEP_FILES === 0) {
+      await yieldToEventLoop();
+    }
   };
 
+  await addEntry(`${archiveRoot}/tutorial.md`, strToU8(markdown));
+
   if (pdfDataUrl) {
-    archiveEntries[`${archiveRoot}/tutorial.pdf`] = dataUrlToUint8Array(pdfDataUrl);
+    await addEntry(`${archiveRoot}/tutorial.pdf`, dataUrlToUint8Array(pdfDataUrl));
   }
 
   if (recording.audioDataUrl) {
-    archiveEntries[`${archiveRoot}/audio/tutorial-audio.webm`] = dataUrlToUint8Array(recording.audioDataUrl);
+    await addEntry(`${archiveRoot}/audio/tutorial-audio.webm`, dataUrlToUint8Array(recording.audioDataUrl));
   }
 
   if (recording.videoDataUrl) {
-    archiveEntries[`${archiveRoot}/video/tutorial-video.webm`] = dataUrlToUint8Array(recording.videoDataUrl);
+    await addEntry(`${archiveRoot}/video/tutorial-video.webm`, dataUrlToUint8Array(recording.videoDataUrl));
   }
 
   for (let index = 0; index < recording.screenshots.length; index += 1) {
-    archiveEntries[
-      `${archiveRoot}/screenshots/step-${String(index + 1).padStart(2, '0')}.png`
-    ] = dataUrlToUint8Array(recording.screenshots[index].data);
+    await addEntry(
+      `${archiveRoot}/screenshots/step-${String(index + 1).padStart(2, '0')}.png`,
+      dataUrlToUint8Array(recording.screenshots[index].data)
+    );
   }
 
-  const zipBytes = zipSync(archiveEntries, { level: 6 });
-  const zipFilename = `${bundleName}.zip`;
-  await downloadBlob(zipFilename, new Blob([zipBytes], { type: 'application/zip' }), promptForSaveAs);
-  return zipFilename;
+  zip.end();
+  await completion;
+  return new Blob(chunks, { type: 'application/zip' });
+}
+
+function getRecordingZipEntryCount(recording, pdfDataUrl) {
+  return (
+    1 +
+    (pdfDataUrl ? 1 : 0) +
+    (recording.audioDataUrl ? 1 : 0) +
+    (recording.videoDataUrl ? 1 : 0) +
+    (recording.screenshots?.length || 0)
+  );
+}
+
+function notifyExportProgress(processedEntries, totalEntries) {
+  if (
+    processedEntries !== 1 &&
+    processedEntries !== totalEntries &&
+    processedEntries % EXPORT_PROGRESS_STEP_FILES !== 0
+  ) {
+    return;
+  }
+
+  notifyPopup('generating', {
+    message: `正在打包 ZIP ${processedEntries}/${totalEntries}...`
+  });
+}
+
+function yieldToEventLoop() {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
 }
 
 function buildBundleName(recording, outputDir = DEFAULT_SETTINGS.outputDir) {
@@ -2958,9 +3092,7 @@ async function performExportRecording(id, operationId = '') {
     const markdown = buildMarkdown(recording);
     const settings = await getSettings();
 
-    const pdfResult = await ensureOffscreenDocument()
-      .then(() => sendOffscreenMessage('generatePdf', { recording: buildPdfPayload(recording) }))
-      .catch((error) => ({ pdfDataUrl: null, error: error.message || 'PDF 生成失败' }));
+    const pdfResult = await generatePdfForRecording(recording);
 
     if (pdfResult?.error) {
       notifyPopup('warning', { message: `PDF 生成失败：${pdfResult.error}` });

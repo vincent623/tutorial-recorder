@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.1.1] - 2026-05-01
+
+### Changed
+- ZIP export now writes entries incrementally with `fflate` streaming APIs instead of assembling one large archive input object.
+- Export progress is reported while ZIP entries are packed, so large recordings expose forward motion during long exports.
+- PDF generation now has protective thresholds for very large recordings; when the threshold is exceeded, export skips PDF and still emits Markdown, screenshots, audio, and video.
+
 ## [2.1.0] - 2026-05-01
 
 ### Added

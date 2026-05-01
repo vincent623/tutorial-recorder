@@ -61,3 +61,10 @@
 - Hydrate assets at API boundaries (`getRecordingDetail`, export, runtime restore) so popup/workspace contracts stay stable while persistence remains lightweight.
 - Regression and E2E checks should inspect actual IndexedDB summaries, not only exported ZIPs, because exports can hide storage-shape regressions.
 - Data URL parsing for media must search for `;base64,` rather than the first comma; WebM codec parameters can contain commas before the base64 marker.
+
+## 2026-05-01 - Export Scaling Pattern
+
+- After storage is split, inspect export memory separately: a lightweight database record can still become a huge in-memory ZIP/PDF job after hydration.
+- Build ZIPs incrementally so only one entry is decoded and compressed at a time; avoid collecting all uncompressed archive entries before compression.
+- Treat PDF as an optional derivative for very large recordings; skipping PDF is preferable to failing the entire export when Markdown and source assets are still useful.
+- Long export loops should emit progress and yield periodically so extension UI can show forward motion instead of appearing stuck.
