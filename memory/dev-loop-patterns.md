@@ -75,3 +75,10 @@
 - After browser-control actions, wait for tab stability before the next screenshot; this prevents capturing half-loaded navigation states as tutorial steps.
 - Detect hard navigation anomalies close to the executor boundary, including closed target tabs and browser-internal URLs that cannot be recorded safely.
 - Promote fixed safety constants into settings only after defaults and clamps exist in the background normalizer; UI inputs alone are not guard rails.
+
+## 2026-05-01 - Scale Stress Pattern
+
+- Keep scale checks deterministic and browserless for daily watchdog use; reserve full browser E2E for representative workflows.
+- Stress reports should compare the new storage shape against a pre-change inline equivalent so improvements are visible as ratios, not just pass/fail.
+- Validate behavior at explicit step counts that map to operating modes: normal PDF generation, PDF-skip threshold, and 1000-step asset pressure.
+- Write generated stress reports under ignored `output/` while appending stable headline metrics to `memory/dev-loop-metrics.md`.

@@ -104,3 +104,13 @@
 - Settings E2E observation: custom Agent limits persisted as `75` steps and `15` minutes in `chrome.storage.local`.
 - Regression checks added: version alignment, configurable limit normalization, settings UI fields, loop usage, retry, stability/anomaly detection, popup runtime fields, and watchdog registration.
 - Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
+
+## 2026-05-01 - v2.2.1 Scale Stress Metrics
+
+- Version metadata aligned at `2.2.1` across `package.json`, `package-lock.json`, and `manifest.json`.
+- Stress script: `scripts/stress/recording-scale.mjs`; report path: `output/stress/recording-scale-report.json`.
+- Stress assumptions: each screenshot `250 KB`, audio `8 MB`, video `40 MB`; PDF threshold `150` screenshots or `200 MB` estimated screenshot payload.
+- 100-step scenario: metadata `26.7 KB`, inline equivalent `32.6 MB`, reduction `1248.7x`, ZIP entries `104`, PDF generated, asset payload `72.4 MB`.
+- 300-step scenario: metadata `80.2 KB`, inline equivalent `97.7 MB`, reduction `1247.4x`, ZIP entries `303`, PDF skipped by `step-count>150`, asset payload `121.2 MB`.
+- 1000-step scenario: metadata `267.5 KB`, inline equivalent `325.8 MB`, reduction `1246.9x`, ZIP entries `1003`, PDF skipped by `step-count>150`, asset payload `292.1 MB`.
+- Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed, including `npm run stress:scale`.

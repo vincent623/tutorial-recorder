@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.2.1] - 2026-05-01
+
+### Added
+- Scale stress script for synthetic 100, 300, and 1000 step recordings.
+- Stress report generation under `output/stress/recording-scale-report.json` with metadata size, inline-equivalent size, ZIP entry count, asset payload size, and PDF strategy.
+- v2.2.1 regression checks covering stress script registration, threshold assertions, and watchdog task registration.
+
 ## [2.2.0] - 2026-05-01
 
 ### Added

@@ -15,7 +15,8 @@ const taskCommands = new Map([
   ['v2.0.3-transaction-recovery', ['npm', ['run', 'check']]],
   ['v2.1.0-asset-store', ['npm', ['run', 'check']]],
   ['v2.1.1-export-scaling', ['npm', ['run', 'check']]],
-  ['v2.2.0-agent-hardening', ['npm', ['run', 'check']]]
+  ['v2.2.0-agent-hardening', ['npm', ['run', 'check']]],
+  ['v2.2.1-scale-stress', ['npm', ['run', 'check']]]
 ]);
 
 const progress = await readFile(progressPath, 'utf8');
