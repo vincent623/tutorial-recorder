@@ -513,7 +513,7 @@ function listenChromeMessage(handler: (message) => void): void
 | AgentStepList | Popup (内嵌于 AiRecordingPanel) | AI 执行进度实时列表 |
 | AgentStepItem | Popup (内嵌于 AgentStepList) | 单步：状态标记 + 描述 + 缩略图 |
 | TakeoverButton | Popup (内嵌于 AiRecordingPanel) | 醒目的"接管操作"按钮 |
-| AgentSettings | Settings 页 | 后续加固项：最大步数/超时配置；当前实现使用固定 50 步 / 10 分钟上限 |
+| AgentSettings | Settings 页 | AI 最大步数和超时配置，默认 50 步 / 10 分钟，可调整为 1-500 步、1-120 分钟 |
 
 ### AI 步骤列表视觉设计
 

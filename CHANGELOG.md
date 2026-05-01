@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.2.0] - 2026-05-01
+
+### Added
+- AI Agent decision retry with one automatic retry before entering the existing takeover/failure branch.
+- Post-action page stability checks that wait for the target tab to settle and fail safely on closed or browser-internal pages.
+- Configurable AI Agent maximum steps and timeout minutes in the full settings page.
+
 ## [2.1.1] - 2026-05-01
 
 ### Changed

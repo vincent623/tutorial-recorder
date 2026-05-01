@@ -20,6 +20,8 @@ const detailReplaceImagePath = path.join(repoRoot, 'icons', 'icon48.png');
 const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48123', 10);
 const headless = process.env.PW_HEADLESS !== '0';
 const customOutputDir = process.env.PW_OUTPUT_SUBDIR || 'codex-e2e/tutorial-recorder';
+const customAiAgentMaxSteps = 75;
+const customAiAgentMaxDurationMinutes = 15;
 const editedTitle = '发布版教程';
 const aiConfig = buildAiConfigFromEnv();
 const aiEnabled = Boolean(aiConfig.apiKey && aiConfig.modelId);
@@ -111,6 +113,8 @@ async function main() {
 
     await settingsPage.locator('#outputDir').fill(customOutputDir);
     await settingsPage.locator('#outputDir').dispatchEvent('change');
+    await settingsPage.locator('#aiAgentMaxSteps').fill(String(customAiAgentMaxSteps));
+    await settingsPage.locator('#aiAgentMaxDurationMinutes').fill(String(customAiAgentMaxDurationMinutes));
     console.log(`[e2e] output dir set in settings page: ${customOutputDir}`);
     const saveSettingsResult = await settingsPage.evaluate(({ outputDir, aiConfig }) =>
       chrome.runtime.sendMessage({
@@ -124,6 +128,8 @@ async function main() {
           extraHeadersJson: aiConfig.extraHeadersJson,
           captureMode: 'displayMedia',
           outputDir,
+          aiAgentMaxSteps: 75,
+          aiAgentMaxDurationMinutes: 15,
           screenshotInterval: 5,
           autoScreenshot: true
         }
@@ -399,6 +405,9 @@ async function main() {
         outputPreviewRendered:
           settingsPageSummary.outputPreviewValue.includes(`Downloads/${customOutputDir}/tutorial-`) &&
           settingsPageSummary.outputPreviewValue.endsWith('.zip'),
+        aiAgentLimitsPersisted:
+          settingsState?.aiAgentMaxSteps === customAiAgentMaxSteps &&
+          settingsState?.aiAgentMaxDurationMinutes === customAiAgentMaxDurationMinutes,
         popupSummaryRendered:
           popupSummary.providerSummary.length > 0 &&
           popupSummary.promptSummary.length > 0 &&

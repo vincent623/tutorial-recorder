@@ -155,6 +155,20 @@
 
       <div class="grid grid-equal">
         <label class="field">
+          <span>AI 最大步数</span>
+          <input type="number" id="aiAgentMaxSteps" min="1" max="500" value="50">
+          <small class="field-hint">达到上限后会保留已完成步骤并导出。</small>
+        </label>
+
+        <label class="field">
+          <span>AI 超时（分钟）</span>
+          <input type="number" id="aiAgentMaxDurationMinutes" min="1" max="120" value="10">
+          <small class="field-hint">适合给复杂任务提高上限，建议先在短任务中验证。</small>
+        </label>
+      </div>
+
+      <div class="grid grid-equal">
+        <label class="field">
           <span>API Key</span>
           <input type="password" id="apiKey" placeholder="用于自动生成步骤说明">
         </label>

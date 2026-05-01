@@ -128,6 +128,7 @@ function createAiAgentState(overrides = {}) {
     steps: [],
     iteration: 0,
     maxSteps: 50,
+    maxDurationMs: 10 * 60 * 1000,
     paused: false,
     awaitingTakeover: false,
     message: '',
@@ -904,6 +905,7 @@ function normalizeAiAgent(aiAgent = {}) {
     steps: Array.isArray(aiAgent?.steps) ? aiAgent.steps : [],
     iteration: Number.parseInt(aiAgent?.iteration, 10) || 0,
     maxSteps: Number.parseInt(aiAgent?.maxSteps, 10) || 50,
+    maxDurationMs: Number.parseInt(aiAgent?.maxDurationMs, 10) || 10 * 60 * 1000,
     paused: aiAgent?.paused === true,
     awaitingTakeover: aiAgent?.awaitingTakeover === true,
     message: typeof aiAgent?.message === 'string' ? aiAgent.message : ''

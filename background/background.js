@@ -17,7 +17,14 @@ const AI_ANALYZE_TIMEOUT_MS = 45_000;
 const CDP_PROTOCOL_VERSION = '1.3';
 const AI_AGENT_MAX_STEPS = 50;
 const AI_AGENT_MAX_DURATION_MS = 10 * 60 * 1000;
+const AI_AGENT_MIN_STEPS = 1;
+const AI_AGENT_MAX_CONFIGURABLE_STEPS = 500;
+const AI_AGENT_MIN_DURATION_MINUTES = 1;
+const AI_AGENT_MAX_DURATION_MINUTES = 120;
 const AI_AGENT_STEP_DELAY_MS = 800;
+const AI_AGENT_DECISION_RETRY_LIMIT = 1;
+const AI_AGENT_PAGE_STABILITY_TIMEOUT_MS = 8_000;
+const AI_AGENT_PAGE_STABILITY_INTERVAL_MS = 400;
 const OPERATION_RESULT_TTL_MS = 5 * 60 * 1000;
 const EXPORT_PDF_MAX_SCREENSHOTS = 150;
 const EXPORT_PDF_MAX_IMAGE_BYTES = 200 * 1024 * 1024;
@@ -177,6 +184,8 @@ const DEFAULT_SETTINGS = {
   screenshotInterval: 5,
   autoScreenshot: true,
   realtimeSuggestions: false,
+  aiAgentMaxSteps: AI_AGENT_MAX_STEPS,
+  aiAgentMaxDurationMinutes: Math.round(AI_AGENT_MAX_DURATION_MS / 60_000),
   screenshotEngine: 'standard',
   cdpCropEnabled: false,
   cdpCropX: 0,
@@ -674,6 +683,7 @@ function createAiAgentState(overrides = {}) {
     steps: [],
     iteration: 0,
     maxSteps: AI_AGENT_MAX_STEPS,
+    maxDurationMs: AI_AGENT_MAX_DURATION_MS,
     startedAt: null,
     deadlineAt: null,
     paused: false,
@@ -788,7 +798,19 @@ function normalizeSettings(settings = {}) {
     promptForSaveAs: settings.promptForSaveAs === true,
     screenshotInterval: clampInterval(settings.screenshotInterval ?? DEFAULT_SETTINGS.screenshotInterval),
     autoScreenshot: settings.autoScreenshot !== false,
-    realtimeSuggestions: settings.realtimeSuggestions === true
+    realtimeSuggestions: settings.realtimeSuggestions === true,
+    aiAgentMaxSteps: clampInteger(
+      settings.aiAgentMaxSteps ?? DEFAULT_SETTINGS.aiAgentMaxSteps,
+      AI_AGENT_MIN_STEPS,
+      AI_AGENT_MAX_CONFIGURABLE_STEPS,
+      DEFAULT_SETTINGS.aiAgentMaxSteps
+    ),
+    aiAgentMaxDurationMinutes: clampInteger(
+      settings.aiAgentMaxDurationMinutes ?? DEFAULT_SETTINGS.aiAgentMaxDurationMinutes,
+      AI_AGENT_MIN_DURATION_MINUTES,
+      AI_AGENT_MAX_DURATION_MINUTES,
+      DEFAULT_SETTINGS.aiAgentMaxDurationMinutes
+    )
   };
 }
 
@@ -907,6 +929,29 @@ function clampInterval(seconds) {
   }
 
   return Math.min(60, Math.max(1, value));
+}
+
+function clampInteger(value, min, max, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function normalizeAiAgentMaxSteps(value) {
+  return clampInteger(value, AI_AGENT_MIN_STEPS, AI_AGENT_MAX_CONFIGURABLE_STEPS, AI_AGENT_MAX_STEPS);
+}
+
+function normalizeAiAgentMaxDurationMs(value) {
+  const minutes = clampInteger(
+    value,
+    AI_AGENT_MIN_DURATION_MINUTES,
+    AI_AGENT_MAX_DURATION_MINUTES,
+    Math.round(AI_AGENT_MAX_DURATION_MS / 60_000)
+  );
+  return minutes * 60_000;
 }
 
 function sanitizeOutputDir(value) {
@@ -1245,6 +1290,8 @@ async function startAiRecording(tabId, targetDescription) {
 
   const tab = await chrome.tabs.get(tabId);
   const startedAt = Date.now();
+  const agentMaxSteps = normalizeAiAgentMaxSteps(settings.aiAgentMaxSteps);
+  const agentMaxDurationMs = normalizeAiAgentMaxDurationMs(settings.aiAgentMaxDurationMinutes);
 
   currentRecording = {
     id: startedAt.toString(),
@@ -1285,8 +1332,10 @@ async function startAiRecording(tabId, targetDescription) {
     aiAgent: createAiAgentState({
       status: 'running',
       goal,
+      maxSteps: agentMaxSteps,
+      maxDurationMs: agentMaxDurationMs,
       startedAt,
-      deadlineAt: startedAt + AI_AGENT_MAX_DURATION_MS,
+      deadlineAt: startedAt + agentMaxDurationMs,
       message: 'AI 正在观察页面...'
     })
   };
@@ -1726,7 +1775,7 @@ async function runAiAgentLoop(initialSettings) {
 
     const screenshot = currentRecording.screenshots[currentRecording.screenshots.length - 1];
     settings = await getSettings();
-    const action = await decideNextAgentAction(screenshot, settings);
+    const action = await decideNextAgentActionWithRetry(screenshot, settings);
 
     if (!isAiAgentLoopActive()) {
       return;
@@ -1751,6 +1800,7 @@ async function runAiAgentLoop(initialSettings) {
     }
 
     await executeAiAgentAction(action);
+    await waitForAgentPageStability(action, screenshot);
     await updateAiAgentState({
       iteration: currentRuntime.aiAgent.iteration + 1,
       lastAction: action.action,
@@ -1758,6 +1808,31 @@ async function runAiAgentLoop(initialSettings) {
     });
     await delay(AI_AGENT_STEP_DELAY_MS);
   }
+}
+
+async function decideNextAgentActionWithRetry(screenshot, settings) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= AI_AGENT_DECISION_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await decideNextAgentAction(screenshot, settings);
+    } catch (error) {
+      lastError = error;
+
+      if (attempt >= AI_AGENT_DECISION_RETRY_LIMIT) {
+        break;
+      }
+
+      await updateAiAgentState({
+        status: 'retrying',
+        message: `AI 决策失败，正在重试 ${attempt + 1}/${AI_AGENT_DECISION_RETRY_LIMIT}：${sanitizeEditableText(error?.message || '未知错误', 120)}`
+      });
+      notifyPopup('warning', { message: currentRuntime.aiAgent.message });
+      await delay(800);
+    }
+  }
+
+  throw lastError || new Error('AI 决策失败');
 }
 
 async function decideNextAgentAction(screenshot, settings) {
@@ -1903,11 +1978,12 @@ function buildAgentDecisionPrompt(screenshot) {
     .slice(-8)
     .map((step) => `${step.index}. ${step.description}`)
     .join('\n');
+  const maxSteps = currentRuntime.aiAgent.maxSteps || AI_AGENT_MAX_STEPS;
 
   return [
     `教程目标：${goal}`,
     `当前页面：${pageTitle}（${pageUrl}）`,
-    `当前步数：${stepIndex}/${AI_AGENT_MAX_STEPS}`,
+    `当前步数：${stepIndex}/${maxSteps}`,
     completedSteps ? `已完成步骤：\n${completedSteps}` : '已完成步骤：无',
     '请选择下一步工具调用。只能使用 click_at_xy、type_text、scroll、finish。',
     '如果目标已完成，调用 finish。',
@@ -2203,6 +2279,79 @@ async function performExecuteAiAgentAction(action) {
   }
 }
 
+async function waitForAgentPageStability(action, previousScreenshot) {
+  if (!currentRuntime.tabId || action?.action === 'finish') {
+    return null;
+  }
+
+  const beforeUrl = previousScreenshot?.pageContext?.url || '';
+  const startedAt = Date.now();
+  let stableSignature = '';
+  let stableCount = 0;
+  let lastTab = null;
+
+  while (Date.now() - startedAt < AI_AGENT_PAGE_STABILITY_TIMEOUT_MS) {
+    const tab = await chrome.tabs.get(currentRuntime.tabId).catch(() => null);
+    if (!tab) {
+      throw new Error('AI 操作后目标页面已关闭，请接管或停止导出');
+    }
+
+    lastTab = tab;
+    assertAgentTabIsRecordable(tab.url || '');
+
+    if (tab.status === 'complete') {
+      const signature = `${tab.url || ''}\n${tab.title || ''}`;
+      stableCount = signature === stableSignature ? stableCount + 1 : 1;
+      stableSignature = signature;
+
+      if (stableCount >= 2) {
+        warnAgentNavigationChange(beforeUrl, tab.url || '');
+        return tab;
+      }
+    } else {
+      stableCount = 0;
+    }
+
+    await delay(AI_AGENT_PAGE_STABILITY_INTERVAL_MS);
+  }
+
+  throw new Error(
+    `AI 操作后页面长时间未稳定${lastTab?.status ? `（当前状态：${lastTab.status}）` : ''}，请接管或停止导出`
+  );
+}
+
+function assertAgentTabIsRecordable(url) {
+  if (!url) {
+    return;
+  }
+
+  if (/^(chrome|edge|brave|vivaldi|opera|about|devtools):/i.test(url)) {
+    throw new Error(`AI 操作后进入浏览器内部页面：${summarizeUrlForPrompt(url) || url}`);
+  }
+}
+
+function warnAgentNavigationChange(beforeUrl, afterUrl) {
+  if (!beforeUrl || !afterUrl || beforeUrl === afterUrl) {
+    return;
+  }
+
+  const beforeOrigin = getUrlOrigin(beforeUrl);
+  const afterOrigin = getUrlOrigin(afterUrl);
+  if (beforeOrigin && afterOrigin && beforeOrigin !== afterOrigin) {
+    notifyPopup('warning', {
+      message: `AI 操作后页面跳转到 ${summarizeUrlForPrompt(afterUrl)}，已等待页面稳定后继续。`
+    });
+  }
+}
+
+function getUrlOrigin(url) {
+  try {
+    return new URL(url).origin;
+  } catch (error) {
+    return '';
+  }
+}
+
 async function updateAgentScreenshotDescription(screenshotId, description) {
   const located = findCurrentScreenshot(currentRecording.id, screenshotId);
   if (!located) {
@@ -2235,7 +2384,7 @@ async function appendAiAgentStep(action, screenshotId, description) {
   };
 
   await updateAiAgentState({
-    steps: [...steps, step].slice(-AI_AGENT_MAX_STEPS),
+    steps: [...steps, step].slice(-(currentRuntime.aiAgent.maxSteps || AI_AGENT_MAX_STEPS)),
     message: description
   });
   notifyPopup('agentStep', { step, aiAgent: currentRuntime.aiAgent });
@@ -2283,8 +2432,10 @@ function isAiAgentLoopActive() {
 
 function isAiAgentLimitReached() {
   const now = Date.now();
-  const deadlineAt = currentRuntime.aiAgent?.deadlineAt || currentRuntime.startTime + AI_AGENT_MAX_DURATION_MS;
-  return currentRuntime.aiAgent.iteration >= AI_AGENT_MAX_STEPS || now >= deadlineAt;
+  const maxSteps = currentRuntime.aiAgent?.maxSteps || AI_AGENT_MAX_STEPS;
+  const maxDurationMs = currentRuntime.aiAgent?.maxDurationMs || AI_AGENT_MAX_DURATION_MS;
+  const deadlineAt = currentRuntime.aiAgent?.deadlineAt || currentRuntime.startTime + maxDurationMs;
+  return currentRuntime.aiAgent.iteration >= maxSteps || now >= deadlineAt;
 }
 
 async function waitForAiAgentResume() {

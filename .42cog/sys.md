@@ -169,9 +169,10 @@ resolveVisionUrl(apiBaseUrl, apiStyle)
 ```
 while (!done && stepCount < maxSteps && !timeout) {
   screenshot = CdpCapture.capture(tabId)
-  decision = VisionApiGateway.chat(screenshot, context, toolDefinitions)
+  decision = VisionApiGateway.chat(screenshot, context, toolDefinitions) // 失败自动重试 1 次
   if (decision.tool === 'finish') break
   ToolExecutor.execute(decision)
+  PageStabilityGuard.waitForStableTab(tabId)
   recordStep(screenshot, decision.description)
   notifyPopup('agentStep', { step: stepCount, description })
 }
@@ -182,7 +183,7 @@ while (!done && stepCount < maxSteps && !timeout) {
 - 输入（Agent 模式）：startAgentLoop(targetDescription, settings, tabId)（Phase 3）
 - 输出：步骤说明文本 / Agent 执行步骤列表
 
-**约束：** 单步超时 45 秒；Agent 循环最大 50 步 / 10 分钟（real.md C4）
+**约束：** 单步超时 45 秒；Agent 循环默认最大 50 步 / 10 分钟，Settings 页可配置为 1-500 步、1-120 分钟；单轮决策失败重试 1 次，动作后检测页面关闭、内部页面和跨域导航提示。
 
 ### 3.4 Export Pipeline（导出管道）
 

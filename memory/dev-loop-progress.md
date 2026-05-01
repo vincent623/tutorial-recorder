@@ -10,3 +10,4 @@ The watchdog reads the first unchecked item and executes the mapped verification
 - [x] `v2.0.3-transaction-recovery` - Add recording commit states, recovery scan, and history reconciliation.
 - [x] `v2.1.0-asset-store` - Split large screenshot/audio/video payloads into IndexedDB assets and hydrate exports on demand.
 - [x] `v2.1.1-export-scaling` - Stream ZIP packaging, report export progress, and gracefully skip oversized PDF generation.
+- [x] `v2.2.0-agent-hardening` - Add Agent decision retry, page stability checks, navigation anomaly handling, and configurable limits.

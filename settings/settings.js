@@ -165,6 +165,8 @@ const elements = {
   promptForSaveAs: $('promptForSaveAs'),
   providerPreset: $('providerPreset'),
   realtimeSuggestions: $('realtimeSuggestions'),
+  aiAgentMaxSteps: $('aiAgentMaxSteps'),
+  aiAgentMaxDurationMinutes: $('aiAgentMaxDurationMinutes'),
   advancedAiSettings: $('advancedAiSettings'),
   apiStyle: $('apiStyle'),
   apiKey: $('apiKey'),
@@ -220,6 +222,8 @@ function bindEvents() {
   elements.promptForSaveAs.addEventListener('change', handlePromptForSaveAsChange);
   elements.providerPreset.addEventListener('change', handleProviderPresetChange);
   elements.realtimeSuggestions.addEventListener('change', saveSettings);
+  elements.aiAgentMaxSteps.addEventListener('change', saveSettings);
+  elements.aiAgentMaxDurationMinutes.addEventListener('change', saveSettings);
   elements.apiStyle.addEventListener('change', saveSettings);
   elements.apiKey.addEventListener('change', saveSettings);
   elements.apiBaseUrl.addEventListener('change', saveSettings);
@@ -278,6 +282,8 @@ function readSettingsFromForm() {
     promptForSaveAs: elements.promptForSaveAs.checked,
     providerPreset: elements.providerPreset.value,
     realtimeSuggestions: elements.realtimeSuggestions.checked,
+    aiAgentMaxSteps: parseInt(elements.aiAgentMaxSteps.value, 10),
+    aiAgentMaxDurationMinutes: parseInt(elements.aiAgentMaxDurationMinutes.value, 10),
     apiStyle: elements.apiStyle.value,
     apiKey: elements.apiKey.value.trim(),
     apiBaseUrl: elements.apiBaseUrl.value.trim(),
@@ -372,6 +378,8 @@ function applySettingsToForm(settings = {}) {
   elements.promptForSaveAs.checked = settings.promptForSaveAs === true;
   elements.providerPreset.value = settings.providerPreset || 'volcengineArk';
   elements.realtimeSuggestions.checked = settings.realtimeSuggestions === true;
+  elements.aiAgentMaxSteps.value = settings.aiAgentMaxSteps || 50;
+  elements.aiAgentMaxDurationMinutes.value = settings.aiAgentMaxDurationMinutes || 10;
   elements.apiStyle.value = settings.apiStyle || 'chatCompletions';
   elements.apiKey.value = settings.apiKey || '';
   elements.apiBaseUrl.value = settings.apiBaseUrl || '';

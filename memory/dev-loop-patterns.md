@@ -68,3 +68,10 @@
 - Build ZIPs incrementally so only one entry is decoded and compressed at a time; avoid collecting all uncompressed archive entries before compression.
 - Treat PDF as an optional derivative for very large recordings; skipping PDF is preferable to failing the entire export when Markdown and source assets are still useful.
 - Long export loops should emit progress and yield periodically so extension UI can show forward motion instead of appearing stuck.
+
+## 2026-05-01 - Agent Hardening Pattern
+
+- Keep Agent failures recoverable: retry one transient decision failure, then route through the existing failure/takeover branch instead of continuing with uncertain state.
+- After browser-control actions, wait for tab stability before the next screenshot; this prevents capturing half-loaded navigation states as tutorial steps.
+- Detect hard navigation anomalies close to the executor boundary, including closed target tabs and browser-internal URLs that cannot be recorded safely.
+- Promote fixed safety constants into settings only after defaults and clamps exist in the background normalizer; UI inputs alone are not guard rails.

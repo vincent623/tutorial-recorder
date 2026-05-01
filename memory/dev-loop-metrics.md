@@ -94,3 +94,13 @@
 - Oversized PDF behavior: skip PDF with warning, while ZIP still includes Markdown, all screenshots, and available audio/video.
 - E2E result: standard fixture still produced `2` valid ZIP downloads with Markdown, PDF, audio, video, and screenshots after the streaming ZIP change.
 - Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
+
+## 2026-05-01 - v2.2.0 Agent Hardening Metrics
+
+- Version metadata aligned at `2.2.0` across `package.json`, `package-lock.json`, and `manifest.json`.
+- Agent decision retry policy: `1` automatic retry after a failed model decision before the existing failure/takeover branch.
+- Page stability guard: waits up to `8000 ms`, polling every `400 ms`, and requires two stable completed tab snapshots.
+- Configurable Agent limits: default `50` steps and `10` minutes; clamped range `1-500` steps and `1-120` minutes.
+- Settings E2E observation: custom Agent limits persisted as `75` steps and `15` minutes in `chrome.storage.local`.
+- Regression checks added: version alignment, configurable limit normalization, settings UI fields, loop usage, retry, stability/anomaly detection, popup runtime fields, and watchdog registration.
+- Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
