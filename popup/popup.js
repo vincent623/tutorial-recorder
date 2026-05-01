@@ -28,6 +28,7 @@ const CAPTURE_MODE_HINTS = {
   displayMedia: '开始录制时会弹出共享画面选择，并额外请求麦克风权限。',
   tabCapture: '直接录制当前标签页，适合自动化验证或兼容场景，通常不会弹出共享选择。'
 };
+const IDEMPOTENT_ACTIONS = new Set(['stopRecording', 'manualCapture', 'downloadRecording']);
 
 const elements = {
   pageTitle: $('pageTitle'),
@@ -88,6 +89,7 @@ let detailState = createDetailState();
 let timer = null;
 let currentSettings = {};
 let initialWorkspaceSelectionHandled = false;
+const pendingOperationIds = new Map();
 
 document.addEventListener('DOMContentLoaded', async () => {
   applyPageMode();
@@ -1593,5 +1595,37 @@ function escapeHtml(text) {
 }
 
 function sendAction(action, payload = {}) {
-  return chrome.runtime.sendMessage({ action, ...payload });
+  if (!IDEMPOTENT_ACTIONS.has(action) || payload.operationId) {
+    return chrome.runtime.sendMessage({ action, ...payload });
+  }
+
+  const operationKey = buildClientOperationKey(action, payload);
+  let operationId = pendingOperationIds.get(operationKey);
+
+  if (!operationId) {
+    operationId = createClientOperationId(action);
+    pendingOperationIds.set(operationKey, operationId);
+  }
+
+  return chrome.runtime
+    .sendMessage({ action, ...payload, operationId })
+    .finally(() => {
+      if (pendingOperationIds.get(operationKey) === operationId) {
+        pendingOperationIds.delete(operationKey);
+      }
+    });
+}
+
+function buildClientOperationKey(action, payload = {}) {
+  const targetId = payload.id || state.recordingId || detailState.openId || 'active';
+  return `${action}:${targetId}`;
+}
+
+function createClientOperationId(action) {
+  const randomPart =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : Math.random().toString(36).slice(2, 10);
+
+  return `${action}-${Date.now().toString(36)}-${randomPart}`;
 }

@@ -37,9 +37,12 @@ const checks = [
   {
     name: 'manual screenshot remains allowed while recording is paused',
     pass:
-      /case 'manualCapture':[\s\S]*captureScreenshot\(\{\s*trigger: 'manual',\s*allowWhenPaused: true\s*\}\)/.test(
+      (/case 'manualCapture':[\s\S]*captureScreenshot\(\{\s*trigger: 'manual',\s*allowWhenPaused: true\s*\}\)/.test(
         source.background
-      ) &&
+      ) ||
+        /case 'manualCapture':[\s\S]*captureScreenshot\(\{[\s\S]*trigger: 'manual',[\s\S]*allowWhenPaused: true,[\s\S]*operationId: message\.operationId[\s\S]*\}\)/.test(
+          source.background
+        )) &&
       /elements\.btnCapture\.disabled = !state\.isRecording \|\| state\.isGenerating;/.test(source.popup) &&
       !/elements\.btnCapture\.disabled = [^;]*state\.isPaused/.test(source.popup)
   },

@@ -1,11 +1,11 @@
 {
   "name": "tutorial-recorder",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check background/asset-store.js && node --check background/background.js && node --check content/content.js && node --check offscreen/offscreen.js && node --check popup/popup.js && node --check settings/settings.js && node --check scripts/e2e/validate-extension.mjs && node --check scripts/regression/check-v1.3.1.mjs && node --check scripts/regression/check-v1.4.0.mjs && node --check scripts/regression/check-v1.5.0.mjs && node --check scripts/regression/check-v2.0.0.mjs && npm run test:regression",
-    "test:regression": "node scripts/regression/check-v1.3.1.mjs && node scripts/regression/check-v1.4.0.mjs && node scripts/regression/check-v1.5.0.mjs && node scripts/regression/check-v2.0.0.mjs",
+    "check": "node --check background/asset-store.js && node --check background/background.js && node --check content/content.js && node --check offscreen/offscreen.js && node --check popup/popup.js && node --check settings/settings.js && node --check scripts/e2e/validate-extension.mjs && node --check scripts/regression/check-v1.3.1.mjs && node --check scripts/regression/check-v1.4.0.mjs && node --check scripts/regression/check-v1.5.0.mjs && node --check scripts/regression/check-v2.0.0.mjs && node --check scripts/regression/check-v2.0.2.mjs && npm run test:regression",
+    "test:regression": "node scripts/regression/check-v1.3.1.mjs && node scripts/regression/check-v1.4.0.mjs && node scripts/regression/check-v1.5.0.mjs && node scripts/regression/check-v2.0.0.mjs && node scripts/regression/check-v2.0.2.mjs",
     "validate:e2e": "node scripts/e2e/validate-extension.mjs",
     "watchdog": "node scripts/dev-watchdog.mjs"
   },

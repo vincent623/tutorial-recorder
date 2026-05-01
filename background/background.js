@@ -11,6 +11,7 @@ const CDP_PROTOCOL_VERSION = '1.3';
 const AI_AGENT_MAX_STEPS = 50;
 const AI_AGENT_MAX_DURATION_MS = 10 * 60 * 1000;
 const AI_AGENT_STEP_DELAY_MS = 800;
+const OPERATION_RESULT_TTL_MS = 5 * 60 * 1000;
 
 const PROVIDER_PRESETS = {
   volcengineArk: {
@@ -160,6 +161,10 @@ let realtimeSuggestionQueue = {
   active: false,
   pending: null
 };
+let operationSequence = 0;
+const operationLocks = new Map();
+const operationSerialQueues = new Map();
+const recentOperationResults = new Map();
 
 console.log('[Background] Service worker booted');
 
@@ -220,18 +225,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true });
         break;
       case 'stopRecording':
-        await stopRecording();
+        await stopRecording(message.operationId);
         sendResponse({ ok: true });
         break;
       case 'manualCapture':
-        sendResponse(await captureScreenshot({ trigger: 'manual', allowWhenPaused: true }));
+        sendResponse(
+          await captureScreenshot({
+            trigger: 'manual',
+            allowWhenPaused: true,
+            operationId: message.operationId
+          })
+        );
         break;
       case 'recordInteraction':
         await recordInteraction(message.payload || {}, sender);
         sendResponse({ ok: true });
         break;
       case 'downloadRecording':
-        await exportRecording(message.id);
+        await exportRecording(message.id, message.operationId);
         sendResponse({ ok: true });
         break;
       case 'getRecordingDetail':
@@ -324,6 +335,7 @@ function createIdleRuntime() {
     tabId: null,
     windowId: null,
     recordingId: null,
+    screenshotSequence: 0,
     recordingMode: 'manual',
     captureMode: DEFAULT_SETTINGS.captureMode,
     screenshotEngine: DEFAULT_SETTINGS.screenshotEngine,
@@ -339,6 +351,103 @@ function createIdleRuntime() {
     realtimeSuggestion: createRealtimeSuggestionState(),
     aiAgent: createAiAgentState()
   };
+}
+
+function createOperationId(prefix = 'op') {
+  operationSequence += 1;
+  return `${sanitizeOperationId(prefix)}-${Date.now().toString(36)}-${operationSequence}-${createRandomSuffix()}`;
+}
+
+function createRandomSuffix() {
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const values = new Uint32Array(1);
+    globalThis.crypto.getRandomValues(values);
+    return values[0].toString(36).slice(0, 8);
+  }
+
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function sanitizeOperationId(value) {
+  return sanitizeTextValue(value, 160).replace(/[^a-zA-Z0-9:._-]/g, '-');
+}
+
+function buildIdempotencyKey(scope, operationId) {
+  const sanitizedOperationId = sanitizeOperationId(operationId);
+  if (!sanitizedOperationId) {
+    return '';
+  }
+
+  return `${scope}:${sanitizedOperationId}`;
+}
+
+function pruneRecentOperationResults() {
+  const now = Date.now();
+
+  for (const [key, item] of recentOperationResults.entries()) {
+    if (!item || item.expiresAt <= now) {
+      recentOperationResults.delete(key);
+    }
+  }
+}
+
+async function runExclusiveOperation(lockKey, operation) {
+  if (operationLocks.has(lockKey)) {
+    return operationLocks.get(lockKey);
+  }
+
+  const promise = Promise.resolve()
+    .then(operation)
+    .finally(() => {
+      operationLocks.delete(lockKey);
+    });
+
+  operationLocks.set(lockKey, promise);
+  return promise;
+}
+
+async function runSerializedOperation(queueKey, operation) {
+  const previous = operationSerialQueues.get(queueKey) || Promise.resolve();
+  const promise = previous
+    .catch(() => {})
+    .then(operation)
+    .finally(() => {
+      if (operationSerialQueues.get(queueKey) === promise) {
+        operationSerialQueues.delete(queueKey);
+      }
+    });
+
+  operationSerialQueues.set(queueKey, promise);
+  return promise;
+}
+
+async function runIdempotentOperation(scope, operationId, operation) {
+  const idempotencyKey = buildIdempotencyKey(scope, operationId);
+  if (!idempotencyKey) {
+    return operation();
+  }
+
+  pruneRecentOperationResults();
+
+  const cached = recentOperationResults.get(idempotencyKey);
+  if (cached) {
+    return cached.result;
+  }
+
+  return runExclusiveOperation(idempotencyKey, async () => {
+    const cachedAfterLock = recentOperationResults.get(idempotencyKey);
+    if (cachedAfterLock) {
+      return cachedAfterLock.result;
+    }
+
+    const result = await operation();
+    recentOperationResults.set(idempotencyKey, {
+      result,
+      expiresAt: Date.now() + OPERATION_RESULT_TTL_MS
+    });
+    pruneRecentOperationResults();
+    return result;
+  });
 }
 
 function createAiAgentState(overrides = {}) {
@@ -896,7 +1005,15 @@ async function resumeRecording() {
   notifyContent('recordingResumed');
 }
 
-async function stopRecording() {
+async function stopRecording(operationId = '') {
+  const recordingId = currentRuntime.recordingId || currentRecording?.id || '';
+  const fallbackOperationId = recordingId ? `stop-${recordingId}` : '';
+  return runExclusiveOperation('stopRecording', () =>
+    runIdempotentOperation('stopRecording', operationId || fallbackOperationId, performStopRecording)
+  );
+}
+
+async function performStopRecording() {
   if (!currentRuntime.isRecording || !currentRecording) {
     return;
   }
@@ -968,7 +1085,18 @@ async function stopRecording() {
   }
 }
 
-async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false } = {}) {
+async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false, operationId = '' } = {}) {
+  const recordingId = currentRuntime.recordingId || currentRecording?.id || 'idle';
+  const queueKey = `captureScreenshot:${recordingId}`;
+
+  return runSerializedOperation(queueKey, () =>
+    runIdempotentOperation(queueKey, operationId, () =>
+      performCaptureScreenshot({ trigger, allowWhenPaused, operationId })
+    )
+  );
+}
+
+async function performCaptureScreenshot({ trigger = 'manual', allowWhenPaused = false, operationId = '' } = {}) {
   if (!currentRuntime.isRecording || !currentRecording || !currentRuntime.tabId) {
     return { ok: false, captured: false };
   }
@@ -986,8 +1114,12 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
   const dataUrl = await captureScreenshotDataUrl(tab);
 
   const timestamp = Date.now();
+  const sequence = getNextScreenshotSequence();
+  const resolvedOperationId = sanitizeOperationId(operationId) || createOperationId(`capture-${trigger}`);
   const screenshot = {
-    id: timestamp.toString(),
+    id: createScreenshotId(currentRecording.id, sequence),
+    sequence,
+    operationId: resolvedOperationId,
     data: dataUrl,
     timestamp,
     timeOffsetMs: getElapsedMs(timestamp),
@@ -1020,6 +1152,20 @@ async function captureScreenshot({ trigger = 'manual', allowWhenPaused = false }
   }
 
   return { ok: true, captured: true, count: currentRuntime.count };
+}
+
+function getNextScreenshotSequence() {
+  const currentSequence = Number.parseInt(currentRuntime.screenshotSequence, 10) || 0;
+  const existingCount = currentRecording?.screenshots?.length || 0;
+  const nextSequence = Math.max(currentSequence, existingCount) + 1;
+  currentRuntime.screenshotSequence = nextSequence;
+  return nextSequence;
+}
+
+function createScreenshotId(recordingId, sequence) {
+  const safeRecordingId = sanitizeOperationId(recordingId) || 'recording';
+  const safeSequence = String(sequence).padStart(5, '0');
+  return `${safeRecordingId}-shot-${safeSequence}-${createRandomSuffix()}`;
 }
 
 async function captureScreenshotDataUrl(tab) {
@@ -1617,6 +1763,11 @@ function describeAgentAction(action = {}) {
 }
 
 async function executeAiAgentAction(action) {
+  const lockKey = `agentAction:${currentRuntime.recordingId || 'idle'}:${currentRuntime.aiAgent?.iteration || 0}`;
+  return runExclusiveOperation(lockKey, () => performExecuteAiAgentAction(action));
+}
+
+async function performExecuteAiAgentAction(action) {
   if (!currentRuntime.cdpAttached || !currentRuntime.tabId) {
     throw new Error('CDP 未连接，无法执行 AI 操作');
   }
@@ -1673,7 +1824,16 @@ async function updateAgentScreenshotDescription(screenshotId, description) {
 
 async function appendAiAgentStep(action, screenshotId, description) {
   const steps = Array.isArray(currentRuntime.aiAgent.steps) ? currentRuntime.aiAgent.steps : [];
+  const stepId = createAgentStepId(currentRecording.id, screenshotId, action.action);
+  const existingStep = steps.find((step) => step.id === stepId || step.screenshotId === screenshotId);
+
+  if (existingStep) {
+    return existingStep;
+  }
+
   const step = {
+    id: stepId,
+    operationId: stepId,
     index: steps.length + 1,
     action: action.action,
     description,
@@ -1686,6 +1846,16 @@ async function appendAiAgentStep(action, screenshotId, description) {
     message: description
   });
   notifyPopup('agentStep', { step, aiAgent: currentRuntime.aiAgent });
+  return step;
+}
+
+function createAgentStepId(recordingId, screenshotId, actionName) {
+  return [
+    sanitizeOperationId(recordingId) || 'recording',
+    'agent-step',
+    sanitizeOperationId(screenshotId) || createRandomSuffix(),
+    sanitizeOperationId(actionName) || 'action'
+  ].join(':');
 }
 
 async function updateAiAgentState(patch = {}) {
@@ -1762,6 +1932,11 @@ function delay(ms) {
 }
 
 async function generateTutorial() {
+  const recordingId = currentRecording?.id || 'idle';
+  return runExclusiveOperation(`generateTutorial:${recordingId}`, performGenerateTutorial);
+}
+
+async function performGenerateTutorial() {
   if (!currentRecording?.screenshots.length) {
     throw new Error('没有可导出的截图');
   }
@@ -2339,7 +2514,16 @@ function buildHistoryEntry(recording) {
   };
 }
 
-async function exportRecording(id) {
+async function exportRecording(id, operationId = '') {
+  const recordingId = sanitizeTextValue(id, 80);
+  return runExclusiveOperation(`exportRecording:${recordingId}`, () =>
+    runIdempotentOperation(`exportRecording:${recordingId}`, operationId, () =>
+      performExportRecording(recordingId, operationId)
+    )
+  );
+}
+
+async function performExportRecording(id, operationId = '') {
   const recording = await getRecording(id);
 
   if (!recording) {
@@ -2369,6 +2553,7 @@ async function exportRecording(id) {
   recording.exportBaseName = exportBaseName;
   recording.lastExportAt = Date.now();
   recording.lastExportPrompted = settings.promptForSaveAs;
+  recording.lastExportOperationId = sanitizeOperationId(operationId) || createOperationId('export');
   await putRecording(recording);
   await upsertHistoryEntry(buildHistoryEntry(recording));
 

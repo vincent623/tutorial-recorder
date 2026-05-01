@@ -39,3 +39,10 @@
 - Keep baseline gap metrics in past tense once a gap is closed; current-state documents should not read like delivered phases are still missing.
 - Regression checks for a feature milestone should verify the feature surface and version alignment, not freeze future patch releases to the original milestone number.
 - When a planned framework migration is postponed, update UI and system specs together so component names remain design intent while file paths describe the implementation actually shipped.
+
+## 2026-05-01 - Idempotent Operation Pattern
+
+- Backend locks must protect mutation paths independently from popup disabled states; multiple popups and replayed messages can bypass UI-only guards.
+- Use serialized queues for screenshot capture so concurrent auto/manual/final captures cannot interleave writes or collide on sequence numbers.
+- Pair client-generated operation IDs with short-lived backend result caching for repeated runtime messages, while keeping resource-level locks for operations such as stop and export.
+- Step-like Agent updates should be keyed by recording, screenshot, and action so duplicate loop callbacks cannot append duplicate progress items.

@@ -53,3 +53,13 @@
 - Remaining current gaps are explicitly marked as hardening or follow-up refactors: storage usage cleanup, Agent single-decision retry, navigation anomaly handling, configurable Agent limits, UI accessibility checklist, Plasmo migration, and background module split.
 - Verification: `npm run check` passed after the version bump and status sync.
 - E2E: `npm run validate:e2e` passed with all 16 report checks true; artifacts written under `output/playwright/`.
+
+## 2026-05-01 - v2.0.2 Idempotent Operation Metrics
+
+- Version metadata aligned at `2.0.2` across `package.json`, `package-lock.json`, and `manifest.json`.
+- New backend guard surfaces: `operationLocks`, `operationSerialQueues`, and `recentOperationResults`.
+- Guarded mutation paths: stop recording, screenshot capture, export, tutorial generation, and AI Agent tool execution.
+- New idempotent client actions: `stopRecording`, `manualCapture`, and `downloadRecording` attach `operationId`.
+- Screenshot IDs now include recording id, monotonic sequence, and random suffix; Agent steps include deterministic `agent-step` IDs.
+- Watchdog task registered and executed: `v2.0.2-idempotent-operations`.
+- Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.

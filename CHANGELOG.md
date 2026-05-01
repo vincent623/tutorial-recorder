@@ -2,6 +2,15 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.0.2] - 2026-05-01
+
+### Added
+- Backend operation locks for stop, screenshot capture, export, tutorial generation, and AI Agent tool execution.
+- Idempotency keys and short-lived completed-operation result caching for repeated runtime messages.
+- Collision-resistant screenshot IDs using recording id, monotonic sequence, and random suffix.
+- Agent step IDs to prevent duplicate step append for the same screenshot/action pair.
+- v2.0.2 regression checks covering operation locks, idempotency keys, screenshot IDs, Agent step dedupe, and watchdog task registration.
+
 ## [2.0.1] - 2026-05-01
 
 ### Changed

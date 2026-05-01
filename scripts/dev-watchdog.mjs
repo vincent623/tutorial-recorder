@@ -10,7 +10,8 @@ const taskCommands = new Map([
   ['v1.3.1-regression-checks', ['npm', ['run', 'check']]],
   ['v1.4.0-cdp-engine', ['npm', ['run', 'check']]],
   ['v1.5.0-realtime-suggestions', ['npm', ['run', 'check']]],
-  ['v2.0.0-ai-recording', ['npm', ['run', 'check']]]
+  ['v2.0.0-ai-recording', ['npm', ['run', 'check']]],
+  ['v2.0.2-idempotent-operations', ['npm', ['run', 'check']]]
 ]);
 
 const progress = await readFile(progressPath, 'utf8');
