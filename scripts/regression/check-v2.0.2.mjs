@@ -29,12 +29,12 @@ const manifest = JSON.parse(source.manifest);
 
 const checks = [
   {
-    name: 'version metadata is aligned at 2.0.2',
+    name: 'version metadata is aligned for the current 2.x release',
     pass:
-      packageJson.version === '2.0.2' &&
-      packageLock.version === '2.0.2' &&
-      packageLock.packages?.['']?.version === '2.0.2' &&
-      manifest.version === '2.0.2'
+      /^2\.\d+\.\d+$/.test(packageJson.version) &&
+      packageLock.version === packageJson.version &&
+      packageLock.packages?.['']?.version === packageJson.version &&
+      manifest.version === packageJson.version
   },
   {
     name: 'backend has exclusive, serialized, and idempotent operation guards',

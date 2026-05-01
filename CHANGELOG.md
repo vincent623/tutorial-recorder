@@ -2,6 +2,14 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.0.3] - 2026-05-01
+
+### Added
+- Recording commit states for stop, media collection, description generation, download request, history update, completion, and recoverable failure.
+- Startup recovery scan that marks interrupted exports as recoverable and reconciles missing history entries from IndexedDB recordings.
+- Re-export failure handling that preserves the recording and records a recoverable error instead of leaving ambiguous state.
+- v2.0.3 regression checks covering commit states, recovery scanning, history reconciliation, and watchdog task registration.
+
 ## [2.0.2] - 2026-05-01
 
 ### Added

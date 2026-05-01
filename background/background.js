@@ -1,5 +1,5 @@
 import { strToU8, zipSync } from '../lib/fflate.js';
-import { deleteRecording, getRecording, putRecording } from './asset-store.js';
+import { deleteRecording, getRecording, listRecordings, putRecording } from './asset-store.js';
 
 const SETTINGS_KEY = 'settings';
 const HISTORY_KEY = 'recordings';
@@ -12,6 +12,23 @@ const AI_AGENT_MAX_STEPS = 50;
 const AI_AGENT_MAX_DURATION_MS = 10 * 60 * 1000;
 const AI_AGENT_STEP_DELAY_MS = 800;
 const OPERATION_RESULT_TTL_MS = 5 * 60 * 1000;
+const COMMIT_STATES = Object.freeze({
+  RECORDING: 'recording',
+  STOPPING: 'stopping',
+  MEDIA_COLLECTED: 'media-collected',
+  DESCRIPTIONS_READY: 'descriptions-ready',
+  DOWNLOAD_REQUESTED: 'download-requested',
+  HISTORY_UPDATED: 'history-updated',
+  COMPLETE: 'complete',
+  FAILED: 'failed'
+});
+const RECOVERABLE_COMMIT_STATES = new Set([
+  COMMIT_STATES.STOPPING,
+  COMMIT_STATES.MEDIA_COLLECTED,
+  COMMIT_STATES.DESCRIPTIONS_READY,
+  COMMIT_STATES.DOWNLOAD_REQUESTED,
+  COMMIT_STATES.HISTORY_UPDATED
+]);
 
 const PROVIDER_PRESETS = {
   volcengineArk: {
@@ -319,6 +336,7 @@ async function initialize() {
   }
 
   await restoreRuntimeState();
+  await recoverInterruptedRecordings();
   await updateBadge();
 }
 
@@ -466,6 +484,62 @@ function createAiAgentState(overrides = {}) {
     updatedAt: 0,
     ...overrides
   };
+}
+
+function createRecordingOperation(type, state, operationId = '') {
+  return {
+    id: sanitizeOperationId(operationId) || createOperationId(type || 'operation'),
+    type: sanitizeOperationId(type || 'operation'),
+    state,
+    updatedAt: Date.now()
+  };
+}
+
+async function updateRecordingCommitState(recording, commitState, options = {}) {
+  if (!recording) {
+    return;
+  }
+
+  const {
+    type = 'recording',
+    operationId = recording.lastOperation?.id || '',
+    status,
+    recoverableError = null
+  } = options;
+
+  recording.commitState = commitState;
+  recording.lastOperation = createRecordingOperation(type, commitState, operationId);
+
+  if (status) {
+    recording.status = status;
+  }
+
+  if (recoverableError) {
+    recording.recoverableError = {
+      state: commitState,
+      message: sanitizeEditableText(recoverableError.message || recoverableError, 240),
+      at: Date.now()
+    };
+  } else if (commitState !== COMMIT_STATES.FAILED) {
+    recording.recoverableError = null;
+  }
+
+  await putRecording(recording);
+}
+
+async function markRecordingRecoverableFailure(recording, error, type = 'operation') {
+  if (!recording) {
+    return;
+  }
+
+  await updateRecordingCommitState(recording, COMMIT_STATES.FAILED, {
+    type,
+    operationId: recording.lastOperation?.id || '',
+    status: 'failed',
+    recoverableError: {
+      message: error?.message || '上次操作中断，可从历史记录重新导出。'
+    }
+  });
 }
 
 function createRealtimeSuggestionState(overrides = {}) {
@@ -700,6 +774,100 @@ async function restoreRuntimeState() {
   }
 }
 
+async function recoverInterruptedRecordings() {
+  const recordings = await listRecordings().catch((error) => {
+    console.warn('[Background] Failed to scan recordings for recovery:', error);
+    return [];
+  });
+
+  if (!Array.isArray(recordings) || !recordings.length) {
+    return;
+  }
+
+  let history = await getHistory();
+  let historyChanged = false;
+  const now = Date.now();
+
+  for (const recording of recordings) {
+    if (!recording?.id || !Array.isArray(recording.screenshots) || !recording.screenshots.length) {
+      continue;
+    }
+
+    const isCurrentActiveRecording =
+      currentRuntime.isRecording &&
+      currentRuntime.recordingId === recording.id &&
+      !currentRuntime.isGenerating &&
+      recording.commitState === COMMIT_STATES.RECORDING;
+
+    if (!isCurrentActiveRecording && shouldRecoverInterruptedRecording(recording)) {
+      const previousState = recording.commitState || recording.status || 'unknown';
+      await markRecordingRecoverableFailure(recording, {
+        message: `上次导出在 ${previousState} 阶段中断，可从历史记录重新导出。`
+      }, 'recovery');
+
+      if (currentRuntime.recordingId === recording.id) {
+        currentRuntime = createIdleRuntime();
+        currentRecording = null;
+        await persistRuntime();
+      }
+    }
+
+    if (shouldIndexRecording(recording)) {
+      const entry = buildHistoryEntry(recording);
+      const existingIndex = history.findIndex((item) => item?.id === recording.id);
+
+      if (existingIndex < 0) {
+        history = [entry, ...history].slice(0, 20);
+        historyChanged = true;
+      } else if (isHistoryEntryStale(history[existingIndex], entry)) {
+        history = history.map((item, index) => (index === existingIndex ? entry : item));
+        historyChanged = true;
+      }
+    }
+  }
+
+  if (historyChanged) {
+    await chrome.storage.local.set({ [HISTORY_KEY]: history });
+  }
+
+  if (historyChanged) {
+    console.info(`[Background] Recovery scan reconciled history at ${now}`);
+  }
+}
+
+function shouldRecoverInterruptedRecording(recording) {
+  if (recording.commitState === COMMIT_STATES.COMPLETE || recording.commitState === COMMIT_STATES.FAILED) {
+    return false;
+  }
+
+  return RECOVERABLE_COMMIT_STATES.has(recording.commitState);
+}
+
+function shouldIndexRecording(recording) {
+  if (!recording?.id || !Array.isArray(recording.screenshots) || !recording.screenshots.length) {
+    return false;
+  }
+
+  return (
+    recording.status === 'ready' ||
+    recording.status === 'failed' ||
+    recording.commitState === COMMIT_STATES.COMPLETE ||
+    recording.commitState === COMMIT_STATES.FAILED ||
+    RECOVERABLE_COMMIT_STATES.has(recording.commitState)
+  );
+}
+
+function isHistoryEntryStale(currentEntry = {}, nextEntry = {}) {
+  return (
+    currentEntry.title !== nextEntry.title ||
+    currentEntry.screenshotCount !== nextEntry.screenshotCount ||
+    currentEntry.durationMs !== nextEntry.durationMs ||
+    currentEntry.exportBaseName !== nextEntry.exportBaseName ||
+    currentEntry.commitState !== nextEntry.commitState ||
+    currentEntry.recoverable !== nextEntry.recoverable
+  );
+}
+
 async function persistRuntime() {
   await chrome.storage.session.set({ [RUNTIME_KEY]: currentRuntime });
 }
@@ -742,6 +910,9 @@ async function startRecording(tabId) {
     startTime: startedAt,
     title: '',
     status: 'recording',
+    commitState: COMMIT_STATES.RECORDING,
+    lastOperation: createRecordingOperation('startRecording', COMMIT_STATES.RECORDING, `start-${startedAt}`),
+    recoverableError: null,
     recordingMode: 'manual',
     captureMode: settings.captureMode,
     screenshots: [],
@@ -878,6 +1049,9 @@ async function startAiRecording(tabId, targetDescription) {
     startTime: startedAt,
     title: goal.slice(0, 36),
     status: 'recording',
+    commitState: COMMIT_STATES.RECORDING,
+    lastOperation: createRecordingOperation('startAiRecording', COMMIT_STATES.RECORDING, `start-ai-${startedAt}`),
+    recoverableError: null,
     recordingMode: 'ai',
     captureMode: 'agent',
     screenshots: [],
@@ -1008,12 +1182,13 @@ async function resumeRecording() {
 async function stopRecording(operationId = '') {
   const recordingId = currentRuntime.recordingId || currentRecording?.id || '';
   const fallbackOperationId = recordingId ? `stop-${recordingId}` : '';
+  const resolvedOperationId = operationId || fallbackOperationId;
   return runExclusiveOperation('stopRecording', () =>
-    runIdempotentOperation('stopRecording', operationId || fallbackOperationId, performStopRecording)
+    runIdempotentOperation('stopRecording', resolvedOperationId, () => performStopRecording(resolvedOperationId))
   );
 }
 
-async function performStopRecording() {
+async function performStopRecording(operationId = '') {
   if (!currentRuntime.isRecording || !currentRecording) {
     return;
   }
@@ -1038,6 +1213,11 @@ async function performStopRecording() {
   }
   realtimeSuggestionQueue.pending = null;
   currentRuntime.durationMs = getElapsedMs(stoppedAt);
+  await updateRecordingCommitState(currentRecording, COMMIT_STATES.STOPPING, {
+    type: 'stopRecording',
+    operationId,
+    status: 'stopping'
+  });
   await persistRuntime();
   await updateBadge();
 
@@ -1066,14 +1246,17 @@ async function performStopRecording() {
 
   applyMediaResult(currentRecording, mediaResult, currentRuntime.durationMs);
 
-  await putRecording(currentRecording);
+  await updateRecordingCommitState(currentRecording, COMMIT_STATES.MEDIA_COLLECTED, {
+    type: 'stopRecording',
+    operationId,
+    status: 'stopping'
+  });
   await detachCdpDebugger();
 
   try {
-    await generateTutorial();
+    await generateTutorial(operationId);
   } catch (error) {
-    currentRecording.status = 'failed';
-    await putRecording(currentRecording);
+    await markRecordingRecoverableFailure(currentRecording, error, 'generateTutorial');
     currentRuntime = createIdleRuntime();
     await persistRuntime();
     await updateBadge();
@@ -1931,12 +2114,12 @@ function delay(ms) {
   });
 }
 
-async function generateTutorial() {
+async function generateTutorial(operationId = '') {
   const recordingId = currentRecording?.id || 'idle';
-  return runExclusiveOperation(`generateTutorial:${recordingId}`, performGenerateTutorial);
+  return runExclusiveOperation(`generateTutorial:${recordingId}`, () => performGenerateTutorial(operationId));
 }
 
-async function performGenerateTutorial() {
+async function performGenerateTutorial(operationId = '') {
   if (!currentRecording?.screenshots.length) {
     throw new Error('没有可导出的截图');
   }
@@ -1989,7 +2172,11 @@ async function performGenerateTutorial() {
 
   currentRecording.title = buildRecordingTitle(currentRecording);
   currentRecording.status = 'ready';
-  await putRecording(currentRecording);
+  await updateRecordingCommitState(currentRecording, COMMIT_STATES.DESCRIPTIONS_READY, {
+    type: 'generateTutorial',
+    operationId,
+    status: 'ready'
+  });
 
   notifyPopup('generating', { message: '正在生成 PDF 和 Markdown...' });
 
@@ -2013,8 +2200,24 @@ async function performGenerateTutorial() {
   currentRecording.exportBaseName = exportBaseName;
   currentRecording.lastExportAt = Date.now();
   currentRecording.lastExportPrompted = settings.promptForSaveAs;
-  await putRecording(currentRecording);
+  currentRecording.lastExportOperationId = sanitizeOperationId(operationId) || createOperationId('export');
+  await updateRecordingCommitState(currentRecording, COMMIT_STATES.DOWNLOAD_REQUESTED, {
+    type: 'downloadRecordingBundle',
+    operationId,
+    status: 'ready'
+  });
 
+  await upsertHistoryEntry(buildHistoryEntry(currentRecording));
+  await updateRecordingCommitState(currentRecording, COMMIT_STATES.HISTORY_UPDATED, {
+    type: 'upsertHistoryEntry',
+    operationId,
+    status: 'ready'
+  });
+  await updateRecordingCommitState(currentRecording, COMMIT_STATES.COMPLETE, {
+    type: 'generateTutorial',
+    operationId,
+    status: 'ready'
+  });
   await upsertHistoryEntry(buildHistoryEntry(currentRecording));
 
   currentRuntime = createIdleRuntime();
@@ -2320,6 +2523,8 @@ function buildRecordingDetail(recording) {
     hasVideo: Boolean(recording.videoDataUrl),
     recordingMode: recording.recordingMode || 'manual',
     captureMode: recording.captureMode || DEFAULT_SETTINGS.captureMode,
+    commitState: recording.commitState || '',
+    recoverableError: recording.recoverableError || null,
     exportBaseName: recording.exportBaseName || '',
     lastExportPrompted: recording.lastExportPrompted === true,
     screenshots: recording.screenshots.map((screenshot, index) => ({
@@ -2508,6 +2713,8 @@ function buildHistoryEntry(recording) {
     hasVideo: Boolean(recording.videoDataUrl),
     recordingMode: recording.recordingMode || 'manual',
     captureMode: recording.captureMode || DEFAULT_SETTINGS.captureMode,
+    commitState: recording.commitState || '',
+    recoverable: Boolean(recording.recoverableError),
     exportedAt: recording.lastExportAt || Date.now(),
     exportBaseName: recording.exportBaseName || '',
     lastExportPrompted: recording.lastExportPrompted === true
@@ -2516,9 +2723,10 @@ function buildHistoryEntry(recording) {
 
 async function exportRecording(id, operationId = '') {
   const recordingId = sanitizeTextValue(id, 80);
+  const resolvedOperationId = operationId || `export-${recordingId}`;
   return runExclusiveOperation(`exportRecording:${recordingId}`, () =>
-    runIdempotentOperation(`exportRecording:${recordingId}`, operationId, () =>
-      performExportRecording(recordingId, operationId)
+    runIdempotentOperation(`exportRecording:${recordingId}`, resolvedOperationId, () =>
+      performExportRecording(recordingId, resolvedOperationId)
     )
   );
 }
@@ -2530,32 +2738,52 @@ async function performExportRecording(id, operationId = '') {
     throw new Error('这条历史记录已不存在');
   }
 
-  notifyPopup('generating', { message: '正在重新导出文件...' });
-  const markdown = buildMarkdown(recording);
-  const settings = await getSettings();
+  try {
+    notifyPopup('generating', { message: '正在重新导出文件...' });
+    const markdown = buildMarkdown(recording);
+    const settings = await getSettings();
 
-  const pdfResult = await ensureOffscreenDocument()
-    .then(() => sendOffscreenMessage('generatePdf', { recording: buildPdfPayload(recording) }))
-    .catch((error) => ({ pdfDataUrl: null, error: error.message || 'PDF 生成失败' }));
+    const pdfResult = await ensureOffscreenDocument()
+      .then(() => sendOffscreenMessage('generatePdf', { recording: buildPdfPayload(recording) }))
+      .catch((error) => ({ pdfDataUrl: null, error: error.message || 'PDF 生成失败' }));
 
-  if (pdfResult?.error) {
-    notifyPopup('warning', { message: `PDF 生成失败：${pdfResult.error}` });
+    if (pdfResult?.error) {
+      notifyPopup('warning', { message: `PDF 生成失败：${pdfResult.error}` });
+    }
+
+    const exportBaseName = await downloadRecordingBundle(
+      recording,
+      markdown,
+      pdfResult?.pdfDataUrl || null,
+      settings.outputDir,
+      settings.promptForSaveAs
+    );
+
+    recording.exportBaseName = exportBaseName;
+    recording.lastExportAt = Date.now();
+    recording.lastExportPrompted = settings.promptForSaveAs;
+    recording.lastExportOperationId = sanitizeOperationId(operationId) || createOperationId('export');
+    await updateRecordingCommitState(recording, COMMIT_STATES.DOWNLOAD_REQUESTED, {
+      type: 'exportRecording',
+      operationId,
+      status: 'ready'
+    });
+    await upsertHistoryEntry(buildHistoryEntry(recording));
+    await updateRecordingCommitState(recording, COMMIT_STATES.HISTORY_UPDATED, {
+      type: 'upsertHistoryEntry',
+      operationId,
+      status: 'ready'
+    });
+    await updateRecordingCommitState(recording, COMMIT_STATES.COMPLETE, {
+      type: 'exportRecording',
+      operationId,
+      status: 'ready'
+    });
+    await upsertHistoryEntry(buildHistoryEntry(recording));
+  } catch (error) {
+    await markRecordingRecoverableFailure(recording, error, 'exportRecording');
+    throw error;
   }
-
-  const exportBaseName = await downloadRecordingBundle(
-    recording,
-    markdown,
-    pdfResult?.pdfDataUrl || null,
-    settings.outputDir,
-    settings.promptForSaveAs
-  );
-
-  recording.exportBaseName = exportBaseName;
-  recording.lastExportAt = Date.now();
-  recording.lastExportPrompted = settings.promptForSaveAs;
-  recording.lastExportOperationId = sanitizeOperationId(operationId) || createOperationId('export');
-  await putRecording(recording);
-  await upsertHistoryEntry(buildHistoryEntry(recording));
 
   if (!currentRuntime.isRecording) {
     await closeOffscreenDocument();

@@ -46,3 +46,10 @@
 - Use serialized queues for screenshot capture so concurrent auto/manual/final captures cannot interleave writes or collide on sequence numbers.
 - Pair client-generated operation IDs with short-lived backend result caching for repeated runtime messages, while keeping resource-level locks for operations such as stop and export.
 - Step-like Agent updates should be keyed by recording, screenshot, and action so duplicate loop callbacks cannot append duplicate progress items.
+
+## 2026-05-01 - Transaction Recovery Pattern
+
+- Persist commit state at each cross-store boundary: recording stop, media collection, description readiness, download request, history update, and final completion.
+- Treat interrupted export states as recoverable, not destructive; preserve screenshots and expose the record through history so the user can re-export.
+- Reconcile history from IndexedDB on startup because recording details and history summaries are stored in different browser stores.
+- Refresh the history summary after the final `complete` commit so the index does not lag behind the recording detail state.

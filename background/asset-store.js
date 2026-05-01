@@ -49,6 +49,10 @@ export async function getRecording(id) {
   return withStore('readonly', (store) => store.get(id));
 }
 
+export async function listRecordings() {
+  return withStore('readonly', (store) => store.getAll());
+}
+
 export async function deleteRecording(id) {
   return withStore('readwrite', (store) => store.delete(id));
 }

@@ -63,3 +63,13 @@
 - Screenshot IDs now include recording id, monotonic sequence, and random suffix; Agent steps include deterministic `agent-step` IDs.
 - Watchdog task registered and executed: `v2.0.2-idempotent-operations`.
 - Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
+
+## 2026-05-01 - v2.0.3 Transaction Recovery Metrics
+
+- Version metadata aligned at `2.0.3` across `package.json`, `package-lock.json`, and `manifest.json`.
+- New IndexedDB scan surface: `listRecordings()` for recovery and history reconciliation.
+- New commit states: `recording`, `stopping`, `media-collected`, `descriptions-ready`, `download-requested`, `history-updated`, `complete`, and `failed`.
+- Recovery behavior: startup marks interrupted export states recoverable and rebuilds missing history summaries from IndexedDB recordings.
+- Export failure behavior: failed re-export preserves the recording and writes `recoverableError`.
+- E2E observation: final history summary reports `commitState: complete` after detail re-export.
+- Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.

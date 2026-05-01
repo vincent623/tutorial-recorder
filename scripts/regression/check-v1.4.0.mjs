@@ -47,7 +47,7 @@ const checks = [
       /Page\.captureScreenshot/.test(source.background) &&
       /CDP 截图失败，已回退到标准模式/.test(source.background) &&
       /CDP 截图启动失败，已回退到标准模式/.test(source.background) &&
-      /await detachCdpDebugger\(\);[\s\S]*await generateTutorial\(\);/.test(source.background)
+      /await detachCdpDebugger\(\);[\s\S]*await generateTutorial\([^)]*\);/.test(source.background)
   },
   {
     name: 'content reports click coordinates for CDP element location',
