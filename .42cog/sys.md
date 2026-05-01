@@ -352,7 +352,7 @@ tutorial-recorder/
 └── .gitignore
 ```
 
-### 5.2 Plasmo 重构后的目录结构（Phase 1 起生效）
+### 5.2 Plasmo 重构后的目录结构（后续迁移目标）
 
 ```
 tutorial-recorder/                   # Plasmo 项目根目录
@@ -438,7 +438,7 @@ tutorial-recorder/                   # Plasmo 项目根目录
 - `assets/icon.svg` — Plasmo 自动生成 16/48/128 PNG
 - manifest.json 由 Plasmo 根据 `package.json` 和代码注解自动生成，不再手动维护
 
-### 5.3 代码迁移策略（v1.3.0 → Plasmo）
+### 5.3 代码迁移策略（后续：原生 JS → Plasmo）
 
 **迁移顺序：**
 
@@ -517,18 +517,18 @@ create-plasmo → 迁移 assets/icon.svg → 配置 permissions → 验证空壳
 
 ## 7. 技术决策
 
-### ADR-001：引入 Plasmo + React 框架
+### ADR-001：Plasmo + React 框架迁移
 
-**状态：** 已接受
+**状态：** 已延期（v1.4.0-v2.0.0 未执行）
 
 **背景：**
 v1.3.0 用原生 JS 实现，popup.js 已达 1280 行，使用 innerHTML 拼接 + dataset 事件委托模式维护 UI。Phase 2/3 新增的 AI 实时建议面板、AI 录制进度列表、接管模式切换、混合步骤显示等 UI 需求，用 vanilla JS 实现将使 popup.js 膨胀到 2000+ 行且非常脆弱。截图批注 Canvas 编辑器（未来）用原生 JS 几乎不可行。
 
-**决策：**
-Phase 1 起引入 Plasmo + React。Plasmo 提供Chrome 扩展开发的全套工具链（自动 manifest 生成、hot reload、TypeScript、CSS Modules），React 提供组件化 UI 管理。同时拆分 background.js 为子系统模块。迁移工作与 Phase 1 的 CDP 截图增强合并执行。
+**当前决策：**
+v1.4.0-v2.0.0 为降低迁移风险，继续沿用原生 JS / HTML / CSS 结构完成 CDP、实时建议和 AI 录制能力。Plasmo + React 迁移仍可作为后续重构项，但不再作为 Phase 1-3 的前置条件。
 
-**迁移策略：**
-1. Phase 1 开始时先用 `create-plasmo` 初始化项目骨架
+**后续迁移策略：**
+1. 后续重构开始时先用 `create-plasmo` 初始化项目骨架
 2. 将 popup/ 和 settings/ 的 HTML+JS 迁移为 React 组件（最高优先级）
 3. background/ 的 JS 保持原生 ES Module（service worker 不需要 React）
 4. offscreen/ 和 content/ 的 JS 保持原生（它们不是 UI 层）
@@ -568,13 +568,13 @@ AI 驱动录制需要 AI 决定下一步浏览器操作。方案 A：纯文本�
 
 ### ADR-004：background.js 拆分为 ES Module 子系统
 
-**状态：** 提议（Phase 1 实施）
+**状态：** 已延期（Phase 1-3 先在现有 background.js 内落地）
 
 **背景：**
 background.js 已达 1740 行，混合了录制控制、AI 调用、导出、设置管理、消息路由等职责。Phase 1 新增 CDP 逻辑后将继续膨胀。
 
-**决策：**
-在 Phase 1 开始时将 background.js 拆分为 10 个子系统文件（见 5.3 节），background.js 退化为消息路由入口。保持原生 ES Module，不引入构建工具。
+**当前决策：**
+v1.4.0-v2.0.0 先在现有 `background/background.js` 中落地 CDP、实时建议和 AI Agent。拆分为子系统文件仍是必要的后续维护任务，但未作为功能交付阻塞项。
 
 **后果：**
 - 更容易：每个文件职责清晰，开发和审查更容易
@@ -612,9 +612,20 @@ AI Agent 的多轮循环需要持续运行。Manifest V3 service worker 有生�
 
 ## 8. Phase 实施影响
 
-### Phase 0 — Plasmo 迁移（前置）
+### 当前实现结果（v1.4.0-v2.0.0）
 
-**目标：** 将 v1.3.0 原生 JS 项目迁移到 Plasmo + React + TypeScript，功能不变。
+Phase 1-3 已在现有原生扩展目录中落地，未执行 Plasmo / React / TypeScript 迁移：
+
+- `background/background.js`：新增 CDP 截图引擎、实时建议队列、AI Agent 循环、CDP 工具执行、暂停/接管/失败处理。
+- `content/content.js`：增强点击坐标采集，供 CDP 元素定位使用。
+- `popup/popup.html` / `popup/popup.js` / `popup/popup.css`：新增 CDP 状态横幅、实时建议面板、AI 录制入口、Agent 状态和步骤列表。
+- `settings/settings.html` / `settings/settings.js`：新增截图引擎、CDP 裁切和实时建议配置。
+- `manifest.json`：新增 `debugger` 权限。
+- `scripts/regression/`：新增 v1.4.0、v1.5.0、v2.0.0 静态回归检查。
+
+### Phase 0 — Plasmo 迁移（后续重构项）
+
+**目标：** 后续将原生 JS 项目迁移到 Plasmo + React + TypeScript，功能不变。
 
 **新增文件：**
 - `src/background/` 下 10 个子系统 TypeScript 模块（从 background.js 拆分）
@@ -635,41 +646,34 @@ AI Agent 的多轮循环需要持续运行。Manifest V3 service worker 有生�
 - `lib/` — 第三方库（可逐步替换为 npm 包）
 - `scripts/e2e/` — 验证脚本
 
-### Phase 1 — CDP 截图增强
+### Phase 1 — CDP 截图增强（v1.4.0 已完成）
 
-**新增文件：**
-- `src/background/cdp-manager.ts`：chrome.debugger 生命周期
-- `src/background/screenshot-engine.ts`：双模式截图引擎
-- `src/popup/components/CdpStatusBanner.tsx`：调试状态提示组件
-- `src/settings/components/CdpSettings.tsx`：CDP 配置组件
+**当前实际改动：**
+- `background/background.js`：新增 `chrome.debugger` attach/detach、`Page.captureScreenshot`、CDP 裁切、失败回退、`DOM.getNodeForLocation` / `DOM.describeNode` 元素定位。
+- `content/content.js`：交互事件增加坐标与目标上下文，供 CDP 元素定位补强描述。
+- `popup/popup.html` / `popup/popup.js` / `popup/popup.css`：新增 CDP 状态提示。
+- `settings/settings.html` / `settings/settings.js`：新增截图引擎与数值裁切配置。
+- `manifest.json`：新增 `debugger` 权限。
 
-**修改文件：**
-- `src/background/recording-controller.ts`：新增 CDP 截图路径
-- `src/contents/interaction-tracker.ts`：CDP 模式下增强交互采集
-- `package.json`：新增 `debugger` 权限声明
+### Phase 2 — AI 实时建议（v1.5.0 已完成）
 
-### Phase 2 — AI 实时建议
+**当前实际改动：**
+- `background/background.js`：复用现有 AI 调用入口，新增截图完成后的异步实时建议队列；队列策略为 1 个 active + 1 个 latest pending。
+- `popup/popup.html` / `popup/popup.js` / `popup/popup.css`：新增实时建议面板、Popup 快捷开关和编辑保存逻辑。
+- `settings/settings.html` / `settings/settings.js`：新增全量设置页实时建议开关。
+- `scripts/regression/check-v1.5.0.mjs`：覆盖开关、队列、Popup 编辑和最终导出优先级。
 
-**新增文件：**
-- `src/background/ai-gateway.ts`：AI 调用统一入口
-- `src/background/prompt-renderer.ts`：提示词渲染
-- `src/popup/components/RealtimeSuggestion.tsx`：实时建议组件
+### Phase 3 — AI 驱动录制（v2.0.0 MVP 已完成）
 
-**修改文件：**
-- `src/background/recording-controller.ts`：截图回调中新增异步 AI 分析
-- `src/popup/Popup.tsx`：集成实时建议面板
+**当前实际改动：**
+- `background/background.js`：新增 AI Agent 循环、工具 schema、CDP 工具执行、`startAiRecording` / `pauseAiAgent` / `resumeAiAgent` / `takeoverRecording` 消息路由、50 步和 10 分钟固定上限、失败保留步骤与接管分支。
+- `popup/popup.html` / `popup/popup.js` / `popup/popup.css`：新增 AI 录制目标输入、启动按钮、接管按钮、Agent 状态和步骤列表。
+- `scripts/regression/check-v2.0.0.mjs`：覆盖 AI UI、消息路由、Agent 循环、CDP 工具、固定限制、失败接管和导出标签。
 
-### Phase 3 — AI 驱动录制
-
-**新增文件：**
-- `src/background/agent-loop.ts`：Agent 多轮循环
-- `src/background/tool-executor.ts`：CDP 操作执行器
-- `src/popup/components/AiRecordingPanel.tsx`：AI 录制入口 + 进度组件
-
-**修改文件：**
-- `src/background/recording-controller.ts`：新增 startAiRecording / takeoverRecording
-- `src/background/index.ts`：新增消息路由
-- `src/popup/Popup.tsx`：集成 AI 录制面板
+**后续加固：**
+- 单轮 AI 决策失败重试 1 次。
+- 页面导航异常检测和提示分支。
+- Agent 步数与超时时间配置项。
 
 ---
 
@@ -681,6 +685,6 @@ AI Agent 的多轮循环需要持续运行。Manifest V3 service worker 有生�
 - [x] 目录结构支持模块化拆分
 - [x] 安全架构映射 real.md 的全部 4 条必选约束 + 2 条可选约束
 - [x] 7 条技术决策（ADR）有明确的背景、决策和后果分析
-- [x] Phase 0（Plasmo 迁移）作为 Phase 1 的前置步骤
-- [x] Phase 1-3 的文件级改动影响已明确
-- [x] background.js 拆分策略与 Plasmo 迁移合并执行
+- [ ] Phase 0（Plasmo 迁移）后续执行，不再作为 Phase 1-3 前置步骤
+- [x] Phase 1-3 的当前原生 JS 文件级改动影响已明确
+- [ ] background.js 拆分策略后续执行，未与 Phase 1-3 功能交付合并

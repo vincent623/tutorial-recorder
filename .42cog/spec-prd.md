@@ -15,7 +15,7 @@
 
 **名称：** Tutorial Recorder
 **标语：** 一个让人或 AI 都能录制操作教程的环境
-**版本：** 2.0.0（含 AI 驱动录制）
+**版本：** 2.0.1（规约状态已同步至 AI 驱动录制 MVP）
 
 **环境描述：**
 Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的操作录制环境——人工手动操作和 AI 自动操作。无论谁在"点"，最终产出相同结构的教程包（Markdown + PDF + 截图 + 音视频）。环境同时支持录制后的精细编辑，确保教程质量不取决于录制过程的完美程度。
@@ -115,7 +115,7 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 
 ---
 
-### MAS-4：告诉 AI 你要什么教程（新增 — Phase 3）
+### MAS-4：告诉 AI 你要什么教程（v2.0.0 已实现 — Phase 3）
 
 **故事主题：**
 录制者用一句话描述想要的教程，操作 AI 自动在浏览器中执行操作，每一步自动截图并生成说明。录制者可以旁观、随时接管、或让 AI 独立完成。
@@ -141,11 +141,13 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 - 需要 MAS-3（复用 AI 分析能力为每步生成说明）
 - 需要 CDP 截图增强（Phase 1）
 
-**实现状态：** 未实现，Phase 3 目标。
+**实现状态：** v2.0.0 已实现 AI 录制 MVP：Popup 目标输入、AI 录制按钮、CDP Agent 循环、`click_at_xy` / `type_text` / `scroll` / `finish` 工具、暂停/继续、接管、50 步和 10 分钟限制、失败后保留步骤并允许接管或停止导出。
+
+**后续加固：** Agent 单轮决策失败重试 1 次、页面导航异常识别、步数/超时上限设置项仍需补齐。
 
 ---
 
-### MAS-5：CDP 精确感知（新增 — Phase 1）
+### MAS-5：CDP 精确感知（v1.4.0 已实现 — Phase 1）
 
 **故事主题：**
 通过 Chrome DevTools Protocol，环境获得超越肉眼截图的感知能力——后台截图、区域裁切、精确元素定位，让录制质量不再受限于前台可见性。
@@ -166,11 +168,13 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 
 **故事依赖：** 需要 MAS-1（增强其截图和交互追踪能力）
 
-**实现状态：** 未实现，Phase 1 目标。
+**实现状态：** v1.4.0 已实现 CDP 截图引擎、`chrome.debugger` 生命周期、后台截图、裁切参数、CDP 附加失败回退、点击坐标采集、`DOM.getNodeForLocation` / `DOM.describeNode` 元素定位和 Popup 调试状态提示。
+
+**后续加固：** 裁切区域目前是数值配置，尚未提供拖拽区域选择框；步骤详情尚未显示元素高亮框。
 
 ---
 
-### MAS-6：AI 实时建议步骤描述（新增 — Phase 2）
+### MAS-6：AI 实时建议步骤描述（v1.5.0 已实现 — Phase 2）
 
 **故事主题：**
 录制过程中，AI 实时审视刚截取的截图，立即生成建议的步骤说明。录制者可以看到 AI 的理解是否准确，在录制过程中就决定是否需要重新操作。
@@ -193,7 +197,7 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 - 需要 MAS-3（复用 AI 分析能力）
 - 需要 MAS-5（CDP 增强的元素定位让 AI 描述更精准）
 
-**实现状态：** 未实现，Phase 2 目标。
+**实现状态：** v1.5.0 已实现实时建议开关、截图后异步 AI 分析、latest-only 队列、Popup 最新建议面板、编辑覆盖和最终导出优先使用用户修正文案。
 
 ---
 
@@ -390,7 +394,7 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 
 ## 9. 实现路线
 
-### Phase 1 — CDP 截图增强（MAS-5）
+### Phase 1 — CDP 截图增强（MAS-5，v1.4.0 已完成）
 
 **目标：** 用 chrome.debugger CDP 增强现有截图和交互追踪能力。
 
@@ -403,7 +407,7 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 - manifest.json：新增 `debugger` 权限
 - popup.js / settings.js：新增 CDP 截图模式开关、区域裁切 UI、调试状态提示
 
-### Phase 2 — AI 实时建议（MAS-6）
+### Phase 2 — AI 实时建议（MAS-6，v1.5.0 已完成）
 
 **目标：** 录制过程中每次截图后立即触发 AI 分析，将建议显示在 Popup 中。
 
@@ -413,7 +417,7 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 - background.js：截图回调中增加异步 AI 分析调用
 - popup.js：新增实时建议展示区域，支持编辑覆盖
 
-### Phase 3 — AI 驱动录制（MAS-4）
+### Phase 3 — AI 驱动录制（MAS-4，v2.0.0 已完成 MVP）
 
 **目标：** 用户输入教程目标，操作 AI 通过 CDP 自动执行浏览器操作，每步截图 + 生成说明。
 
@@ -421,7 +425,7 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 
 **改动范围：**
 - background.js：新增 AI Agent 循环（截图 → AI 决策 → CDP 执行 → 记录 → 循环）
-- background.js：新增 ai-session 状态管理
+- background.js：新增 AI Agent 运行时状态管理
 - background.js：定义 AI tool schema（click_at_xy、type_text、scroll、finish）
 - popup.js：新增 AI 录制入口（目标输入框 + AI 录制按钮 + 接管按钮）
 - popup.js：实时展示 AI 执行进度（步骤列表 + 当前状态）
@@ -437,5 +441,5 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 - [ ] 人类和 AI 的感知通道分别定义
 - [ ] 反馈机制覆盖即时/进度/完成三个层次
 - [ ] 非可供性明确列出并给出理由
-- [ ] Phase 1-3 路线与 MAS 优先级对齐
+- [x] Phase 1-3 路线与 MAS 优先级对齐（v1.4.0 / v1.5.0 / v2.0.0 已落地，剩余项进入 hardening）
 - [ ] 验收标准可直接转化为测试用例

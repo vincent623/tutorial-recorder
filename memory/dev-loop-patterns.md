@@ -33,3 +33,9 @@
 - Let the Agent loop own only the browser-control cycle: capture page state, request one next action, execute one CDP tool, then repeat.
 - Use explicit stop, pause, failure, and takeover states so a model failure preserves completed screenshots and lets the user decide whether to continue manually or export.
 - Enforce step and time limits inside the loop before taking the next screenshot; limits should stop gracefully through the same export flow.
+
+## 2026-05-01 - Spec Status Sync Pattern
+
+- Keep baseline gap metrics in past tense once a gap is closed; current-state documents should not read like delivered phases are still missing.
+- Regression checks for a feature milestone should verify the feature surface and version alignment, not freeze future patch releases to the original milestone number.
+- When a planned framework migration is postponed, update UI and system specs together so component names remain design intent while file paths describe the implementation actually shipped.

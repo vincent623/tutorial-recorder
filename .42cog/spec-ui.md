@@ -25,7 +25,7 @@
 | Workspace | 独立标签页 | 全屏 | 深度编辑，历史管理 |
 | Settings | 独立标签页（options_ui） | 全屏 | 配置管理 |
 
-每个上下文独立加载 React 应用，共享 background service worker 作为数据层。
+当前 v2.0.1 实现中，每个上下文独立加载原生 HTML/CSS/JS，共享 background service worker 作为数据层。React / Plasmo 仍作为后续 UI 重构方向，不作为 v1.4.0-v2.0.0 已交付能力的前置条件。
 
 ### 1.2 导航结构
 
@@ -38,7 +38,7 @@ Popup 内部通过条件渲染切换视图区域（录制控制区 / 历史列�
 
 ### 1.3 配色方案
 
-沿用 v1.3.0 已建立的设计语言，迁移为 CSS 变量 + Tailwind 自定义主题。
+沿用 v1.3.0 已建立的设计语言，当前通过原生 CSS 变量和样式表维护；后续 Plasmo / React 迁移时可再映射到 Tailwind 自定义主题。
 
 **品牌色相：220°（蓝色）** — 生产力工具定位，专业高效。
 
@@ -145,7 +145,7 @@ Popup 内部通过条件渲染切换视图区域（录制控制区 / 历史列�
 │  AI Provider: 火山方舟  提示词: 默认（平衡）   │
 │  导出目录: tutorial-recorder                  │
 ├─────────────────────────────────────────────┤
-│  AI 录制                         [Phase 3]  │
+│  AI 录制                    [v2.0.0 已落地] │
 │  ┌─────────────────────────────────────┐     │
 │  │ 描述你想要的教程...                   │     │
 │  └─────────────────────────────────────┘     │
@@ -229,7 +229,7 @@ Popup 内部通过条件渲染切换视图区域（录制控制区 / 历史列�
 │  │ 预览: Downloads/.../tutorial-xxx.zip     │ │
 │  │ ☐ 导出时询问保存位置                     │ │
 │  └──────────────────────────────────────────┘ │
-│  ┌─ 截图引擎 [Phase 1] ────────────────────┐ │
+│  ┌─ 截图引擎 [v1.4.0 已落地] ───────────────┐ │
 │  │ 截图引擎: [标准 / CDP] ▾                 │ │
 │  │ CDP 模式说明...                          │ │
 │  │ 裁切区域: [未设置] [设置裁切区域]         │ │
@@ -244,9 +244,9 @@ Popup 内部通过条件渲染切换视图区域（录制控制区 / 历史列�
 │  │   API 风格 / Base URL / 附加请求头       │ │
 │  │   系统提示词 / 用户提示词模板             │ │
 │  └──────────────────────────────────────────┘ │
-│  ┌─ Agent 设置 [Phase 3] ─────────────────┐ │
-│  │ 最大步数: [50]                            │ │
-│  │ 最大时间: [10] 分钟                       │ │
+│  ┌─ AI 录制设置 [v2.0.0 MVP] ──────────────┐ │
+│  │ 最大步数: 当前固定 50（后续可配置）        │ │
+│  │ 最大时间: 当前固定 10 分钟（后续可配置）   │ │
 │  │ ☐ 显示实时 AI 建议                       │ │
 │  └──────────────────────────────────────────┘ │
 └─────────────────────────────────────────────┘
@@ -260,7 +260,7 @@ Popup 内部通过条件渲染切换视图区域（录制控制区 / 历史列�
 
 | 组件 | 来源 | 规格要点 |
 |------|------|---------|
-| Button | Plasmo 内置 / 手写 | 44px min-height, 12px border-radius, 600 weight |
+| Button | 手写（后续可替换为 Plasmo/shadcn） | 44px min-height, 12px border-radius, 600 weight |
 | StatusPill | 自定义 | pill 形态，内含彩色圆点 + 状态文字 |
 | Panel | 自定义 | 白色半透明背景，18px radius，shadow-md |
 | FieldLabel | 自定义 | 12px muted 色，6px gap |
@@ -275,20 +275,20 @@ Popup 内部通过条件渲染切换视图区域（录制控制区 / 历史列�
 #### StatusPill（状态胶囊）
 
 ```
-Props: { status: 'idle' | 'recording' | 'paused' | 'processing' | 'ai-recording' }
+输入状态: { status: 'idle' | 'recording' | 'paused' | 'processing' | 'ai-recording' }
 
 视觉：
   ● 等待开始     灰色圆点 (#94a3b8)
   ● 录制中       红色圆点 + 红色光晕 (#ff4d4f)
   ● 已暂停       黄色圆点 (#faad14)
   ● 处理中       蓝色圆点 (#1677ff)
-  ● AI 录制中    紫色圆点 + 脉冲动画 (#7c3aed) [Phase 3]
+  ● AI 录制中    紫色圆点 + 脉冲动画 (#7c3aed) [v2.0.0]
 ```
 
 #### RecordingControls（录制控制按钮组）
 
 ```
-Props: { isRecording, isPaused, isGenerating, onStart, onPause, onResume, onStop, onCapture }
+输入状态: { isRecording, isPaused, isGenerating, onStart, onPause, onResume, onStop, onCapture }
 
 布局：4 等分 grid
 
@@ -296,13 +296,13 @@ Props: { isRecording, isPaused, isGenerating, onStart, onPause, onResume, onStop
   开始: primary 渐变, disabled when recording/generating
   暂停/继续: warning 色, disabled when !recording
   停止: danger 色, disabled when !recording
-  截图: secondary 色, disabled when !recording || paused
+  截图: secondary 色, disabled when !recording || generating；暂停时仍允许手动截图
 ```
 
 #### RecordingStats（录制统计卡片）
 
 ```
-Props: { screenshotCount, recordTime, mediaStatus }
+输入状态: { screenshotCount, recordTime, mediaStatus }
 
 布局：3 等分 grid, 每格一个 stat-card
   截图数量: 数字, 实时递增
@@ -313,7 +313,7 @@ Props: { screenshotCount, recordTime, mediaStatus }
 #### HistoryList（历史记录列表）
 
 ```
-Props: { items, isCompact, onSelect, onExport, onDelete }
+输入状态: { items, isCompact, onSelect, onExport, onDelete }
 
 compact 模式（Popup）: 显示最近 3 条, 2 列按钮（编辑 + 导出）
 完整模式（Workspace）: 显示全部, 3 列按钮（编辑 + 导出 + 删除）, 选中高亮
@@ -328,7 +328,7 @@ compact 模式（Popup）: 显示最近 3 条, 2 列按钮（编辑 + 导出）
 #### StepCard（步骤卡片 — Workspace）
 
 ```
-Props: { step, index, isDragging, isDropTarget, isBusy,
+输入状态: { step, index, isDragging, isDropTarget, isBusy,
          onMoveUp, onMoveDown, onPreview, onReplace, onInsertAfter, onDelete }
 
 结构：
@@ -342,10 +342,10 @@ Props: { step, index, isDragging, isDropTarget, isBusy,
   is-drop-target: 蓝色边框 + inset shadow
 ```
 
-#### AiRecordingPanel（AI 录制面板 — Phase 3）
+#### AiRecordingPanel（AI 录制面板 — v2.0.0 已落地）
 
 ```
-Props: { isAiRecording, agentSteps, currentStep, onTakeover, onPause, onResume }
+输入状态: { isAiRecording, agentSteps, currentStep, onTakeover, onPause, onResume }
 
 状态 1（空闲）：目标输入框 + "AI 录制"按钮
 状态 2（AI 执行中）：
@@ -355,20 +355,20 @@ Props: { isAiRecording, agentSteps, currentStep, onTakeover, onPause, onResume }
 状态 3（用户接管）：显示"已接管，手动操作中" + [停止] 按钮
 ```
 
-#### CdpStatusBanner（CDP 状态提示 — Phase 1）
+#### CdpStatusBanner（CDP 状态提示 — v1.4.0 已落地）
 
 ```
-Props: { isActive }
+输入状态: { isActive }
 
 黄色横幅：
   "录制中使用 CDP 精确截图，Chrome 可能显示调试提示，录制结束后会自动消失"
   首次显示完整文案，后续可折叠为图标 + 简短提示
 ```
 
-#### RealtimeSuggestion（AI 实时建议 — Phase 2）
+#### RealtimeSuggestion（AI 实时建议 — v1.5.0 已落地）
 
 ```
-Props: { suggestion, isLoading, onEdit }
+输入状态: { suggestion, isLoading, onEdit }
 
 Popup 内嵌面板：
   标签: "AI 建议" (紫色标识)
@@ -383,13 +383,13 @@ Popup 内嵌面板：
 
 ### 5.1 Store 架构
 
-不使用 Zustand（非 Next.js 应用）。使用 Plasmo 的 `chrome.storage` 集成 + React hooks。
+当前 v2.0.1 实现不使用 Zustand，也未引入 Plasmo / React。Popup 和 Settings 通过原生 DOM 状态、`chrome.runtime.sendMessage`、`chrome.storage.local`、IndexedDB 与 background service worker 同步。
 
-**核心 hooks：**
+**当前等价状态接口：**
 
 ```typescript
 // 录制运行时状态（chrome.storage.session）
-function useRecording(): {
+function getRecordingState(): {
   isRecording, isPaused, isGenerating,
   screenshotCount, recordTime, mediaStatus,
   startRecording, pauseRecording, resumeRecording, stopRecording,
@@ -398,13 +398,13 @@ function useRecording(): {
 }
 
 // 设置读写（chrome.storage.local）
-function useSettings(): {
+function getSettingsState(): {
   settings: Settings,
   updateSettings: (partial) => Promise<Settings>
 }
 
 // 历史记录（chrome.storage.local 索引 + IndexedDB 详情）
-function useHistory(): {
+function getHistoryState(): {
   items: HistoryItem[],
   openDetail: (id) => Promise<RecordingDetail>,
   exportRecording: (id) => Promise<void>,
@@ -412,7 +412,7 @@ function useHistory(): {
 }
 
 // 教程详情编辑（IndexedDB）
-function useTutorialDetail(id: string): {
+function getTutorialDetailState(id: string): {
   detail: RecordingDetail | null,
   isLoading, isDirty,
   updateTitle, updateStepDescription,
@@ -421,17 +421,17 @@ function useTutorialDetail(id: string): {
 }
 
 // Chrome 消息通信
-function useChromeMessage(handler: (message) => void): void
+function listenChromeMessage(handler: (message) => void): void
 ```
 
 ### 5.2 数据流
 
 ```
-用户操作 → React 组件 → hook 调用 → chrome.runtime.sendMessage
+用户操作 → 原生 DOM 事件处理 → chrome.runtime.sendMessage
   → background service worker 处理
     → chrome.storage / IndexedDB 写入
     → chrome.runtime.sendMessage 推送通知
-      → hook 收到通知 → React 重新渲染
+      → popup/settings 监听消息 → 更新 DOM
 ```
 
 ---
@@ -489,23 +489,23 @@ function useChromeMessage(handler: (message) => void): void
 
 ---
 
-## 8. 新增 UI 组件（Phase 1-3）
+## 8. UI 组件状态（Phase 1-3）
 
-### Phase 1 新增
+### Phase 1 已落地（v1.4.0）
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
 | CdpSettings | Settings 页 | 截图引擎选择器（标准/CDP）+ 裁切区域配置 |
 | CdpStatusBanner | Popup | CDP 模式录制时的黄色调试提示横幅 |
 
-### Phase 2 新增
+### Phase 2 已落地（v1.5.0）
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
 | RealtimeSuggestion | Popup | 录制中 AI 实时建议面板，可编辑覆盖 |
 | SuggestionToggle | Popup | 实时建议开关 |
 
-### Phase 3 新增
+### Phase 3 MVP 已落地（v2.0.0）
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
@@ -513,7 +513,7 @@ function useChromeMessage(handler: (message) => void): void
 | AgentStepList | Popup (内嵌于 AiRecordingPanel) | AI 执行进度实时列表 |
 | AgentStepItem | Popup (内嵌于 AgentStepList) | 单步：状态标记 + 描述 + 缩略图 |
 | TakeoverButton | Popup (内嵌于 AiRecordingPanel) | 醒目的"接管操作"按钮 |
-| AgentSettings | Settings 页 | 最大步数/超时配置 |
+| AgentSettings | Settings 页 | 后续加固项：最大步数/超时配置；当前实现使用固定 50 步 / 10 分钟上限 |
 
 ### AI 步骤列表视觉设计
 
@@ -560,7 +560,7 @@ AI 录制进度:
 | 自定义 TextInput | shadcn/ui Input | 同上 |
 | 自定义 Panel | shadcn/ui Card | 同上 |
 | window.alert / confirm | shadcn/ui AlertDialog | 同上 |
-| innerHTML 拼接步骤列表 | React 组件 | Phase 0（Plasmo 迁移） |
+| innerHTML 拼接步骤列表 | React 组件 | 后续 Plasmo / React 迁移 |
 
 ### 10.2 截图批注编辑器（未来）
 
@@ -580,7 +580,7 @@ AI 录制进度:
 - [x] 三个上下文的 ASCII 布局图
 - [x] 基础组件和业务组件规格
 - [x] Phase 1-3 新增组件清单
-- [x] 状态管理使用 Plasmo + chrome.storage hooks（非 Zustand）
+- [x] 当前状态管理使用原生 DOM + chrome.runtime + chrome.storage / IndexedDB，Plasmo hooks 迁移已延期
 - [x] 降级策略覆盖所有功能
 - [x] 加载、反馈、空状态定义
 - [x] WCAG AA 无障碍检查清单

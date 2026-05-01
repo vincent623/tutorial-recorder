@@ -38,15 +38,21 @@
 - AI 接入：多 Provider 视觉模型（OpenAI/Claude/Gemini/火山方舟/硅基流动/阿里云百炼/OpenRouter/兼容接口），支持 Chat Completions / Responses / Anthropic Messages 三种 API 风格
 - 导出：fflate（ZIP 压缩）+ jsPDF（PDF 生成）+ 手写 Canvas 渲染
 - 测试：Playwright e2e 验证脚本
-- 未来演进方向：引入 CDP 实现截图增强和 AI 驱动录制
+- 已落地演进：v1.4.0 引入 CDP 截图增强，v1.5.0 引入实时 AI 建议，v2.0.0 引入 AI 驱动录制 MVP
 </stack>
 </environment>
 
 ## 约束检查清单
 
-- [ ] API Key 不出现在 IndexedDB、日志、导出文件中
-- [ ] chrome.debugger 在录制停止后立即 detach
-- [ ] 导出 ZIP 不自动上传
-- [ ] AI Agent 循环有步数和超时上限
-- [ ] AI 失败时不阻塞导出
+- [x] API Key 不出现在 IndexedDB、日志、导出文件中
+- [x] chrome.debugger 在录制停止后立即 detach
+- [x] 导出 ZIP 不自动上传
+- [x] AI Agent 循环有步数和超时上限
+- [x] AI 失败时不阻塞导出，已录制步骤保留并可接管或停止导出
 - [ ] 存储用量可见可清理
+
+## 后续加固约束
+
+- [ ] AI Agent 单轮决策失败后自动重试 1 次，再进入接管/停止分支
+- [ ] AI Agent 页面导航异常检测和提示分支
+- [ ] AI Agent 步数和超时时间提供设置项

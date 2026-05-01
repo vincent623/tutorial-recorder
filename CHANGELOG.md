@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.0.1] - 2026-05-01
+
+### Changed
+- Synced `.42cog` PRD, user story, reality, system, and UI specs with the implemented v1.4.0-v2.0.0 feature state.
+- Clarified that Plasmo/React migration and background module split are postponed refactors, not blockers for the delivered Phase 1-3 capabilities.
+- Reframed baseline gap metrics as historical findings and separated remaining AI Agent hardening items from completed MVP scope.
+
 ## [2.0.0] - 2026-05-01
 
 ### Added
