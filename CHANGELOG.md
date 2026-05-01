@@ -2,6 +2,15 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.1.0] - 2026-05-01
+
+### Added
+- IndexedDB `assets` store for screenshots, audio, and video, indexed by `recordingId`.
+- Atomic recording persistence that writes asset payloads and lightweight recording metadata in one IndexedDB transaction.
+- Asset hydration for runtime recovery, detail loading, PDF payloads, Markdown/ZIP export, and history re-export.
+- Cascading asset cleanup when a recording is deleted or edited screenshots are removed.
+- v2.1.0 regression checks covering asset store schema, hydration, non-inline persisted screenshots, media assets, cleanup, and watchdog task registration.
+
 ## [2.0.3] - 2026-05-01
 
 ### Added

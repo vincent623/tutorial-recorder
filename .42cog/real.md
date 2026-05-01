@@ -22,7 +22,7 @@
 ## 可选约束
 
 <real-optional>
-- 录制产生的所有媒体数据（截图 base64、音视频 WebM）在 IndexedDB 中占据大量空间，应提供存储用量提示和批量清理能力
+- 录制产生的所有媒体数据（截图 base64、音视频 WebM）已拆分进 IndexedDB `assets` store；后续仍应提供存储用量提示和批量清理能力
 - AI 调用失败（超时、配额耗尽、模型拒绝）时必须优雅降级到默认说明，不得阻塞导出流程
 </real-optional>
 
@@ -32,13 +32,13 @@
 <stack>
 - 平台：Chrome Extension Manifest V3
 - 前端：原生 JavaScript（ES Module），无框架无构建工具
-- 存储：chrome.storage.local（设置、历史索引）+ IndexedDB（录制数据，含大量 base64 图片）
+- 存储：chrome.storage.local（设置、历史索引）+ chrome.storage.session（运行时状态）+ IndexedDB `recordings`/`assets`（轻量录制元数据与截图/音视频大 payload 分离）
 - 媒体：Offscreen Document + MediaRecorder API（屏幕录制、麦克风录音）
 - 截图：chrome.tabs.captureVisibleTab / chrome.debugger CDP Page.captureScreenshot
 - AI 接入：多 Provider 视觉模型（OpenAI/Claude/Gemini/火山方舟/硅基流动/阿里云百炼/OpenRouter/兼容接口），支持 Chat Completions / Responses / Anthropic Messages 三种 API 风格
 - 导出：fflate（ZIP 压缩）+ jsPDF（PDF 生成）+ 手写 Canvas 渲染
 - 测试：Playwright e2e 验证脚本
-- 已落地演进：v1.4.0 引入 CDP 截图增强，v1.5.0 引入实时 AI 建议，v2.0.0 引入 AI 驱动录制 MVP
+- 已落地演进：v1.4.0 引入 CDP 截图增强，v1.5.0 引入实时 AI 建议，v2.0.0 引入 AI 驱动录制 MVP，v2.1.0 引入录制资产分片存储
 </stack>
 </environment>
 

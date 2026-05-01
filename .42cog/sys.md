@@ -218,7 +218,8 @@ tutorial-YYYYMMDD-HHMMSS-<id>/
 **职责：** 管理录制数据的持久化，分离大体量媒体和轻量索引。
 
 **组件：**
-- IndexedDbStore：存储 recording 完整数据（含截图 base64、音视频），对象仓库 `recordings`，keyPath `id`
+- RecordingStore：存储轻量 recording 元数据、步骤顺序、说明、提交状态与 asset 引用，对象仓库 `recordings`，keyPath `id`
+- AssetStore：存储截图、音频、视频的大体量 data URL payload，对象仓库 `assets`，keyPath `id`，按 `recordingId` 建索引
 - HistoryIndex：在 chrome.storage.local 维护历史索引数组（最多 20 条），仅含摘要字段
 - StorageQuotaManager：监控存储用量，提供清理能力（未来）
 
@@ -233,8 +234,10 @@ tutorial-YYYYMMDD-HHMMSS-<id>/
 │   recordingRuntime: { state, tabId }    │  ~1KB
 ├─────────────────────────────────────────┤
 │ IndexedDB (tutorialRecorder)            │
-│   recordings store:                     │  ~50-500MB
-│     { id, screenshots[], audio, video } │
+│   recordings store:                     │  ~10KB-1MB
+│     { id, screenshots[].assetId, ... }  │
+│   assets store by recordingId:          │  ~50-500MB
+│     { id, recordingId, kind, dataUrl }  │
 └─────────────────────────────────────────┘
 ```
 
@@ -318,8 +321,8 @@ tutorial-YYYYMMDD-HHMMSS-<id>/
 tutorial-recorder/
 ├── manifest.json                  # 扩展清单，权限声明
 ├── background/
-│   ├── background.js              # Service Worker：编排中枢（~1740 行）
-│   └── asset-store.js             # IndexedDB 存储层（~55 行）
+│   ├── background.js              # Service Worker：编排中枢（~3825 行）
+│   └── asset-store.js             # IndexedDB recordings/assets 存储层（~164 行）
 ├── content/
 │   └── content.js                 # 内容脚本：交互采集 + 视觉反馈（~260 行）
 ├── offscreen/
@@ -571,7 +574,7 @@ AI 驱动录制需要 AI 决定下一步浏览器操作。方案 A：纯文本�
 **状态：** 已延期（Phase 1-3 先在现有 background.js 内落地）
 
 **背景：**
-background.js 已达 1740 行，混合了录制控制、AI 调用、导出、设置管理、消息路由等职责。Phase 1 新增 CDP 逻辑后将继续膨胀。
+background.js 已达 3800+ 行，混合了录制控制、AI 调用、导出、设置管理、消息路由等职责。CDP、实时建议、AI Agent 和资产分片陆续落地后，模块拆分的维护收益更明确。
 
 **当前决策：**
 v1.4.0-v2.0.0 先在现有 `background/background.js` 中落地 CDP、实时建议和 AI Agent。拆分为子系统文件仍是必要的后续维护任务，但未作为功能交付阻塞项。

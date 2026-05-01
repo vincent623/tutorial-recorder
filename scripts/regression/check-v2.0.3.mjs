@@ -29,19 +29,22 @@ const manifest = JSON.parse(source.manifest);
 
 const checks = [
   {
-    name: 'version metadata is aligned at 2.0.3',
+    name: 'version metadata is aligned for the current 2.x release',
     pass:
-      packageJson.version === '2.0.3' &&
-      packageLock.version === '2.0.3' &&
-      packageLock.packages?.['']?.version === '2.0.3' &&
-      manifest.version === '2.0.3'
+      /^2\.\d+\.\d+$/.test(packageJson.version) &&
+      packageLock.version === packageJson.version &&
+      packageLock.packages?.['']?.version === packageJson.version &&
+      manifest.version === packageJson.version
   },
   {
     name: 'IndexedDB store exposes listRecordings for recovery scans',
     pass:
       /export async function listRecordings\(\)/.test(source.assetStore) &&
       /store\.getAll\(\)/.test(source.assetStore) &&
-      /import \{ deleteRecording, getRecording, listRecordings, putRecording \}/.test(source.background)
+      /deleteRecording/.test(source.background) &&
+      /getRecording/.test(source.background) &&
+      /listRecordings/.test(source.background) &&
+      /putRecording/.test(source.background)
   },
   {
     name: 'recordings have explicit commit states and recoverable state set',

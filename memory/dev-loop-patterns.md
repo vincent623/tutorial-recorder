@@ -53,3 +53,11 @@
 - Treat interrupted export states as recoverable, not destructive; preserve screenshots and expose the record through history so the user can re-export.
 - Reconcile history from IndexedDB on startup because recording details and history summaries are stored in different browser stores.
 - Refresh the history summary after the final `complete` commit so the index does not lag behind the recording detail state.
+
+## 2026-05-01 - Asset Split Storage Pattern
+
+- Store large screenshot/audio/video payloads in a recording-indexed `assets` store and keep `recordings` lightweight with asset references, descriptions, ordering, and commit state.
+- Use one IndexedDB transaction when writing assets and the recording metadata together; a split store is only safer if the metadata cannot point at missing newly-created assets.
+- Hydrate assets at API boundaries (`getRecordingDetail`, export, runtime restore) so popup/workspace contracts stay stable while persistence remains lightweight.
+- Regression and E2E checks should inspect actual IndexedDB summaries, not only exported ZIPs, because exports can hide storage-shape regressions.
+- Data URL parsing for media must search for `;base64,` rather than the first comma; WebM codec parameters can contain commas before the base64 marker.

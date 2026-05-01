@@ -1,5 +1,12 @@
 import { strToU8, zipSync } from '../lib/fflate.js';
-import { deleteRecording, getRecording, listRecordings, putRecording } from './asset-store.js';
+import {
+  deleteRecording,
+  getRecording,
+  listAssetsForRecording,
+  listRecordings,
+  putRecording,
+  putRecordingWithAssets
+} from './asset-store.js';
 
 const SETTINGS_KEY = 'settings';
 const HISTORY_KEY = 'recordings';
@@ -12,6 +19,11 @@ const AI_AGENT_MAX_STEPS = 50;
 const AI_AGENT_MAX_DURATION_MS = 10 * 60 * 1000;
 const AI_AGENT_STEP_DELAY_MS = 800;
 const OPERATION_RESULT_TTL_MS = 5 * 60 * 1000;
+const ASSET_KINDS = Object.freeze({
+  SCREENSHOT: 'screenshot',
+  AUDIO: 'audio',
+  VIDEO: 'video'
+});
 const COMMIT_STATES = Object.freeze({
   RECORDING: 'recording',
   STOPPING: 'stopping',
@@ -390,6 +402,190 @@ function sanitizeOperationId(value) {
   return sanitizeTextValue(value, 160).replace(/[^a-zA-Z0-9:._-]/g, '-');
 }
 
+async function persistRecording(recording, assets = [], options = {}) {
+  const storedRecording = stripRecordingAssetData(recording);
+  const deleteAssetIds = Array.isArray(options.deleteAssetIds) ? options.deleteAssetIds.filter(Boolean) : [];
+
+  if (assets.length || deleteAssetIds.length) {
+    return putRecordingWithAssets(storedRecording, assets, { deleteAssetIds });
+  }
+
+  return putRecording(storedRecording);
+}
+
+function stripRecordingAssetData(recording) {
+  if (!recording || typeof recording !== 'object') {
+    return recording;
+  }
+
+  const next = {
+    ...recording,
+    screenshots: Array.isArray(recording.screenshots)
+      ? recording.screenshots.map(stripScreenshotAssetData)
+      : []
+  };
+
+  if (next.audioAssetId) {
+    next.audioDataUrl = null;
+  }
+
+  if (next.videoAssetId) {
+    next.videoDataUrl = null;
+  }
+
+  return next;
+}
+
+function stripScreenshotAssetData(screenshot = {}) {
+  const next = { ...screenshot };
+
+  if (next.assetId) {
+    delete next.data;
+  }
+
+  return next;
+}
+
+async function hydrateRecordingAssets(recording) {
+  if (!recording) {
+    return null;
+  }
+
+  const assets = await listAssetsForRecording(recording.id).catch((error) => {
+    console.warn('[Background] Failed to hydrate recording assets:', error);
+    return [];
+  });
+  const assetsById = new Map(
+    assets
+      .filter((asset) => asset?.id)
+      .map((asset) => [asset.id, asset])
+  );
+
+  const hydrated = {
+    ...recording,
+    screenshots: Array.isArray(recording.screenshots)
+      ? recording.screenshots.map((screenshot) => hydrateScreenshotAsset(screenshot, assetsById))
+      : []
+  };
+
+  if (!hydrated.audioDataUrl && hydrated.audioAssetId) {
+    hydrated.audioDataUrl = assetsById.get(hydrated.audioAssetId)?.dataUrl || null;
+  }
+
+  if (!hydrated.videoDataUrl && hydrated.videoAssetId) {
+    hydrated.videoDataUrl = assetsById.get(hydrated.videoAssetId)?.dataUrl || null;
+  }
+
+  return hydrated;
+}
+
+function hydrateScreenshotAsset(screenshot = {}, assetsById) {
+  const asset = screenshot.assetId ? assetsById.get(screenshot.assetId) : null;
+  return {
+    ...screenshot,
+    data: screenshot.data || asset?.dataUrl || ''
+  };
+}
+
+function createAssetId(recordingId, kind, localId = '') {
+  return [
+    sanitizeOperationId(recordingId) || 'recording',
+    'asset',
+    sanitizeOperationId(kind) || 'data',
+    sanitizeOperationId(localId) || Date.now().toString(36),
+    createRandomSuffix()
+  ].join(':');
+}
+
+function createRecordingAsset(recordingId, kind, dataUrl, metadata = {}) {
+  const sanitizedDataUrl = sanitizeAssetDataUrl(kind, dataUrl);
+  if (!sanitizedDataUrl) {
+    return null;
+  }
+
+  const details = getDataUrlDetails(sanitizedDataUrl);
+  const id = metadata.id || createAssetId(recordingId, kind, metadata.localId || metadata.screenshotId || '');
+  const now = Date.now();
+
+  return {
+    ...metadata,
+    id,
+    recordingId,
+    kind,
+    dataUrl: sanitizedDataUrl,
+    mimeType: details.mimeType,
+    size: details.size,
+    createdAt: metadata.createdAt || now,
+    updatedAt: now
+  };
+}
+
+function ensureScreenshotAsset(recording, screenshot, index = 0) {
+  const asset = createRecordingAsset(recording.id, ASSET_KINDS.SCREENSHOT, screenshot.data, {
+    id: screenshot.assetId || '',
+    localId: screenshot.id || String(index + 1),
+    screenshotId: screenshot.id || '',
+    sequence: screenshot.sequence || index + 1,
+    createdAt: screenshot.timestamp || Date.now()
+  });
+
+  if (!asset) {
+    return null;
+  }
+
+  screenshot.assetId = asset.id;
+  screenshot.dataMimeType = asset.mimeType;
+  screenshot.dataSize = asset.size;
+  screenshot.assetUpdatedAt = asset.updatedAt;
+  return asset;
+}
+
+function getRecordingAssetIds(recording = {}) {
+  const ids = new Set();
+
+  for (const screenshot of recording.screenshots || []) {
+    if (screenshot?.assetId) {
+      ids.add(screenshot.assetId);
+    }
+  }
+
+  if (recording.audioAssetId) {
+    ids.add(recording.audioAssetId);
+  }
+
+  if (recording.videoAssetId) {
+    ids.add(recording.videoAssetId);
+  }
+
+  return ids;
+}
+
+function sanitizeAssetDataUrl(kind, value) {
+  if (kind === ASSET_KINDS.SCREENSHOT) {
+    return sanitizeImageDataUrl(value);
+  }
+
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim();
+  return /^data:.*?;base64,/i.test(trimmed) ? trimmed : '';
+}
+
+function getDataUrlDetails(dataUrl) {
+  const raw = String(dataUrl || '');
+  const base64MarkerIndex = raw.toLowerCase().indexOf(';base64,');
+  const header = raw.slice(0, base64MarkerIndex).match(/^data:([^;,]+)/i);
+  const base64 = base64MarkerIndex >= 0 ? raw.slice(base64MarkerIndex + ';base64,'.length) : '';
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+
+  return {
+    mimeType: header?.[1] || 'application/octet-stream',
+    size: Math.max(0, Math.floor((base64.length * 3) / 4) - padding)
+  };
+}
+
 function buildIdempotencyKey(scope, operationId) {
   const sanitizedOperationId = sanitizeOperationId(operationId);
   if (!sanitizedOperationId) {
@@ -504,7 +700,8 @@ async function updateRecordingCommitState(recording, commitState, options = {}) 
     type = 'recording',
     operationId = recording.lastOperation?.id || '',
     status,
-    recoverableError = null
+    recoverableError = null,
+    assets = []
   } = options;
 
   recording.commitState = commitState;
@@ -524,7 +721,7 @@ async function updateRecordingCommitState(recording, commitState, options = {}) 
     recording.recoverableError = null;
   }
 
-  await putRecording(recording);
+  await persistRecording(recording, assets);
 }
 
 async function markRecordingRecoverableFailure(recording, error, type = 'operation') {
@@ -766,7 +963,7 @@ async function restoreRuntimeState() {
   }
 
   currentRuntime = { ...createIdleRuntime(), ...runtime };
-  currentRecording = await getRecording(currentRuntime.recordingId);
+  currentRecording = await hydrateRecordingAssets(await getRecording(currentRuntime.recordingId));
 
   if (!currentRecording) {
     currentRuntime = createIdleRuntime();
@@ -917,8 +1114,10 @@ async function startRecording(tabId) {
     captureMode: settings.captureMode,
     screenshots: [],
     audioDataUrl: null,
+    audioAssetId: '',
     audioMeta: null,
     videoDataUrl: null,
+    videoAssetId: '',
     videoMeta: null,
     realtimeSuggestionsEnabled: settings.realtimeSuggestions === true,
     exportBaseName: '',
@@ -945,7 +1144,7 @@ async function startRecording(tabId) {
     mediaStatus: '正在请求授权...'
   };
 
-  await putRecording(currentRecording);
+  await persistRecording(currentRecording);
   await persistRuntime();
   await updateBadge();
 
@@ -1056,8 +1255,10 @@ async function startAiRecording(tabId, targetDescription) {
     captureMode: 'agent',
     screenshots: [],
     audioDataUrl: null,
+    audioAssetId: '',
     audioMeta: null,
     videoDataUrl: null,
+    videoAssetId: '',
     videoMeta: null,
     aiGoal: goal,
     exportBaseName: '',
@@ -1087,7 +1288,7 @@ async function startAiRecording(tabId, targetDescription) {
     })
   };
 
-  await putRecording(currentRecording);
+  await persistRecording(currentRecording);
   await persistRuntime();
   await updateBadge();
 
@@ -1244,12 +1445,13 @@ async function performStopRecording(operationId = '') {
     durationMs: currentRuntime.durationMs
   }));
 
-  applyMediaResult(currentRecording, mediaResult, currentRuntime.durationMs);
+  const mediaAssets = applyMediaResult(currentRecording, mediaResult, currentRuntime.durationMs);
 
   await updateRecordingCommitState(currentRecording, COMMIT_STATES.MEDIA_COLLECTED, {
     type: 'stopRecording',
     operationId,
-    status: 'stopping'
+    status: 'stopping',
+    assets: mediaAssets
   });
   await detachCdpDebugger();
 
@@ -1316,9 +1518,14 @@ async function performCaptureScreenshot({ trigger = 'manual', allowWhenPaused = 
   };
 
   currentRecording.screenshots.push(screenshot);
+  const screenshotAsset = ensureScreenshotAsset(
+    currentRecording,
+    screenshot,
+    currentRecording.screenshots.length - 1
+  );
 
   currentRuntime.count = currentRecording.screenshots.length;
-  await putRecording(currentRecording);
+  await persistRecording(currentRecording, screenshotAsset ? [screenshotAsset] : []);
   await persistRuntime();
   await updateBadge();
 
@@ -2002,7 +2209,7 @@ async function updateAgentScreenshotDescription(screenshotId, description) {
   located.screenshot.description = sanitizeEditableText(description, 400) || `步骤 ${located.index + 1}`;
   located.screenshot.descriptionSource = 'agent-ai';
   located.screenshot.descriptionUpdatedAt = Date.now();
-  await putRecording(currentRecording);
+  await persistRecording(currentRecording);
 }
 
 async function appendAiAgentStep(action, screenshotId, description) {
@@ -2434,7 +2641,7 @@ async function processRealtimeSuggestion(job) {
       latest.screenshot.description = suggestionText;
       latest.screenshot.descriptionSource = 'realtime-ai';
       latest.screenshot.descriptionUpdatedAt = Date.now();
-      await putRecording(currentRecording);
+      await persistRecording(currentRecording);
     }
 
     await updateRealtimeSuggestionState({
@@ -2519,8 +2726,8 @@ function buildRecordingDetail(recording) {
     createdAt: recording.startTime,
     durationMs: getRecordingDuration(recording),
     screenshotCount: recording.screenshots.length,
-    hasAudio: Boolean(recording.audioDataUrl),
-    hasVideo: Boolean(recording.videoDataUrl),
+    hasAudio: hasRecordingAudio(recording),
+    hasVideo: hasRecordingVideo(recording),
     recordingMode: recording.recordingMode || 'manual',
     captureMode: recording.captureMode || DEFAULT_SETTINGS.captureMode,
     commitState: recording.commitState || '',
@@ -2545,8 +2752,8 @@ function buildPdfPayload(recording) {
     title: recording.title,
     createdAt: recording.startTime,
     durationMs: getRecordingDuration(recording),
-    audioAvailable: Boolean(recording.audioDataUrl),
-    videoAvailable: Boolean(recording.videoDataUrl),
+    audioAvailable: hasRecordingAudio(recording),
+    videoAvailable: hasRecordingVideo(recording),
     recordingMode: recording.recordingMode || 'manual',
     screenshots: recording.screenshots.map((screenshot, index) => ({
       index: index + 1,
@@ -2565,8 +2772,8 @@ function buildMarkdown(recording) {
     `> 录制时长：${formatDuration(getRecordingDuration(recording))}`,
     `> 截图数量：${recording.screenshots.length}`,
     `> 录制模式：${formatRecordingMode(recording)}`,
-    `> 音频文件：${recording.audioDataUrl ? 'audio/tutorial-audio.webm' : '未生成'}`,
-    `> 视频文件：${recording.videoDataUrl ? 'video/tutorial-video.webm' : '未生成'}`,
+    `> 音频文件：${hasRecordingAudio(recording) ? 'audio/tutorial-audio.webm' : '未生成'}`,
+    `> 视频文件：${hasRecordingVideo(recording) ? 'video/tutorial-video.webm' : '未生成'}`,
     ''
   ];
 
@@ -2591,6 +2798,14 @@ function formatRecordingMode(recording) {
   }
 
   return recording.captureMode === 'tabCapture' ? '直接录制当前标签页' : '共享屏幕/标签页';
+}
+
+function hasRecordingAudio(recording = {}) {
+  return Boolean(recording.audioDataUrl || recording.audioAssetId);
+}
+
+function hasRecordingVideo(recording = {}) {
+  return Boolean(recording.videoDataUrl || recording.videoAssetId);
 }
 
 async function downloadRecordingBundle(recording, markdown, pdfDataUrl, outputDir, promptForSaveAs) {
@@ -2709,8 +2924,8 @@ function buildHistoryEntry(recording) {
     createdAt: recording.startTime,
     screenshotCount: recording.screenshots.length,
     durationMs: getRecordingDuration(recording),
-    hasAudio: Boolean(recording.audioDataUrl),
-    hasVideo: Boolean(recording.videoDataUrl),
+    hasAudio: hasRecordingAudio(recording),
+    hasVideo: hasRecordingVideo(recording),
     recordingMode: recording.recordingMode || 'manual',
     captureMode: recording.captureMode || DEFAULT_SETTINGS.captureMode,
     commitState: recording.commitState || '',
@@ -2732,7 +2947,7 @@ async function exportRecording(id, operationId = '') {
 }
 
 async function performExportRecording(id, operationId = '') {
-  const recording = await getRecording(id);
+  const recording = await hydrateRecordingAssets(await getRecording(id));
 
   if (!recording) {
     throw new Error('这条历史记录已不存在');
@@ -2792,7 +3007,7 @@ async function performExportRecording(id, operationId = '') {
 }
 
 async function getRecordingDetail(id) {
-  const recording = await getRecording(id);
+  const recording = await hydrateRecordingAssets(await getRecording(id));
 
   if (!recording) {
     throw new Error('这条历史记录已不存在');
@@ -2802,23 +3017,35 @@ async function getRecordingDetail(id) {
 }
 
 async function updateRecordingDetails(id, updates) {
-  const recording = await getRecording(id);
+  const storedRecording = await getRecording(id);
+  const recording = await hydrateRecordingAssets(storedRecording);
 
   if (!recording) {
     throw new Error('这条历史记录已不存在');
   }
 
+  const previousAssetIds = getRecordingAssetIds(storedRecording);
   const nextTitle = sanitizeEditableText(updates.title, 80);
   const nextScreenshots = Array.isArray(updates.screenshots) ? updates.screenshots : null;
+  const assets = [];
 
   if (nextScreenshots) {
     recording.screenshots = sanitizeUpdatedScreenshots(recording, nextScreenshots);
+    recording.screenshots.forEach((screenshot, index) => {
+      const asset = ensureScreenshotAsset(recording, screenshot, index);
+      if (asset) {
+        assets.push(asset);
+      }
+    });
   }
 
   recording.title = nextTitle || buildRecordingTitle(recording);
   recording.updatedAt = Date.now();
 
-  await putRecording(recording);
+  const nextAssetIds = getRecordingAssetIds(recording);
+  const deleteAssetIds = [...previousAssetIds].filter((assetId) => !nextAssetIds.has(assetId));
+
+  await persistRecording(recording, assets, { deleteAssetIds });
   await upsertHistoryEntry(buildHistoryEntry(recording));
   notifyPopup('historyUpdated', { history: await getHistory() });
   return buildRecordingDetail(recording);
@@ -2840,7 +3067,7 @@ async function updateRealtimeSuggestionOverride(payload = {}) {
   located.screenshot.description = description;
   located.screenshot.descriptionSource = description ? 'realtime-user' : 'realtime-cleared';
   located.screenshot.descriptionUpdatedAt = Date.now();
-  await putRecording(currentRecording);
+  await persistRecording(currentRecording);
 
   return updateRealtimeSuggestionState({
     enabled: currentRuntime.realtimeSuggestion?.enabled === true,
@@ -3003,14 +3230,29 @@ function summarizeMediaState(audioStarted, videoStarted) {
 }
 
 function applyMediaResult(recording, mediaResult, fallbackDurationMs) {
+  const assets = [];
+
   if (mediaResult?.audioDataUrl) {
+    const audioAsset = createRecordingAsset(recording.id, ASSET_KINDS.AUDIO, mediaResult.audioDataUrl, {
+      id: recording.audioAssetId || '',
+      localId: 'audio',
+      createdAt: Date.now()
+    });
+
+    if (audioAsset) {
+      recording.audioAssetId = audioAsset.id;
+      assets.push(audioAsset);
+    }
+
     recording.audioDataUrl = mediaResult.audioDataUrl;
     recording.audioMeta = {
       mimeType: mediaResult.audioMimeType || 'audio/webm',
-      size: mediaResult.audioSize || 0,
+      size: mediaResult.audioSize || audioAsset?.size || 0,
+      assetId: audioAsset?.id || recording.audioAssetId || '',
       durationMs: mediaResult.audioDurationMs || fallbackDurationMs
     };
   } else if (mediaResult?.audioError) {
+    recording.audioAssetId = '';
     recording.audioMeta = {
       mimeType: '',
       size: 0,
@@ -3021,13 +3263,26 @@ function applyMediaResult(recording, mediaResult, fallbackDurationMs) {
   }
 
   if (mediaResult?.videoDataUrl) {
+    const videoAsset = createRecordingAsset(recording.id, ASSET_KINDS.VIDEO, mediaResult.videoDataUrl, {
+      id: recording.videoAssetId || '',
+      localId: 'video',
+      createdAt: Date.now()
+    });
+
+    if (videoAsset) {
+      recording.videoAssetId = videoAsset.id;
+      assets.push(videoAsset);
+    }
+
     recording.videoDataUrl = mediaResult.videoDataUrl;
     recording.videoMeta = {
       mimeType: mediaResult.videoMimeType || 'video/webm',
-      size: mediaResult.videoSize || 0,
+      size: mediaResult.videoSize || videoAsset?.size || 0,
+      assetId: videoAsset?.id || recording.videoAssetId || '',
       durationMs: mediaResult.videoDurationMs || fallbackDurationMs
     };
   } else if (mediaResult?.videoError) {
+    recording.videoAssetId = '';
     recording.videoMeta = {
       mimeType: '',
       size: 0,
@@ -3036,6 +3291,8 @@ function applyMediaResult(recording, mediaResult, fallbackDurationMs) {
     };
     notifyPopup('warning', { message: `视频未导出：${mediaResult.videoError}` });
   }
+
+  return assets;
 }
 
 async function recordInteraction(payload, sender) {

@@ -73,3 +73,14 @@
 - Export failure behavior: failed re-export preserves the recording and writes `recoverableError`.
 - E2E observation: final history summary reports `commitState: complete` after detail re-export.
 - Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
+
+## 2026-05-01 - v2.1.0 Asset Store Metrics
+
+- Version metadata aligned at `2.1.0` across `package.json`, `package-lock.json`, and `manifest.json`.
+- IndexedDB schema upgraded to version `2` with stores: `recordings` and `assets`; `assets` is indexed by `recordingId`.
+- New asset kinds: `screenshot`, `audio`, and `video`.
+- New atomic persistence surface: `putRecordingWithAssets(recording, assets, { deleteAssetIds })`.
+- E2E storage observation after workspace edit: persisted recording had `3` screenshots, `0` inline screenshot data fields, `3` screenshot asset ids, `hasInlineAudio=false`, `hasInlineVideo=false`, `hasAudioAsset=true`, and `hasVideoAsset=true`.
+- E2E asset observation: `5` assets for the fixture recording (`3` screenshots, `1` audio, `1` video), all with data payloads.
+- E2E report checks added: `assetStoreSplitWorked`, `assetHydrationWorked`, `assetStoreHasScreenshotPayloads`, and `mediaAssetsSplitWorked`.
+- Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.

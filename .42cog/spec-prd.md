@@ -254,7 +254,7 @@ Tutorial Recorder 是一个 Chrome 扩展，为教程作者提供两种互补的
 | Chrome Manifest V3 无持久后台 | service worker 可能随时休眠，录制状态必须持久化到 chrome.storage.session |
 | Offscreen Document 生命周期限制 | 媒体录制和 PDF 生成依赖 offscreen document，必须在 activity 间隙保持存活 |
 | Popup 窗口尺寸固定且狭小 | Popup 中只放录制控制和快速设置，完整 UI 放独立工作台标签页 |
-| IndexedDB 存储空间有限 | 单条录制的截图 base64 可能达到数十 MB，需要存储管理和清理机制 |
+| IndexedDB 存储空间有限 | v2.1.0 已将截图/音视频 payload 拆入 `assets` store，仍需要存储用量提示和清理机制 |
 
 ### 4.2 结构约束
 

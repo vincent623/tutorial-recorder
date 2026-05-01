@@ -1,6 +1,8 @@
 const DB_NAME = 'tutorialRecorder';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const RECORDINGS_STORE = 'recordings';
+const ASSETS_STORE = 'assets';
+const ASSETS_RECORDING_INDEX = 'recordingId';
 
 let dbPromise = null;
 
@@ -18,6 +20,11 @@ function openDatabase() {
       if (!db.objectStoreNames.contains(RECORDINGS_STORE)) {
         db.createObjectStore(RECORDINGS_STORE, { keyPath: 'id' });
       }
+
+      if (!db.objectStoreNames.contains(ASSETS_STORE)) {
+        const assetsStore = db.createObjectStore(ASSETS_STORE, { keyPath: 'id' });
+        assetsStore.createIndex(ASSETS_RECORDING_INDEX, 'recordingId', { unique: false });
+      }
     };
 
     request.onsuccess = () => resolve(request.result);
@@ -27,13 +34,45 @@ function openDatabase() {
   return dbPromise;
 }
 
-async function withStore(mode, callback) {
+async function withStore(storeName, mode, callback) {
   const db = await openDatabase();
 
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(RECORDINGS_STORE, mode);
-    const store = transaction.objectStore(RECORDINGS_STORE);
-    const result = callback(store);
+    const transaction = db.transaction(storeName, mode);
+    const store = transaction.objectStore(storeName);
+    let result;
+
+    try {
+      result = callback(store, transaction);
+    } catch (error) {
+      transaction.abort();
+      reject(error);
+      return;
+    }
+
+    transaction.oncomplete = () => resolve(result?.result);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+
+async function withStores(storeNames, mode, callback) {
+  const db = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeNames, mode);
+    const stores = Object.fromEntries(
+      storeNames.map((storeName) => [storeName, transaction.objectStore(storeName)])
+    );
+    let result;
+
+    try {
+      result = callback(stores, transaction);
+    } catch (error) {
+      transaction.abort();
+      reject(error);
+      return;
+    }
 
     transaction.oncomplete = () => resolve(result?.result);
     transaction.onerror = () => reject(transaction.error);
@@ -42,17 +81,84 @@ async function withStore(mode, callback) {
 }
 
 export async function putRecording(recording) {
-  return withStore('readwrite', (store) => store.put(recording));
+  return withStore(RECORDINGS_STORE, 'readwrite', (store) => store.put(recording));
+}
+
+export async function putRecordingWithAssets(recording, assets = [], options = {}) {
+  return withStores([RECORDINGS_STORE, ASSETS_STORE], 'readwrite', (stores) => {
+    const assetStore = stores[ASSETS_STORE];
+    const deleteAssetIds = Array.isArray(options.deleteAssetIds) ? options.deleteAssetIds : [];
+
+    for (const assetId of deleteAssetIds) {
+      if (assetId) {
+        assetStore.delete(assetId);
+      }
+    }
+
+    for (const asset of assets) {
+      if (asset?.id) {
+        assetStore.put(asset);
+      }
+    }
+
+    return stores[RECORDINGS_STORE].put(recording);
+  });
 }
 
 export async function getRecording(id) {
-  return withStore('readonly', (store) => store.get(id));
+  return withStore(RECORDINGS_STORE, 'readonly', (store) => store.get(id));
 }
 
 export async function listRecordings() {
-  return withStore('readonly', (store) => store.getAll());
+  return withStore(RECORDINGS_STORE, 'readonly', (store) => store.getAll());
+}
+
+export async function putAsset(asset) {
+  return withStore(ASSETS_STORE, 'readwrite', (store) => store.put(asset));
+}
+
+export async function getAsset(id) {
+  return withStore(ASSETS_STORE, 'readonly', (store) => store.get(id));
+}
+
+export async function listAssetsForRecording(recordingId) {
+  return withStore(ASSETS_STORE, 'readonly', (store) =>
+    store.index(ASSETS_RECORDING_INDEX).getAll(recordingId)
+  );
+}
+
+export async function deleteAssetsForRecording(recordingId) {
+  return withStore(ASSETS_STORE, 'readwrite', (store) => {
+    const index = store.index(ASSETS_RECORDING_INDEX);
+    const request = index.openCursor(IDBKeyRange.only(recordingId));
+
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        return;
+      }
+
+      cursor.delete();
+      cursor.continue();
+    };
+  });
 }
 
 export async function deleteRecording(id) {
-  return withStore('readwrite', (store) => store.delete(id));
+  return withStores([RECORDINGS_STORE, ASSETS_STORE], 'readwrite', (stores) => {
+    stores[RECORDINGS_STORE].delete(id);
+
+    const index = stores[ASSETS_STORE].index(ASSETS_RECORDING_INDEX);
+    const request = index.openCursor(IDBKeyRange.only(id));
+
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        return;
+      }
+
+      cursor.delete();
+      cursor.continue();
+    };
+  });
 }

@@ -304,6 +304,8 @@ async function main() {
       editedTitle
     );
     console.log('[e2e] detail title saved');
+    const assetStoreState = await readAssetStoreState(serviceWorker);
+    console.log(`[e2e] asset store summary: ${JSON.stringify(assetStoreState)}`);
 
     await workspacePage.locator('#btnDetailExport').click();
     console.log('[e2e] detail zip export triggered');
@@ -370,6 +372,7 @@ async function main() {
       historyState,
       generatedDescriptions,
       detailCrudState,
+      assetStoreState,
       downloadItems,
       filesOnDisk,
       fileTypes,
@@ -413,6 +416,29 @@ async function main() {
           detailCrudState.countAfterDelete === 3 &&
           detailCrudState.firstImageChanged === true &&
           detailCrudState.reorderWorked === true,
+        assetStoreSplitWorked: assetStoreState.recordings.some(
+          (recording) =>
+            recording.id === historyState[0]?.id &&
+            recording.screenshotCount === detailCrudState.countAfterDelete &&
+            recording.inlineScreenshotDataCount === 0 &&
+            recording.screenshotAssetIdCount === recording.screenshotCount
+        ),
+        assetHydrationWorked:
+          recordingDetail?.ok === true &&
+          recordingDetail.recording.screenshots.every((item) => /^data:image\/[-+\w.]+;base64,/.test(item.data)),
+        assetStoreHasScreenshotPayloads:
+          assetStoreState.assets.filter(
+            (asset) =>
+              asset.recordingId === historyState[0]?.id &&
+              asset.kind === 'screenshot' &&
+              asset.hasDataUrl
+          ).length >= detailCrudState.countAfterDelete,
+        mediaAssetsSplitWorked: assetStoreState.recordings.some(
+          (recording) =>
+            recording.id === historyState[0]?.id &&
+            (!historyState[0]?.hasAudio || (recording.hasAudioAsset && !recording.hasInlineAudio)) &&
+            (!historyState[0]?.hasVideo || (recording.hasVideoAsset && !recording.hasInlineVideo))
+        ),
         aiDescriptionsActionable:
           !aiEnabled ||
           generatedDescriptions.some((item) => /(点击|切换|修改|提交|输入|进入)/.test(item)),
@@ -630,6 +656,58 @@ async function waitForHistoryInStorage(serviceWorker) {
   }
 
   throw new Error('Timed out waiting for history to persist');
+}
+
+async function readAssetStoreState(serviceWorker) {
+  return serviceWorker.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const request = indexedDB.open('tutorialRecorder');
+
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const storeNames = Array.from(db.objectStoreNames);
+          const transaction = db.transaction(storeNames, 'readonly');
+          const recordingsRequest = transaction.objectStore('recordings').getAll();
+          const assetsRequest = storeNames.includes('assets')
+            ? transaction.objectStore('assets').getAll()
+            : null;
+
+          transaction.oncomplete = () => {
+            const recordings = (recordingsRequest.result || []).map((recording) => {
+              const screenshots = Array.isArray(recording.screenshots) ? recording.screenshots : [];
+              return {
+                id: recording.id,
+                screenshotCount: screenshots.length,
+                inlineScreenshotDataCount: screenshots.filter((screenshot) => Boolean(screenshot?.data)).length,
+                screenshotAssetIdCount: screenshots.filter((screenshot) => Boolean(screenshot?.assetId)).length,
+                hasInlineAudio: Boolean(recording.audioDataUrl),
+                hasInlineVideo: Boolean(recording.videoDataUrl),
+                hasAudioAsset: Boolean(recording.audioAssetId),
+                hasVideoAsset: Boolean(recording.videoAssetId)
+              };
+            });
+            const assets = (assetsRequest?.result || []).map((asset) => ({
+              id: asset.id,
+              recordingId: asset.recordingId,
+              kind: asset.kind,
+              hasDataUrl: Boolean(asset.dataUrl),
+              size: asset.size || 0
+            }));
+
+            resolve({
+              stores: storeNames,
+              recordings,
+              assets
+            });
+            db.close();
+          };
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        };
+      })
+  );
 }
 
 async function cleanupDirectory(dirPath) {
