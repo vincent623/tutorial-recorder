@@ -95,11 +95,44 @@ async function main() {
     popup.on('crash', () => console.log('[e2e] popup page crashed'));
     popup.on('pageerror', (error) => console.log(`[popup pageerror] ${error.message}`));
     popup.on('console', (message) => console.log(`[popup console:${message.type()}] ${message.text()}`));
+    const popupDialogMessages = [];
+    popup.on('dialog', async (dialog) => {
+      popupDialogMessages.push(dialog.message());
+      await dialog.dismiss();
+    });
     await popup.waitForLoadState('domcontentloaded');
     await popup.waitForFunction(
       () => window.location.protocol === 'chrome-extension:' && Boolean(chrome?.runtime?.sendMessage)
     );
     console.log('[e2e] popup page ready');
+
+    const invalidAiTargetResult = await popup.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      return chrome.runtime.sendMessage({
+        action: 'startAiRecording',
+        tabId: tab?.id,
+        targetDescription: '验证扩展页不能作为 AI 录制目标'
+      });
+    });
+    const invalidAiRuntimeState = await popup.evaluate(async () => {
+      const result = await chrome.runtime.sendMessage({ action: 'getPopupState' });
+      return {
+        ok: result?.ok === true,
+        isRecording: result?.runtime?.isRecording === true,
+        recordingMode: result?.runtime?.recordingMode || ''
+      };
+    });
+    console.log(`[e2e] invalid AI target result: ${JSON.stringify(invalidAiTargetResult)}`);
+    const invalidAiTargetGuardPassed =
+      invalidAiTargetResult?.ok === false &&
+      /当前标签页是扩展页或浏览器内部页面/.test(invalidAiTargetResult?.error || '') &&
+      /无法开始 AI 录制/.test(invalidAiTargetResult?.error || '') &&
+      !/Cannot access a chrome-extension/i.test(invalidAiTargetResult?.error || '') &&
+      invalidAiRuntimeState?.isRecording === false;
+
+    if (!invalidAiTargetGuardPassed) {
+      throw new Error(`AI extension target guard failed: ${JSON.stringify(invalidAiTargetResult)}`);
+    }
 
     const settingsPagePromise = context.waitForEvent('page');
     await popup.locator('#btnOpenSettings').click();
@@ -375,6 +408,10 @@ async function main() {
       settingsPage: settingsPageSummary,
       settingsState: safeSettingsState,
       aiConfig: redactAiConfig(aiConfig),
+      invalidAiTargetResult,
+      invalidAiRuntimeState,
+      invalidAiTargetGuardPassed,
+      popupDialogMessages,
       historyState,
       generatedDescriptions,
       detailCrudState,
@@ -408,6 +445,8 @@ async function main() {
         aiAgentLimitsPersisted:
           settingsState?.aiAgentMaxSteps === customAiAgentMaxSteps &&
           settingsState?.aiAgentMaxDurationMinutes === customAiAgentMaxDurationMinutes,
+        aiRejectsExtensionTarget:
+          invalidAiTargetGuardPassed,
         popupSummaryRendered:
           popupSummary.providerSummary.length > 0 &&
           popupSummary.promptSummary.length > 0 &&

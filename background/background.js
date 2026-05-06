@@ -29,6 +29,7 @@ const OPERATION_RESULT_TTL_MS = 5 * 60 * 1000;
 const EXPORT_PDF_MAX_SCREENSHOTS = 150;
 const EXPORT_PDF_MAX_IMAGE_BYTES = 200 * 1024 * 1024;
 const EXPORT_PROGRESS_STEP_FILES = 10;
+const RECORDABLE_PAGE_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
 const ASSET_KINDS = Object.freeze({
   SCREENSHOT: 'screenshot',
   AUDIO: 'audio',
@@ -1141,13 +1142,52 @@ function getElapsedMs(now = Date.now()) {
   return Math.max(0, elapsed);
 }
 
+async function getRecordingStartTargetTab(tabId, modeLabel) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  assertRecordingTargetTab(tab, modeLabel);
+
+  const activatedTab = await chrome.tabs.update(tab.id, { active: true }).catch(() => null);
+
+  if (typeof tab.windowId === 'number' && chrome.windows?.update) {
+    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  }
+
+  const latestTab = activatedTab || (await chrome.tabs.get(tab.id).catch(() => null)) || tab;
+  assertRecordingTargetTab(latestTab, modeLabel);
+  return latestTab;
+}
+
+function assertRecordingTargetTab(tab, modeLabel) {
+  if (!tab?.id) {
+    throw new Error(`未找到可用于${modeLabel}的目标标签页`);
+  }
+
+  const url = tab.pendingUrl || tab.url || '';
+  if (isRecordablePageUrl(url)) {
+    return;
+  }
+
+  const startPhrase = modeLabel === 'AI 录制' ? '无法开始 AI 录制' : '无法开始录制';
+  throw new Error(
+    `当前标签页是扩展页或浏览器内部页面，${startPhrase}。请先切换到要录制的 http/https/file 网页后再启动。`
+  );
+}
+
+function isRecordablePageUrl(url) {
+  try {
+    return RECORDABLE_PAGE_PROTOCOLS.has(new URL(url).protocol);
+  } catch (error) {
+    return false;
+  }
+}
+
 async function startRecording(tabId) {
   if (currentRuntime.isRecording) {
     return;
   }
 
+  let tab = await getRecordingStartTargetTab(tabId, '录制');
   const settings = await getSettings();
-  const tab = await chrome.tabs.get(tabId);
   const startedAt = Date.now();
 
   currentRecording = {
@@ -1283,12 +1323,12 @@ async function startAiRecording(tabId, targetDescription) {
     throw new Error('请先填写 AI 录制目标');
   }
 
+  let tab = await getRecordingStartTargetTab(tabId, 'AI 录制');
   const settings = await getSettings();
   if (!hasVisionAnalysisConfig(settings)) {
     throw new Error('请先在完整设置中配置 AI Provider、API Key 和模型');
   }
 
-  const tab = await chrome.tabs.get(tabId);
   const startedAt = Date.now();
   const agentMaxSteps = normalizeAiAgentMaxSteps(settings.aiAgentMaxSteps);
   const agentMaxDurationMs = normalizeAiAgentMaxDurationMs(settings.aiAgentMaxDurationMinutes);
@@ -2325,7 +2365,7 @@ function assertAgentTabIsRecordable(url) {
     return;
   }
 
-  if (/^(chrome|edge|brave|vivaldi|opera|about|devtools):/i.test(url)) {
+  if (/^(chrome|chrome-extension|edge|brave|vivaldi|opera|about|devtools):/i.test(url)) {
     throw new Error(`AI 操作后进入浏览器内部页面：${summarizeUrlForPrompt(url) || url}`);
   }
 }

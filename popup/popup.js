@@ -29,6 +29,9 @@ const CAPTURE_MODE_HINTS = {
   tabCapture: '直接录制当前标签页，适合自动化验证或兼容场景，通常不会弹出共享选择。'
 };
 const IDEMPOTENT_ACTIONS = new Set(['stopRecording', 'manualCapture', 'downloadRecording']);
+const RECORDABLE_TAB_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
+const RECORDING_TARGET_HELP =
+  '请先打开要录制的 http/https/file 网页，再从扩展弹窗启动录制；扩展页、设置页和 chrome:// 页面不能作为录制目标。';
 
 const elements = {
   pageTitle: $('pageTitle'),
@@ -283,9 +286,10 @@ async function startRecording() {
   if (!saveResult?.ok) {
     return;
   }
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
-    alert('未找到当前活动标签页');
+
+  const tab = await getRecordingTargetTab();
+  if (!tab) {
+    alert(RECORDING_TARGET_HELP);
     return;
   }
 
@@ -323,9 +327,9 @@ async function startAiRecording() {
     return;
   }
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
-    alert('未找到当前活动标签页');
+  const tab = await getRecordingTargetTab();
+  if (!tab) {
+    alert(RECORDING_TARGET_HELP);
     return;
   }
 
@@ -336,6 +340,65 @@ async function startAiRecording() {
   if (!result?.ok) {
     alert(`AI 录制启动失败：${result?.error || '未知错误'}`);
   }
+}
+
+async function getRecordingTargetTab() {
+  const [currentActiveTab] = await queryTabsSafely({ active: true, currentWindow: true });
+  if (isRecordableTab(currentActiveTab)) {
+    return currentActiveTab;
+  }
+
+  const [lastFocusedActiveTab] = await queryTabsSafely({ active: true, lastFocusedWindow: true });
+  if (isRecordableTab(lastFocusedActiveTab)) {
+    return lastFocusedActiveTab;
+  }
+
+  const tabs = await queryTabsSafely({});
+  const activeRecordableTabs = tabs
+    .filter((tab) => tab.active && isRecordableTab(tab))
+    .sort(compareRecordingTargetTabs);
+
+  if (activeRecordableTabs.length) {
+    return activeRecordableTabs[0];
+  }
+
+  return tabs
+    .filter(isRecordableTab)
+    .sort(compareRecordingTargetTabs)[0] || null;
+}
+
+async function queryTabsSafely(queryInfo) {
+  try {
+    return await chrome.tabs.query(queryInfo);
+  } catch (error) {
+    console.warn('[Popup] Unable to query tabs:', error);
+    return [];
+  }
+}
+
+function isRecordableTab(tab) {
+  if (!tab?.id || tab.id < 0) {
+    return false;
+  }
+
+  return isRecordablePageUrl(tab.pendingUrl || tab.url || '');
+}
+
+function isRecordablePageUrl(url) {
+  try {
+    return RECORDABLE_TAB_PROTOCOLS.has(new URL(url).protocol);
+  } catch (error) {
+    return false;
+  }
+}
+
+function compareRecordingTargetTabs(left, right) {
+  const activeDelta = Number(Boolean(right.active)) - Number(Boolean(left.active));
+  if (activeDelta) {
+    return activeDelta;
+  }
+
+  return (right.lastAccessed || 0) - (left.lastAccessed || 0);
 }
 
 async function takeoverRecording() {

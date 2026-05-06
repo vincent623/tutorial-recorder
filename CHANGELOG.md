@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.2.2] - 2026-05-06
+
+### Fixed
+- AI and manual recording startup now resolve a recordable http/https/file tab instead of treating the extension workspace or settings page as the target.
+- Background startup validation rejects extension and browser-internal pages before CDP/debugger attachment, returning a Chinese user-facing error instead of Chrome's raw cross-extension exception.
+- E2E validation now covers the AI extension-page rejection path.
+
 ## [2.2.1] - 2026-05-01
 
 ### Added

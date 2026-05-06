@@ -114,3 +114,12 @@
 - 300-step scenario: metadata `80.2 KB`, inline equivalent `97.7 MB`, reduction `1247.4x`, ZIP entries `303`, PDF skipped by `step-count>150`, asset payload `121.2 MB`.
 - 1000-step scenario: metadata `267.5 KB`, inline equivalent `325.8 MB`, reduction `1246.9x`, ZIP entries `1003`, PDF skipped by `step-count>150`, asset payload `292.1 MB`.
 - Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed, including `npm run stress:scale`.
+
+## 2026-05-06 - v2.2.2 Recording Target Guard Metrics
+
+- Version metadata aligned at `2.2.2` across `package.json`, `package-lock.json`, and `manifest.json`.
+- New popup target resolver: `getRecordingTargetTab()` with recordable protocol allowlist `http`, `https`, and `file`.
+- New background startup guard: `getRecordingStartTargetTab()` plus `assertRecordingTargetTab()` before manual or AI recording initialization.
+- AI internal-page guard widened to include `chrome-extension:` after Agent actions.
+- E2E invalid AI target result: `ok=false`, friendly Chinese error returned, `invalidAiTargetGuardPassed=true`, `aiRejectsExtensionTarget=true`, and runtime stayed `isRecording=false`.
+- Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.

@@ -82,3 +82,10 @@
 - Stress reports should compare the new storage shape against a pre-change inline equivalent so improvements are visible as ratios, not just pass/fail.
 - Validate behavior at explicit step counts that map to operating modes: normal PDF generation, PDF-skip threshold, and 1000-step asset pressure.
 - Write generated stress reports under ignored `output/` while appending stable headline metrics to `memory/dev-loop-metrics.md`.
+
+## 2026-05-06 - Recording Target Guard Pattern
+
+- Do not trust `chrome.tabs.query({ active: true, currentWindow: true })` when the extension UI can run as a tab or popup window; it can point at the extension page instead of the user's target page.
+- Resolve recording targets through an allowlist of recordable page protocols, then enforce the same rule again in the background before any CDP/debugger or media startup work.
+- If a fallback target tab is selected from another window, activate it before recording so standard screenshots capture the intended page, not the extension workspace.
+- E2E should include invalid extension-page startup attempts for AI recording; provider configuration tests alone do not cover target-tab safety.
