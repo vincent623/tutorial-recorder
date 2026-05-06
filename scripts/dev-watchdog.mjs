@@ -18,7 +18,8 @@ const taskCommands = new Map([
   ['v2.2.0-agent-hardening', ['npm', ['run', 'check']]],
   ['v2.2.1-scale-stress', ['npm', ['run', 'check']]],
   ['v2.2.2-target-tab-guard', ['npm', ['run', 'check']]],
-  ['v2.2.3-ai-start-feedback', ['npm', ['run', 'check']]]
+  ['v2.2.3-ai-start-feedback', ['npm', ['run', 'check']]],
+  ['v2.2.4-ai-start-state', ['npm', ['run', 'check']]]
 ]);
 
 const progress = await readFile(progressPath, 'utf8');

@@ -339,7 +339,7 @@ async function startAiRecording() {
     return;
   }
 
-  elements.aiStatus.textContent = '正在启动 AI...';
+  setLocalAiStartupFeedback('正在启动 AI...', 'starting');
   elements.btnAiStart.disabled = true;
 
   let result;
@@ -353,13 +353,29 @@ async function startAiRecording() {
   }
 
   if (!result?.ok) {
+    state.aiAgent = createAiAgentState();
+    state.recordingMode = 'manual';
     alert(`AI 录制启动失败：${result?.error || '未知错误'}`);
     updateUi();
     return;
   }
 
-  elements.aiStatus.textContent = 'AI 正在观察页面...';
+  setLocalAiStartupFeedback('AI 正在观察页面...', 'running');
   await hydrate().catch(() => {});
+}
+
+function setLocalAiStartupFeedback(message, status) {
+  state.recordingMode = 'ai';
+  state.aiAgent = normalizeAiAgent({
+    ...state.aiAgent,
+    status,
+    message,
+    updatedAt: Date.now()
+  });
+  state.mediaStatus = message;
+  renderAiPanel();
+  elements.mediaStatus.textContent = message;
+  elements.statusText.textContent = message;
 }
 
 async function getRecordingTargetTab() {
@@ -854,6 +870,17 @@ function handleRuntimeMessage(message) {
       state.realtimeSuggestion = normalizeRealtimeSuggestion(message.suggestion);
       break;
     case 'aiStatus':
+      if (typeof message.isRecording === 'boolean') {
+        state.isRecording = message.isRecording;
+      }
+      if (typeof message.isPaused === 'boolean') {
+        state.isPaused = message.isPaused;
+      }
+      if (typeof message.isGenerating === 'boolean') {
+        state.isGenerating = message.isGenerating;
+      }
+      state.startTime = message.startTime || state.startTime;
+      state.recordingId = message.recordingId || state.recordingId;
       state.recordingMode = message.recordingMode || state.recordingMode;
       state.aiAgent = normalizeAiAgent(message.aiAgent);
       state.mediaStatus =
@@ -998,9 +1025,11 @@ function normalizeAiAgent(aiAgent = {}) {
 function renderAiPanel() {
   const aiAgent = normalizeAiAgent(state.aiAgent);
   const isAiRecording = state.isRecording && state.recordingMode === 'ai';
+  const hasAiStartupFeedback =
+    state.recordingMode === 'ai' && ['starting', 'running', 'retrying'].includes(aiAgent.status);
   const aiConfigured = hasAiSettingsConfigured();
 
-  elements.aiStatus.textContent = isAiRecording
+  elements.aiStatus.textContent = isAiRecording || hasAiStartupFeedback
     ? getAiStatusText(aiAgent)
     : aiConfigured
       ? '待启动'
@@ -1037,6 +1066,10 @@ function hasAiSettingsConfigured(settings = currentSettings) {
 }
 
 function getAiStatusText(aiAgent = {}) {
+  if (aiAgent.status === 'starting') {
+    return aiAgent.message || '正在启动 AI...';
+  }
+
   if (aiAgent.status === 'running') {
     return aiAgent.message || 'AI 录制中';
   }

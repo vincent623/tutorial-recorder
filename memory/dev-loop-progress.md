@@ -14,3 +14,4 @@ The watchdog reads the first unchecked item and executes the mapped verification
 - [x] `v2.2.1-scale-stress` - Add repeatable 100/300/1000 step scale stress scripts and record metrics.
 - [x] `v2.2.2-target-tab-guard` - Reject extension/internal tabs before manual or AI recording and verify AI extension-page startup failure is friendly.
 - [x] `v2.2.3-ai-start-feedback` - Keep AI start clickable when unconfigured and show immediate startup or configuration feedback.
+- [x] `v2.2.4-ai-start-state` - Persist AI startup/observing feedback through popup render updates and add real AI recording smoke coverage.

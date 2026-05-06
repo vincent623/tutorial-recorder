@@ -132,3 +132,14 @@
 - Missing configuration runtime safety: E2E `aiMissingConfigShowsFeedback=true` and runtime stayed `isRecording=false`.
 - Startup feedback path added for configured starts: popup shows `正在启动 AI...` before background response and `AI 正在观察页面...` after success.
 - Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
+
+## 2026-05-06 - v2.2.4 AI Startup State and Smoke Metrics
+
+- Version metadata aligned at `2.2.4` across `package.json`, `package-lock.json`, and `manifest.json`.
+- AI startup feedback is now represented as Agent statuses: `starting` with `正在启动 AI...`, then `running` with `AI 正在观察页面...` after CDP attach.
+- New opt-in real provider smoke command: `npm run smoke:ai`; local `.env` is ignored by git and the smoke report redacts API key contents.
+- Real OpenRouter smoke result with local `.env`: `startStatusVisible=true`, first popup sample `正在启动 AI...`, later sample `正在执行第 1 步...`.
+- Real AI recording smoke result: `runtimeEnteredAiMode=true`, `runtimeReachedRunning=true`, `finishedWithoutFailure=true`, `historyCreated=true`, `screenshotsCaptured=true`.
+- Real AI smoke artifact: `output/playwright/ai-smoke-report.json`; produced one AI recording with `screenshotCount=2` and `commitState=complete`.
+- Provider-backed `npm run validate:e2e` passed with OpenRouter, but the selected model returned `未命名步骤` for manual post-analysis descriptions, so `aiDescriptionsActionable=false` is a model-quality signal rather than a pipeline failure.
+- Verification: `npm run check`, `npm run watchdog`, `npm run smoke:ai`, and provider-backed `npm run validate:e2e` passed.

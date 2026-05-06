@@ -1370,22 +1370,27 @@ async function startAiRecording(tabId, targetDescription) {
     autoScreenshot: false,
     mediaStatus: 'AI 录制中',
     aiAgent: createAiAgentState({
-      status: 'running',
+      status: 'starting',
       goal,
       maxSteps: agentMaxSteps,
       maxDurationMs: agentMaxDurationMs,
       startedAt,
       deadlineAt: startedAt + agentMaxDurationMs,
-      message: 'AI 正在观察页面...'
+      message: '正在启动 AI...'
     })
   };
 
   await persistRecording(currentRecording);
   await persistRuntime();
   await updateBadge();
+  notifyAiStatus();
 
   try {
     await attachCdpDebugger(tab.id);
+    await updateAiAgentState({
+      status: 'running',
+      message: 'AI 正在观察页面...'
+    });
     notifyPopup('started', {
       startTime: currentRuntime.startTime,
       recordingId: currentRuntime.recordingId,
@@ -2455,6 +2460,11 @@ async function updateAiAgentState(patch = {}) {
 
 function notifyAiStatus() {
   notifyPopup('aiStatus', {
+    isRecording: currentRuntime.isRecording,
+    isPaused: currentRuntime.isPaused,
+    isGenerating: currentRuntime.isGenerating,
+    startTime: currentRuntime.startTime,
+    recordingId: currentRuntime.recordingId,
     recordingMode: currentRuntime.recordingMode,
     aiAgent: currentRuntime.aiAgent || createAiAgentState()
   });
@@ -4057,7 +4067,14 @@ async function updateBadge() {
   if (currentRuntime.isRecording) {
     await chrome.action.setBadgeBackgroundColor({ color: currentRuntime.recordingMode === 'ai' ? '#7c3aed' : '#f5222d' });
     await chrome.action.setBadgeText({ text: currentRuntime.recordingMode === 'ai' ? 'AI' : 'REC' });
-    await chrome.action.setTitle({ title: currentRuntime.recordingMode === 'ai' ? '教程录制器：AI 录制中' : '教程录制器：录制中' });
+    await chrome.action.setTitle({
+      title:
+        currentRuntime.recordingMode === 'ai'
+          ? currentRuntime.aiAgent?.status === 'starting'
+            ? '教程录制器：AI 正在启动'
+            : '教程录制器：AI 录制中'
+          : '教程录制器：录制中'
+    });
     return;
   }
 

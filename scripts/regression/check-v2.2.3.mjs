@@ -73,9 +73,9 @@ const checks = [
   {
     name: 'configured AI start gives immediate startup feedback',
     pass:
-      /elements\.aiStatus\.textContent = '正在启动 AI\.\.\.';/.test(source.popup) &&
+      /setLocalAiStartupFeedback\('正在启动 AI\.\.\.', 'starting'\);/.test(source.popup) &&
       /elements\.btnAiStart\.disabled = true;/.test(source.popup) &&
-      /elements\.aiStatus\.textContent = 'AI 正在观察页面\.\.\.';/.test(source.popup) &&
+      /setLocalAiStartupFeedback\('AI 正在观察页面\.\.\.', 'running'\);/.test(source.popup) &&
       /await hydrate\(\)\.catch\(\(\) => \{\}\);/.test(source.popup)
   },
   {

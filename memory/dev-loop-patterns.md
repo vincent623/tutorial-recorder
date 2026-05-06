@@ -95,3 +95,10 @@
 - Do not make primary action buttons inert for recoverable setup gaps; allow the click and turn the missing prerequisite into explicit feedback.
 - Keep startup feedback local and immediate before background work finishes, especially for flows that attach CDP or call external AI providers.
 - Regression checks should assert both the enabled state and the resulting feedback message; checking only backend errors misses silent UI-disabled states.
+
+## 2026-05-06 - AI Startup State Pattern
+
+- Treat short-lived startup labels as runtime state, not direct DOM mutations; popup render refreshes can otherwise overwrite useful feedback with idle labels.
+- Broadcast Agent startup phases from the background before and after CDP attach so reopened popups can reconstruct the current AI state.
+- Keep provider-backed smoke tests opt-in because they require external network and secrets, but syntax-check the smoke harness in the default regression path.
+- Local secret files used for provider smoke tests must be ignored by git before running or committing the test harness.

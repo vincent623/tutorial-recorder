@@ -2,6 +2,15 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.2.4] - 2026-05-06
+
+### Fixed
+- AI startup and observing messages now live in popup/runtime state instead of transient DOM text, so render refreshes no longer overwrite them with `待启动`.
+- Background AI startup now broadcasts a `starting` status before CDP attach and a `running` observing status after attach succeeds.
+
+### Added
+- Real AI recording smoke script for local provider-backed verification: `npm run smoke:ai`.
+
 ## [2.2.3] - 2026-05-06
 
 ### Fixed
