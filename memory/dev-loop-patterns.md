@@ -89,3 +89,9 @@
 - Resolve recording targets through an allowlist of recordable page protocols, then enforce the same rule again in the background before any CDP/debugger or media startup work.
 - If a fallback target tab is selected from another window, activate it before recording so standard screenshots capture the intended page, not the extension workspace.
 - E2E should include invalid extension-page startup attempts for AI recording; provider configuration tests alone do not cover target-tab safety.
+
+## 2026-05-06 - AI Start Feedback Pattern
+
+- Do not make primary action buttons inert for recoverable setup gaps; allow the click and turn the missing prerequisite into explicit feedback.
+- Keep startup feedback local and immediate before background work finishes, especially for flows that attach CDP or call external AI providers.
+- Regression checks should assert both the enabled state and the resulting feedback message; checking only backend errors misses silent UI-disabled states.

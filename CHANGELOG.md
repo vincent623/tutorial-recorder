@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.2.3] - 2026-05-06
+
+### Fixed
+- AI recording start is no longer silently disabled when provider settings are missing; clicking it now shows an explicit configuration prompt.
+- AI recording startup now gives immediate popup feedback while the background service worker initializes CDP and the Agent loop.
+- E2E validation now covers the missing-configuration click path.
+
 ## [2.2.2] - 2026-05-06
 
 ### Fixed

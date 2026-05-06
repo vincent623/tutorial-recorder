@@ -327,19 +327,39 @@ async function startAiRecording() {
     return;
   }
 
+  if (!hasAiSettingsConfigured()) {
+    elements.aiStatus.textContent = '需配置 AI';
+    alert('请先在完整设置中配置 AI Provider、API Key 和模型，然后再启动 AI 录制。');
+    return;
+  }
+
   const tab = await getRecordingTargetTab();
   if (!tab) {
     alert(RECORDING_TARGET_HELP);
     return;
   }
 
-  const result = await sendAction('startAiRecording', {
-    tabId: tab.id,
-    targetDescription
-  });
+  elements.aiStatus.textContent = '正在启动 AI...';
+  elements.btnAiStart.disabled = true;
+
+  let result;
+  try {
+    result = await sendAction('startAiRecording', {
+      tabId: tab.id,
+      targetDescription
+    });
+  } catch (error) {
+    result = { ok: false, error: error.message || '未知错误' };
+  }
+
   if (!result?.ok) {
     alert(`AI 录制启动失败：${result?.error || '未知错误'}`);
+    updateUi();
+    return;
   }
+
+  elements.aiStatus.textContent = 'AI 正在观察页面...';
+  await hydrate().catch(() => {});
 }
 
 async function getRecordingTargetTab() {
@@ -978,14 +998,17 @@ function normalizeAiAgent(aiAgent = {}) {
 function renderAiPanel() {
   const aiAgent = normalizeAiAgent(state.aiAgent);
   const isAiRecording = state.isRecording && state.recordingMode === 'ai';
-  const aiConfigured = Boolean(currentSettings.apiKey && currentSettings.modelId && currentSettings.apiBaseUrl);
+  const aiConfigured = hasAiSettingsConfigured();
 
   elements.aiStatus.textContent = isAiRecording
     ? getAiStatusText(aiAgent)
     : aiConfigured
       ? '待启动'
       : '需配置 AI';
-  elements.btnAiStart.disabled = state.isRecording || state.isGenerating || !aiConfigured;
+  elements.btnAiStart.disabled = state.isRecording || state.isGenerating;
+  elements.btnAiStart.title = aiConfigured
+    ? ''
+    : '请先在完整设置中配置 AI Provider、API Key 和模型。';
   elements.btnAiTakeover.disabled =
     !isAiRecording || state.isGenerating || (!aiAgent.awaitingTakeover && aiAgent.status !== 'running' && aiAgent.status !== 'paused');
   elements.aiGoal.disabled = state.isRecording || state.isGenerating;
@@ -1007,6 +1030,10 @@ function renderAiPanel() {
       `
     )
     .join('');
+}
+
+function hasAiSettingsConfigured(settings = currentSettings) {
+  return Boolean(settings.apiKey && settings.modelId && settings.apiBaseUrl);
 }
 
 function getAiStatusText(aiAgent = {}) {

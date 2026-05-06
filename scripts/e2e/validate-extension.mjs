@@ -106,6 +106,31 @@ async function main() {
     );
     console.log('[e2e] popup page ready');
 
+    const aiStartEnabledWithoutConfig = await popup.locator('#btnAiStart').isEnabled();
+    if (!aiStartEnabledWithoutConfig) {
+      throw new Error('AI start button should remain clickable when configuration is missing');
+    }
+
+    await popup.locator('#aiGoal').fill('验证 AI 未配置时必须给出明确反馈');
+    const missingConfigDialogIndex = popupDialogMessages.length;
+    await popup.locator('#btnAiStart').click();
+    await waitForDialogCount(popupDialogMessages, missingConfigDialogIndex + 1);
+    const aiMissingConfigDialogMessage = popupDialogMessages[missingConfigDialogIndex] || '';
+    const aiMissingConfigRuntimeState = await popup.evaluate(async () => {
+      const result = await chrome.runtime.sendMessage({ action: 'getPopupState' });
+      return {
+        ok: result?.ok === true,
+        isRecording: result?.runtime?.isRecording === true
+      };
+    });
+    const aiMissingConfigShowsFeedback =
+      /请先在完整设置中配置 AI Provider、API Key 和模型/.test(aiMissingConfigDialogMessage) &&
+      aiMissingConfigRuntimeState?.isRecording === false;
+
+    if (!aiMissingConfigShowsFeedback) {
+      throw new Error(`AI missing-config feedback failed: ${aiMissingConfigDialogMessage}`);
+    }
+
     const invalidAiTargetResult = await popup.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       return chrome.runtime.sendMessage({
@@ -408,6 +433,10 @@ async function main() {
       settingsPage: settingsPageSummary,
       settingsState: safeSettingsState,
       aiConfig: redactAiConfig(aiConfig),
+      aiStartEnabledWithoutConfig,
+      aiMissingConfigDialogMessage,
+      aiMissingConfigRuntimeState,
+      aiMissingConfigShowsFeedback,
       invalidAiTargetResult,
       invalidAiRuntimeState,
       invalidAiTargetGuardPassed,
@@ -445,6 +474,7 @@ async function main() {
         aiAgentLimitsPersisted:
           settingsState?.aiAgentMaxSteps === customAiAgentMaxSteps &&
           settingsState?.aiAgentMaxDurationMinutes === customAiAgentMaxDurationMinutes,
+        aiMissingConfigShowsFeedback,
         aiRejectsExtensionTarget:
           invalidAiTargetGuardPassed,
         popupSummaryRendered:
@@ -704,6 +734,20 @@ async function waitForHistoryInStorage(serviceWorker) {
   }
 
   throw new Error('Timed out waiting for history to persist');
+}
+
+async function waitForDialogCount(messages, minimumCount, timeoutMs = 5000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (messages.length >= minimumCount) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`Timed out waiting for dialog count ${minimumCount}, got ${messages.length}`);
 }
 
 async function readAssetStoreState(serviceWorker) {

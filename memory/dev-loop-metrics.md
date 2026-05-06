@@ -123,3 +123,12 @@
 - AI internal-page guard widened to include `chrome-extension:` after Agent actions.
 - E2E invalid AI target result: `ok=false`, friendly Chinese error returned, `invalidAiTargetGuardPassed=true`, `aiRejectsExtensionTarget=true`, and runtime stayed `isRecording=false`.
 - Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
+
+## 2026-05-06 - v2.2.3 AI Start Feedback Metrics
+
+- Version metadata aligned at `2.2.3` across `package.json`, `package-lock.json`, and `manifest.json`.
+- AI start button enabled while unconfigured: E2E `aiStartEnabledWithoutConfig=true`.
+- Missing configuration feedback: E2E dialog message `请先在完整设置中配置 AI Provider、API Key 和模型，然后再启动 AI 录制。`
+- Missing configuration runtime safety: E2E `aiMissingConfigShowsFeedback=true` and runtime stayed `isRecording=false`.
+- Startup feedback path added for configured starts: popup shows `正在启动 AI...` before background response and `AI 正在观察页面...` after success.
+- Verification: `npm run check`, `npm run watchdog`, and `npm run validate:e2e` passed.
