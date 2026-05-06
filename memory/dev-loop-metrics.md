@@ -143,3 +143,13 @@
 - Real AI smoke artifact: `output/playwright/ai-smoke-report.json`; produced one AI recording with `screenshotCount=2` and `commitState=complete`.
 - Provider-backed `npm run validate:e2e` passed with OpenRouter, but the selected model returned `未命名步骤` for manual post-analysis descriptions, so `aiDescriptionsActionable=false` is a model-quality signal rather than a pipeline failure.
 - Verification: `npm run check`, `npm run watchdog`, `npm run smoke:ai`, and provider-backed `npm run validate:e2e` passed.
+
+## 2026-05-06 - v2.2.5 Background Target Fallback Metrics
+
+- Version metadata aligned at `2.2.5` across `package.json`, `package-lock.json`, and `manifest.json`.
+- Popup start messages now carry `allowFallbackTarget=true` for both manual and AI recording; background fallback remains disabled unless that flag is present.
+- Background target recovery scans recordable `http`, `https`, and `file` tabs, prefers active/recent candidates, activates the chosen tab, and revalidates before startup.
+- CDP attach now reads and validates the live tab before attaching, then normalizes raw `Cannot access a chrome-extension:// URL of different extension` failures into the same Chinese target-page guidance.
+- Real AI smoke result with local OpenRouter config: `fallbackStartedFromExtensionTab=true`, `runtimeEnteredAiMode=true`, `runtimeReachedRunning=true`, `finishedWithoutFailure=true`, `historyCreated=true`, and `screenshotsCaptured=true`.
+- Provider-backed E2E target guard still rejects direct extension-page AI starts with `ok=false`, friendly Chinese error text, and runtime `isRecording=false`.
+- Verification: `npm run check`, `npm run watchdog`, `npm run smoke:ai`, and provider-backed `npm run validate:e2e` passed.

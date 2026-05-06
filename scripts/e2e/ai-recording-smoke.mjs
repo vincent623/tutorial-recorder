@@ -94,11 +94,31 @@ async function main() {
     }
     await popup.reload({ waitUntil: 'domcontentloaded' });
     await popup.waitForFunction(() => Boolean(chrome?.runtime?.sendMessage));
-    await popup.locator('#aiGoal').fill('确认当前演示页面可见后，直接完成 AI 录制。');
+    const goal = '确认当前演示页面可见后，直接完成 AI 录制。';
+    await popup.locator('#aiGoal').fill(goal);
 
-    await popup.locator('#btnAiStart').click();
+    report.fallbackStartResult = await popup.evaluate(async ({ targetDescription }) => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const result = await chrome.runtime.sendMessage({
+        action: 'startAiRecording',
+        tabId: tab?.id,
+        targetDescription,
+        allowFallbackTarget: true
+      });
+
+      return {
+        requestedTab: {
+          id: tab?.id,
+          url: tab?.url || ''
+        },
+        result
+      };
+    }, { targetDescription: goal });
+    if (report.fallbackStartResult?.result?.ok !== true) {
+      throw new Error(`AI fallback start failed: ${JSON.stringify(report.fallbackStartResult?.result)}`);
+    }
     report.statusSamples.push({
-      at: 'after-click',
+      at: 'after-extension-tab-fallback-start',
       text: await readAiStatus(popup)
     });
 
@@ -129,6 +149,9 @@ async function main() {
     report.checks = {
       startStatusVisible: report.statusSamples.some((item) => /正在启动 AI|AI 正在观察|正在执行/.test(item.text)),
       runtimeEnteredAiMode: report.runtimeSamples.some((item) => item?.recordingMode === 'ai'),
+      fallbackStartedFromExtensionTab:
+        /^chrome-extension:\/\//.test(report.fallbackStartResult?.requestedTab?.url || '') &&
+        report.fallbackStartResult?.result?.ok === true,
       runtimeReachedRunning:
         report.runtimeSamples.some((item) => item?.aiAgent?.status === 'running') ||
         report.runtimeSamples.some((item) => item?.aiAgent?.status === 'finishing'),

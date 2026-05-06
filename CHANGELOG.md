@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.2.5] - 2026-05-06
+
+### Fixed
+- Popup-initiated manual and AI recording now allow the background service worker to recover from a stale extension-page tab id by selecting a recordable http/https/file tab.
+- Direct runtime messages that pass an extension/internal tab id still fail safely with a Chinese target-page error.
+- CDP debugger attach now revalidates the live tab and normalizes Chrome's raw `Cannot access a chrome-extension:// URL of different extension` error into the target-page guidance.
+
 ## [2.2.4] - 2026-05-06
 
 ### Fixed

@@ -293,7 +293,10 @@ async function startRecording() {
     return;
   }
 
-  const result = await sendAction('startRecording', { tabId: tab.id });
+  const result = await sendAction('startRecording', {
+    tabId: tab.id,
+    allowFallbackTarget: true
+  });
   if (!result?.ok) {
     alert(`开始录制失败：${result?.error || '未知错误'}`);
   }
@@ -346,7 +349,8 @@ async function startAiRecording() {
   try {
     result = await sendAction('startAiRecording', {
       tabId: tab.id,
-      targetDescription
+      targetDescription,
+      allowFallbackTarget: true
     });
   } catch (error) {
     result = { ok: false, error: error.message || '未知错误' };

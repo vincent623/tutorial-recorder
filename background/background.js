@@ -239,11 +239,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, settings: await saveSettings(message.settings || {}) });
         break;
       case 'startRecording':
-        await startRecording(message.tabId);
+        await startRecording(message.tabId, { allowFallbackTarget: message.allowFallbackTarget === true });
         sendResponse({ ok: true });
         break;
       case 'startAiRecording':
-        await startAiRecording(message.tabId, message.targetDescription || '');
+        await startAiRecording(message.tabId, message.targetDescription || '', {
+          allowFallbackTarget: message.allowFallbackTarget === true
+        });
         sendResponse({ ok: true });
         break;
       case 'pauseRecording':
@@ -1142,35 +1144,97 @@ function getElapsedMs(now = Date.now()) {
   return Math.max(0, elapsed);
 }
 
-async function getRecordingStartTargetTab(tabId, modeLabel) {
-  const tab = await chrome.tabs.get(tabId).catch(() => null);
-  assertRecordingTargetTab(tab, modeLabel);
+async function getRecordingStartTargetTab(tabId, modeLabel, options = {}) {
+  const requestedTab = await getTabByIdSafely(tabId);
+  const tab = isRecordingTargetTab(requestedTab)
+    ? requestedTab
+    : options.allowFallbackTarget
+      ? await findBestRecordingStartTargetTab(tabId)
+      : requestedTab;
 
-  const activatedTab = await chrome.tabs.update(tab.id, { active: true }).catch(() => null);
+  assertRecordingTargetTab(tab, modeLabel);
+  return activateRecordingTargetTab(tab, modeLabel);
+}
+
+async function getTabByIdSafely(tabId) {
+  const parsedTabId = Number.parseInt(tabId, 10);
+  if (!Number.isInteger(parsedTabId) || parsedTabId < 0) {
+    return null;
+  }
+
+  return chrome.tabs.get(parsedTabId).catch((error) => {
+    console.warn('[Background] Unable to read tab:', sanitizeEditableText(error?.message || error, 160));
+    return null;
+  });
+}
+
+async function findBestRecordingStartTargetTab(excludedTabId) {
+  const excluded = Number.parseInt(excludedTabId, 10);
+  const tabs = await chrome.tabs.query({}).catch((error) => {
+    console.warn('[Background] Unable to query fallback tabs:', sanitizeEditableText(error?.message || error, 160));
+    return [];
+  });
+
+  return tabs
+    .filter((tab) => tab.id !== excluded)
+    .filter(isRecordingTargetTab)
+    .sort(compareRecordingStartTargetTabs)[0] || null;
+}
+
+async function activateRecordingTargetTab(tab, modeLabel) {
+  assertRecordingTargetTab(tab, modeLabel);
 
   if (typeof tab.windowId === 'number' && chrome.windows?.update) {
     await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
   }
 
-  const latestTab = activatedTab || (await chrome.tabs.get(tab.id).catch(() => null)) || tab;
+  const activatedTab = await chrome.tabs.update(tab.id, { active: true }).catch((error) => {
+    throw normalizeRecordingTargetError(error, modeLabel);
+  });
+  const latestTab = (await getTabByIdSafely(tab.id)) || activatedTab || tab;
   assertRecordingTargetTab(latestTab, modeLabel);
   return latestTab;
 }
 
-function assertRecordingTargetTab(tab, modeLabel) {
-  if (!tab?.id) {
-    throw new Error(`未找到可用于${modeLabel}的目标标签页`);
+function isRecordingTargetTab(tab) {
+  return Boolean(tab?.id && tab.id >= 0 && isRecordablePageUrl(tab.pendingUrl || tab.url || ''));
+}
+
+function compareRecordingStartTargetTabs(left, right) {
+  const activeDelta = Number(Boolean(right.active)) - Number(Boolean(left.active));
+  if (activeDelta) {
+    return activeDelta;
   }
 
-  const url = tab.pendingUrl || tab.url || '';
-  if (isRecordablePageUrl(url)) {
+  return (right.lastAccessed || 0) - (left.lastAccessed || 0);
+}
+
+function assertRecordingTargetTab(tab, modeLabel) {
+  if (isRecordingTargetTab(tab)) {
     return;
   }
 
+  throw createRecordingTargetError(modeLabel);
+}
+
+function createRecordingTargetError(modeLabel) {
+  if (!modeLabel) {
+    return new Error('请先打开要录制的 http/https/file 网页，再启动录制。');
+  }
+
   const startPhrase = modeLabel === 'AI 录制' ? '无法开始 AI 录制' : '无法开始录制';
-  throw new Error(
+  return new Error(
     `当前标签页是扩展页或浏览器内部页面，${startPhrase}。请先切换到要录制的 http/https/file 网页后再启动。`
   );
+}
+
+function normalizeRecordingTargetError(error, modeLabel) {
+  const message = String(error?.message || error || '');
+  if (/chrome-extension:\/\//i.test(message) || /Cannot access .* URL/i.test(message)) {
+    return createRecordingTargetError(modeLabel);
+  }
+
+  return error instanceof Error ? error : new Error(message || '目标标签页不可访问');
 }
 
 function isRecordablePageUrl(url) {
@@ -1181,12 +1245,12 @@ function isRecordablePageUrl(url) {
   }
 }
 
-async function startRecording(tabId) {
+async function startRecording(tabId, options = {}) {
   if (currentRuntime.isRecording) {
     return;
   }
 
-  let tab = await getRecordingStartTargetTab(tabId, '录制');
+  let tab = await getRecordingStartTargetTab(tabId, '录制', options);
   const settings = await getSettings();
   const startedAt = Date.now();
 
@@ -1313,7 +1377,7 @@ async function startRecording(tabId) {
   }
 }
 
-async function startAiRecording(tabId, targetDescription) {
+async function startAiRecording(tabId, targetDescription, options = {}) {
   if (currentRuntime.isRecording) {
     return;
   }
@@ -1323,7 +1387,7 @@ async function startAiRecording(tabId, targetDescription) {
     throw new Error('请先填写 AI 录制目标');
   }
 
-  let tab = await getRecordingStartTargetTab(tabId, 'AI 录制');
+  let tab = await getRecordingStartTargetTab(tabId, 'AI 录制', options);
   const settings = await getSettings();
   if (!hasVisionAnalysisConfig(settings)) {
     throw new Error('请先在完整设置中配置 AI Provider、API Key 和模型');
@@ -1677,8 +1741,13 @@ async function captureScreenshotDataUrl(tab) {
 }
 
 async function attachCdpDebugger(tabId) {
-  const target = { tabId };
-  await chrome.debugger.attach(target, CDP_PROTOCOL_VERSION);
+  const tab = await getTabByIdSafely(tabId);
+  assertRecordingTargetTab(tab, 'CDP 录制');
+
+  const target = { tabId: tab.id };
+  await chrome.debugger.attach(target, CDP_PROTOCOL_VERSION).catch((error) => {
+    throw normalizeRecordingTargetError(error, 'CDP 录制');
+  });
   currentRuntime.cdpAttached = true;
   currentRuntime.screenshotEngine = 'cdp';
   await chrome.debugger.sendCommand(target, 'Page.enable').catch(() => {});

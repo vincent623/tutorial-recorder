@@ -102,3 +102,10 @@
 - Broadcast Agent startup phases from the background before and after CDP attach so reopened popups can reconstruct the current AI state.
 - Keep provider-backed smoke tests opt-in because they require external network and secrets, but syntax-check the smoke harness in the default regression path.
 - Local secret files used for provider smoke tests must be ignored by git before running or committing the test harness.
+
+## 2026-05-06 - Background Target Fallback Pattern
+
+- Treat popup-sent tab ids as advisory for trusted popup starts; extension UI refreshes or tab focus changes can make them stale before the background service worker handles the message.
+- Keep direct runtime messages strict by requiring an explicit `allowFallbackTarget` flag before searching other tabs, so tests and untrusted callers cannot silently redirect recording targets.
+- Revalidate the live tab immediately before CDP attach and normalize raw Chrome `chrome-extension://` access errors into the same user-facing target-page guidance.
+- Cover recovery with a real smoke path that starts AI recording from an extension popup tab id and verifies the background selects the recordable fixture tab.

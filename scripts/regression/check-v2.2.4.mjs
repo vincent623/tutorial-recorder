@@ -90,7 +90,7 @@ const checks = [
       /"smoke:ai": "node scripts\/e2e\/ai-recording-smoke\.mjs"/.test(source.packageJson) &&
       /node --check scripts\/e2e\/ai-recording-smoke\.mjs/.test(source.packageJson) &&
       !/npm run smoke:ai/.test(packageJson.scripts.check) &&
-      /#btnAiStart/.test(source.aiSmoke) &&
+      /action: 'startAiRecording'/.test(source.aiSmoke) &&
       /ai-smoke-report\.json/.test(source.aiSmoke) &&
       /apiKeyConfigured/.test(source.aiSmoke)
   },
