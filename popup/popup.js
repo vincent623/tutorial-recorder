@@ -295,6 +295,7 @@ async function startRecording() {
 
   const result = await sendAction('startRecording', {
     tabId: tab.id,
+    targetUrl: getTabTargetUrl(tab),
     allowFallbackTarget: true
   });
   if (!result?.ok) {
@@ -349,6 +350,7 @@ async function startAiRecording() {
   try {
     result = await sendAction('startAiRecording', {
       tabId: tab.id,
+      targetUrl: getTabTargetUrl(tab),
       targetDescription,
       allowFallbackTarget: true
     });
@@ -421,7 +423,15 @@ function isRecordableTab(tab) {
     return false;
   }
 
-  return isRecordablePageUrl(tab.pendingUrl || tab.url || '');
+  return isRecordablePageUrl(getTabTargetUrl(tab));
+}
+
+function getTabTargetUrl(tab) {
+  if (isRecordablePageUrl(tab?.pendingUrl || '')) {
+    return tab.pendingUrl;
+  }
+
+  return tab?.url || '';
 }
 
 function isRecordablePageUrl(url) {

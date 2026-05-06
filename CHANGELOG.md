@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.2.7] - 2026-05-06
+
+### Fixed
+- Popup starts now pass the resolved target URL to the background so AI recording can match the intended tab instead of relying only on tab focus state.
+- Background target resolution now waits briefly for a recordable `pendingUrl` to commit before rejecting or attaching CDP, covering pages launched from extension/internal tabs.
+- AI recording can also infer a target URL from the goal text when a user includes a URL there.
+
 ## [2.2.6] - 2026-05-06
 
 ### Fixed

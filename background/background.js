@@ -25,6 +25,8 @@ const AI_AGENT_STEP_DELAY_MS = 800;
 const AI_AGENT_DECISION_RETRY_LIMIT = 1;
 const AI_AGENT_PAGE_STABILITY_TIMEOUT_MS = 8_000;
 const AI_AGENT_PAGE_STABILITY_INTERVAL_MS = 400;
+const RECORDING_TARGET_COMMIT_TIMEOUT_MS = 8_000;
+const RECORDING_TARGET_COMMIT_INTERVAL_MS = 250;
 const OPERATION_RESULT_TTL_MS = 5 * 60 * 1000;
 const EXPORT_PDF_MAX_SCREENSHOTS = 150;
 const EXPORT_PDF_MAX_IMAGE_BYTES = 200 * 1024 * 1024;
@@ -239,12 +241,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, settings: await saveSettings(message.settings || {}) });
         break;
       case 'startRecording':
-        await startRecording(message.tabId, { allowFallbackTarget: message.allowFallbackTarget === true });
+        await startRecording(message.tabId, {
+          allowFallbackTarget: message.allowFallbackTarget === true,
+          targetUrl: message.targetUrl || ''
+        });
         sendResponse({ ok: true });
         break;
       case 'startAiRecording':
         await startAiRecording(message.tabId, message.targetDescription || '', {
-          allowFallbackTarget: message.allowFallbackTarget === true
+          allowFallbackTarget: message.allowFallbackTarget === true,
+          targetUrl: message.targetUrl || ''
         });
         sendResponse({ ok: true });
         break;
@@ -1145,15 +1151,16 @@ function getElapsedMs(now = Date.now()) {
 }
 
 async function getRecordingStartTargetTab(tabId, modeLabel, options = {}) {
-  const requestedTab = await getTabByIdSafely(tabId);
-  const tab = isRecordingTargetTab(requestedTab)
+  const normalizedOptions = normalizeRecordingTargetOptions(options);
+  const requestedTab = await getSettledRecordingTargetTab(tabId, normalizedOptions);
+  const tab = isRecordingTargetTab(requestedTab, normalizedOptions)
     ? requestedTab
-    : options.allowFallbackTarget
-      ? await findBestRecordingStartTargetTab(tabId)
+    : normalizedOptions.allowFallbackTarget
+      ? await findBestRecordingStartTargetTab(tabId, normalizedOptions)
       : requestedTab;
 
-  assertRecordingTargetTab(tab, modeLabel);
-  return activateRecordingTargetTab(tab, modeLabel);
+  assertRecordingTargetTab(tab, modeLabel, normalizedOptions);
+  return activateRecordingTargetTab(tab, modeLabel, normalizedOptions);
 }
 
 async function getTabByIdSafely(tabId) {
@@ -1168,21 +1175,68 @@ async function getTabByIdSafely(tabId) {
   });
 }
 
-async function findBestRecordingStartTargetTab(excludedTabId) {
+async function getSettledRecordingTargetTab(tabId, options = {}) {
+  let tab = await getTabByIdSafely(tabId);
+  if (!isPendingRecordingTargetTab(tab, options)) {
+    return tab;
+  }
+
+  const deadline = Date.now() + RECORDING_TARGET_COMMIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (isRecordingTargetTab(tab, options)) {
+      return tab;
+    }
+
+    await delay(RECORDING_TARGET_COMMIT_INTERVAL_MS);
+    tab = await getTabByIdSafely(tabId);
+
+    if (!isPendingRecordingTargetTab(tab, options) && !isRecordingTargetTab(tab, options)) {
+      return tab;
+    }
+  }
+
+  return tab;
+}
+
+async function findBestRecordingStartTargetTab(excludedTabId, options = {}) {
   const excluded = Number.parseInt(excludedTabId, 10);
   const tabs = await chrome.tabs.query({}).catch((error) => {
     console.warn('[Background] Unable to query fallback tabs:', sanitizeEditableText(error?.message || error, 160));
     return [];
   });
 
-  return tabs
+  const pendingCandidates = tabs
     .filter((tab) => tab.id !== excluded)
-    .filter(isRecordingTargetTab)
-    .sort(compareRecordingStartTargetTabs)[0] || null;
+    .filter((tab) => isPendingRecordingTargetTab(tab, options));
+  const pendingTargetTab = options.targetUrl
+    ? pendingCandidates.find((tab) => tabMatchesTargetUrl(tab, options.targetUrl)) || pendingCandidates[0]
+    : pendingCandidates[0];
+  if (pendingTargetTab) {
+    const settledTab = await getSettledRecordingTargetTab(pendingTargetTab.id, options);
+    if (isRecordingTargetTab(settledTab, options)) {
+      return settledTab;
+    }
+  }
+
+  const candidates = tabs
+    .filter((tab) => tab.id !== excluded)
+    .filter((tab) => isRecordingTargetTab(tab, options));
+
+  if (options.targetUrl) {
+    const targetMatch = candidates
+      .filter((tab) => tabMatchesTargetUrl(tab, options.targetUrl))
+      .sort(compareRecordingStartTargetTabs)[0];
+
+    if (targetMatch) {
+      return targetMatch;
+    }
+  }
+
+  return candidates.sort(compareRecordingStartTargetTabs)[0] || null;
 }
 
-async function activateRecordingTargetTab(tab, modeLabel) {
-  assertRecordingTargetTab(tab, modeLabel);
+async function activateRecordingTargetTab(tab, modeLabel, options = {}) {
+  assertRecordingTargetTab(tab, modeLabel, options);
 
   if (typeof tab.windowId === 'number' && chrome.windows?.update) {
     await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
@@ -1191,12 +1245,12 @@ async function activateRecordingTargetTab(tab, modeLabel) {
   const activatedTab = await chrome.tabs.update(tab.id, { active: true }).catch((error) => {
     throw normalizeRecordingTargetError(error, modeLabel);
   });
-  const latestTab = (await getTabByIdSafely(tab.id)) || activatedTab || tab;
-  assertRecordingTargetTab(latestTab, modeLabel);
+  const latestTab = (await getSettledRecordingTargetTab(tab.id, options)) || activatedTab || tab;
+  assertRecordingTargetTab(latestTab, modeLabel, options);
   return latestTab;
 }
 
-function isRecordingTargetTab(tab) {
+function isRecordingTargetTab(tab, options = {}) {
   if (!tab?.id || tab.id < 0) {
     return false;
   }
@@ -1211,6 +1265,14 @@ function isRecordingTargetTab(tab) {
   return !pendingUrl || isRecordablePageUrl(pendingUrl);
 }
 
+function isPendingRecordingTargetTab(tab, options = {}) {
+  if (!tab?.id || tab.id < 0 || !isRecordablePageUrl(tab.pendingUrl || '')) {
+    return false;
+  }
+
+  return !isRecordingTargetTab(tab, options);
+}
+
 function compareRecordingStartTargetTabs(left, right) {
   const activeDelta = Number(Boolean(right.active)) - Number(Boolean(left.active));
   if (activeDelta) {
@@ -1220,8 +1282,8 @@ function compareRecordingStartTargetTabs(left, right) {
   return (right.lastAccessed || 0) - (left.lastAccessed || 0);
 }
 
-function assertRecordingTargetTab(tab, modeLabel) {
-  if (isRecordingTargetTab(tab)) {
+function assertRecordingTargetTab(tab, modeLabel, options = {}) {
+  if (isRecordingTargetTab(tab, options)) {
     return;
   }
 
@@ -1261,6 +1323,60 @@ function isRecordingTargetError(error) {
   );
 }
 
+function normalizeRecordingTargetOptions(options = {}) {
+  return {
+    ...options,
+    allowFallbackTarget: options.allowFallbackTarget === true,
+    targetUrl: normalizeRecordableTargetUrl(options.targetUrl || '')
+  };
+}
+
+function normalizeRecordableTargetUrl(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(value.trim());
+    if (!RECORDABLE_PAGE_PROTOCOLS.has(parsed.protocol)) {
+      return '';
+    }
+
+    parsed.hash = '';
+    return parsed.href;
+  } catch (error) {
+    return '';
+  }
+}
+
+function extractFirstRecordableUrl(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const match = value.match(/https?:\/\/[^\s"'<>]+|file:\/\/[^\s"'<>]+/i);
+  return normalizeRecordableTargetUrl(match?.[0] || '');
+}
+
+function tabMatchesTargetUrl(tab, targetUrl, options = {}) {
+  const normalizedTargetUrl = normalizeRecordableTargetUrl(targetUrl);
+  if (!normalizedTargetUrl) {
+    return true;
+  }
+
+  if (urlsMatchIgnoringHash(tab?.url || '', normalizedTargetUrl)) {
+    return true;
+  }
+
+  return options.committedOnly !== true && urlsMatchIgnoringHash(tab?.pendingUrl || '', normalizedTargetUrl);
+}
+
+function urlsMatchIgnoringHash(left, right) {
+  const normalizedLeft = normalizeRecordableTargetUrl(left);
+  const normalizedRight = normalizeRecordableTargetUrl(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+}
+
 function isRecordablePageUrl(url) {
   try {
     return RECORDABLE_PAGE_PROTOCOLS.has(new URL(url).protocol);
@@ -1274,7 +1390,8 @@ async function startRecording(tabId, options = {}) {
     return;
   }
 
-  let tab = await getRecordingStartTargetTab(tabId, '录制', options);
+  const targetOptions = normalizeRecordingTargetOptions(options);
+  let tab = await getRecordingStartTargetTab(tabId, '录制', targetOptions);
   const settings = await getSettings();
   const startedAt = Date.now();
 
@@ -1326,7 +1443,7 @@ async function startRecording(tabId, options = {}) {
 
   try {
     if (settings.screenshotEngine === 'cdp') {
-      await attachCdpDebugger(tab.id).catch(async (error) => {
+      await attachCdpDebugger(tab.id, { targetUrl: targetOptions.targetUrl }).catch(async (error) => {
         currentRuntime.screenshotEngine = 'standard';
         currentRuntime.cdpAttached = false;
         currentRuntime.cdpWarningShown = true;
@@ -1411,7 +1528,11 @@ async function startAiRecording(tabId, targetDescription, options = {}) {
     throw new Error('请先填写 AI 录制目标');
   }
 
-  let tab = await getRecordingStartTargetTab(tabId, 'AI 录制', options);
+  const targetOptions = normalizeRecordingTargetOptions({
+    ...options,
+    targetUrl: options.targetUrl || extractFirstRecordableUrl(goal)
+  });
+  let tab = await getRecordingStartTargetTab(tabId, 'AI 录制', targetOptions);
   const settings = await getSettings();
   if (!hasVisionAnalysisConfig(settings)) {
     throw new Error('请先在完整设置中配置 AI Provider、API Key 和模型');
@@ -1474,7 +1595,7 @@ async function startAiRecording(tabId, targetDescription, options = {}) {
   notifyAiStatus();
 
   try {
-    tab = await attachAiCdpDebuggerWithFallback(tab, options);
+    tab = await attachAiCdpDebuggerWithFallback(tab, targetOptions);
     await updateAiAgentState({
       status: 'running',
       message: 'AI 正在观察页面...'
@@ -1513,27 +1634,34 @@ async function startAiRecording(tabId, targetDescription, options = {}) {
 }
 
 async function attachAiCdpDebuggerWithFallback(initialTab, options = {}) {
+  const targetOptions = normalizeRecordingTargetOptions(options);
   try {
-    await attachCdpDebugger(initialTab.id, { modeLabel: 'AI 录制' });
+    await attachCdpDebugger(initialTab.id, {
+      modeLabel: 'AI 录制',
+      targetUrl: targetOptions.targetUrl
+    });
     return initialTab;
   } catch (error) {
-    if (!options.allowFallbackTarget || !isRecordingTargetError(error)) {
+    if (!targetOptions.allowFallbackTarget || !isRecordingTargetError(error)) {
       throw error;
     }
   }
 
-  const fallbackTab = await findBestRecordingStartTargetTab(initialTab.id);
+  const fallbackTab = await findBestRecordingStartTargetTab(initialTab.id, targetOptions);
   if (!fallbackTab) {
     throw createRecordingTargetError('AI 录制');
   }
 
-  const activatedTab = await activateRecordingTargetTab(fallbackTab, 'AI 录制');
+  const activatedTab = await activateRecordingTargetTab(fallbackTab, 'AI 录制', targetOptions);
   currentRuntime.tabId = activatedTab.id;
   currentRuntime.windowId = activatedTab.windowId;
   await persistRuntime();
   notifyAiStatus();
 
-  await attachCdpDebugger(activatedTab.id, { modeLabel: 'AI 录制' });
+  await attachCdpDebugger(activatedTab.id, {
+    modeLabel: 'AI 录制',
+    targetUrl: targetOptions.targetUrl
+  });
   return activatedTab;
 }
 
@@ -1790,9 +1918,10 @@ async function captureScreenshotDataUrl(tab) {
 }
 
 async function attachCdpDebugger(tabId, options = {}) {
+  const targetOptions = normalizeRecordingTargetOptions(options);
   const modeLabel = options.modeLabel || 'CDP 录制';
-  const tab = await getTabByIdSafely(tabId);
-  assertRecordingTargetTab(tab, modeLabel);
+  const tab = await getSettledRecordingTargetTab(tabId, targetOptions);
+  assertRecordingTargetTab(tab, modeLabel, targetOptions);
 
   const target = { tabId: tab.id };
   await chrome.debugger.attach(target, CDP_PROTOCOL_VERSION).catch((error) => {

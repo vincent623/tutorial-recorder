@@ -116,3 +116,10 @@
 - Target validation should require the committed `tab.url` to be recordable; a recordable `pendingUrl` must not mask an extension/internal current page.
 - Give target errors a machine-readable code so startup can retry only safe target failures, while non-target CDP or provider failures still stop normally.
 - When AI startup retries a target, update and persist runtime `tabId`/`windowId` before broadcasting status or continuing the Agent loop.
+
+## 2026-05-06 - Pending Target URL Pattern
+
+- Pass the popup-resolved target URL with startup messages; tab focus and tab ids are volatile, but the intended URL gives the background a stable matching hint.
+- Treat a recordable `pendingUrl` as a navigation-in-progress state: wait briefly for it to become the committed `tab.url` before rejecting or attaching CDP.
+- Prefer fallback tabs that match the intended target URL, then fall back to active/recent recordable tabs so redirects and URL changes do not block recovery.
+- If the AI goal contains a URL, use it as a secondary target hint for workflows where popup focus cannot reliably identify the target tab.

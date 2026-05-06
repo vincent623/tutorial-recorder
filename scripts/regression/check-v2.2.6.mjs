@@ -71,10 +71,10 @@ const checks = [
     name: 'AI CDP attach retries once with a fresh fallback target',
     pass:
       /async function attachAiCdpDebuggerWithFallback\(initialTab, options = \{\}\)/.test(source.background) &&
-      /await attachCdpDebugger\(initialTab\.id, \{ modeLabel: 'AI 录制' \}\)/.test(source.background) &&
-      /!options\.allowFallbackTarget \|\| !isRecordingTargetError\(error\)/.test(source.background) &&
-      /const fallbackTab = await findBestRecordingStartTargetTab\(initialTab\.id\)/.test(source.background) &&
-      /await attachCdpDebugger\(activatedTab\.id, \{ modeLabel: 'AI 录制' \}\)/.test(source.background)
+      /await attachCdpDebugger\(initialTab\.id, \{[\s\S]*?modeLabel: 'AI 录制'/.test(source.background) &&
+      /!targetOptions\.allowFallbackTarget \|\| !isRecordingTargetError\(error\)/.test(source.background) &&
+      /const fallbackTab = await findBestRecordingStartTargetTab\(initialTab\.id, targetOptions\)/.test(source.background) &&
+      /await attachCdpDebugger\(activatedTab\.id, \{[\s\S]*?modeLabel: 'AI 录制'/.test(source.background)
   },
   {
     name: 'AI fallback target updates persisted runtime before continuing',
@@ -88,7 +88,7 @@ const checks = [
   {
     name: 'AI startup uses the retry helper and cleans up the current runtime target',
     pass:
-      /tab = await attachAiCdpDebuggerWithFallback\(tab, options\)/.test(source.background) &&
+      /tab = await attachAiCdpDebuggerWithFallback\(tab, targetOptions\)/.test(source.background) &&
       /await detachCdpDebugger\(currentRuntime\.tabId \|\| tab\.id\)/.test(source.background)
   },
   {

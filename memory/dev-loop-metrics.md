@@ -163,3 +163,13 @@
 - Provider-backed E2E invalid target result now returns `无法开始 AI 录制` text and keeps runtime `isRecording=false`, while normal manual recording/export checks still pass.
 - Real AI smoke result with local OpenRouter config: `fallbackStartedFromExtensionTab=true`, `runtimeReachedRunning=true`, `finishedWithoutFailure=true`, `historyCreated=true`, and `screenshotsCaptured=true`.
 - Verification: `npm run check`, `npm run watchdog`, `npm run smoke:ai`, and provider-backed `npm run validate:e2e` passed.
+
+## 2026-05-06 - v2.2.7 Pending Target URL Metrics
+
+- Version metadata aligned at `2.2.7` across `package.json`, `package-lock.json`, and `manifest.json`.
+- Popup startup messages now include `targetUrl` for manual and AI recording; `getTabTargetUrl()` prefers recordable `pendingUrl` over committed `url`.
+- Background target settling waits up to `8000 ms`, polling every `250 ms`, when a tab has a recordable `pendingUrl` that has not yet committed.
+- Fallback target selection prefers tabs matching the intended target URL before falling back to active/recent recordable candidates.
+- AI startup can infer a target URL from the goal text via `extractFirstRecordableUrl()`.
+- Real AI smoke result: requested tab was `chrome-extension://.../popup/popup.html`, explicit `targetUrl` was the fixture `http` page, and startup still returned `ok=true`.
+- Verification: `npm run check`, `npm run watchdog`, `npm run smoke:ai`, and provider-backed `npm run validate:e2e` passed.

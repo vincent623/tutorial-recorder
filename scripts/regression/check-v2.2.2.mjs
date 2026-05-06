@@ -78,12 +78,12 @@ const checks = [
     pass:
       /const RECORDABLE_PAGE_PROTOCOLS = new Set\(\['http:', 'https:', 'file:'\]\)/.test(source.background) &&
       /async function getRecordingStartTargetTab\(tabId, modeLabel, options = \{\}\)/.test(source.background) &&
-      /function assertRecordingTargetTab\(tab, modeLabel\)/.test(source.background) &&
+      /function assertRecordingTargetTab\(tab, modeLabel, options = \{\}\)/.test(source.background) &&
       /chrome\.tabs\.update\(tab\.id, \{ active: true \}\)/.test(source.background) &&
-      /let tab = await getRecordingStartTargetTab\(tabId, '录制', options\);\n  const settings = await getSettings\(\);/.test(
+      /let tab = await getRecordingStartTargetTab\(tabId, '录制', targetOptions\);\n  const settings = await getSettings\(\);/.test(
         source.background
       ) &&
-      /let tab = await getRecordingStartTargetTab\(tabId, 'AI 录制', options\);\n  const settings = await getSettings\(\);/.test(
+      /let tab = await getRecordingStartTargetTab\(tabId, 'AI 录制', targetOptions\);\n  const settings = await getSettings\(\);/.test(
         source.background
       )
   },

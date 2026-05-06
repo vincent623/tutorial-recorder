@@ -17,3 +17,4 @@ The watchdog reads the first unchecked item and executes the mapped verification
 - [x] `v2.2.4-ai-start-state` - Persist AI startup/observing feedback through popup render updates and add real AI recording smoke coverage.
 - [x] `v2.2.5-background-target-fallback` - Add background fallback target selection and normalize raw chrome-extension target errors.
 - [x] `v2.2.6-ai-cdp-target-retry` - Retry AI CDP attach with a fresh recordable target and tighten committed URL validation.
+- [x] `v2.2.7-pending-target-url` - Pass target URLs through startup and wait for recordable pending URLs to commit.

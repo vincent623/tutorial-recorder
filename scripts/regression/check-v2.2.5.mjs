@@ -63,7 +63,7 @@ const checks = [
   {
     name: 'background accepts fallback only for explicitly marked popup starts',
     pass:
-      /startRecording\(message\.tabId, \{ allowFallbackTarget: message\.allowFallbackTarget === true \}\)/.test(
+      /startRecording\(message\.tabId, \{[\s\S]*?allowFallbackTarget: message\.allowFallbackTarget === true/.test(
         source.background
       ) &&
       /startAiRecording\(message\.tabId, message\.targetDescription \|\| '', \{[\s\S]*allowFallbackTarget: message\.allowFallbackTarget === true/.test(
@@ -74,9 +74,9 @@ const checks = [
   {
     name: 'background can find a safe fallback tab when the requested tab is not recordable',
     pass:
-      /async function findBestRecordingStartTargetTab\(excludedTabId\)/.test(source.background) &&
+      /async function findBestRecordingStartTargetTab\(excludedTabId, options = \{\}\)/.test(source.background) &&
       /chrome\.tabs\.query\(\{\}\)/.test(source.background) &&
-      /\.filter\(isRecordingTargetTab\)/.test(source.background) &&
+      /\.filter\(\(tab\) => isRecordingTargetTab\(tab, options\)\)/.test(source.background) &&
       /function compareRecordingStartTargetTabs\(left, right\)/.test(source.background)
   },
   {
@@ -96,7 +96,7 @@ const checks = [
       /chrome-extension:\\\/\\\//.test(source.background) &&
       /Cannot access \.\* URL/.test(source.background) &&
       /await chrome\.debugger\.attach\(target, CDP_PROTOCOL_VERSION\)\.catch/.test(source.background) &&
-      /assertRecordingTargetTab\(tab, modeLabel\)/.test(source.background)
+      /assertRecordingTargetTab\(tab, modeLabel, targetOptions\)/.test(source.background)
   },
   {
     name: 'watchdog knows the v2.2.5 background target fallback task',

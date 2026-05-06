@@ -79,7 +79,7 @@ const checks = [
     name: 'background broadcasts starting before CDP attach and running after attach',
     pass:
       /status: 'starting'[\s\S]*message: '正在启动 AI\.\.\.'/.test(source.background) &&
-      /notifyAiStatus\(\);[\s\S]*try \{[\s\S]*tab = await attachAiCdpDebuggerWithFallback\(tab, options\);[\s\S]*await updateAiAgentState\(\{[\s\S]*status: 'running',[\s\S]*message: 'AI 正在观察页面\.\.\.'/.test(
+      /notifyAiStatus\(\);[\s\S]*try \{[\s\S]*tab = await attachAiCdpDebuggerWithFallback\(tab, targetOptions\);[\s\S]*await updateAiAgentState\(\{[\s\S]*status: 'running',[\s\S]*message: 'AI 正在观察页面\.\.\.'/.test(
         source.background
       ) &&
       /AI 正在启动/.test(source.background)

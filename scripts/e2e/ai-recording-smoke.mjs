@@ -97,11 +97,12 @@ async function main() {
     const goal = '确认当前演示页面可见后，直接完成 AI 录制。';
     await popup.locator('#aiGoal').fill(goal);
 
-    report.fallbackStartResult = await popup.evaluate(async ({ targetDescription }) => {
+    report.fallbackStartResult = await popup.evaluate(async ({ targetDescription, targetUrl }) => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const result = await chrome.runtime.sendMessage({
         action: 'startAiRecording',
         tabId: tab?.id,
+        targetUrl,
         targetDescription,
         allowFallbackTarget: true
       });
@@ -111,9 +112,10 @@ async function main() {
           id: tab?.id,
           url: tab?.url || ''
         },
+        targetUrl,
         result
       };
-    }, { targetDescription: goal });
+    }, { targetDescription: goal, targetUrl: report.fixtureUrl });
     if (report.fallbackStartResult?.result?.ok !== true) {
       throw new Error(`AI fallback start failed: ${JSON.stringify(report.fallbackStartResult?.result)}`);
     }
