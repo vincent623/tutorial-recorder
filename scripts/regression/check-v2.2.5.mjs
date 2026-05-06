@@ -96,7 +96,7 @@ const checks = [
       /chrome-extension:\\\/\\\//.test(source.background) &&
       /Cannot access \.\* URL/.test(source.background) &&
       /await chrome\.debugger\.attach\(target, CDP_PROTOCOL_VERSION\)\.catch/.test(source.background) &&
-      /assertRecordingTargetTab\(tab, 'CDP 录制'\)/.test(source.background)
+      /assertRecordingTargetTab\(tab, modeLabel\)/.test(source.background)
   },
   {
     name: 'watchdog knows the v2.2.5 background target fallback task',

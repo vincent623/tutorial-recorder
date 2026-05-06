@@ -109,3 +109,10 @@
 - Keep direct runtime messages strict by requiring an explicit `allowFallbackTarget` flag before searching other tabs, so tests and untrusted callers cannot silently redirect recording targets.
 - Revalidate the live tab immediately before CDP attach and normalize raw Chrome `chrome-extension://` access errors into the same user-facing target-page guidance.
 - Cover recovery with a real smoke path that starts AI recording from an extension popup tab id and verifies the background selects the recordable fixture tab.
+
+## 2026-05-06 - AI CDP Attach Retry Pattern
+
+- Treat debugger attachment as a second target boundary, not just an implementation detail after startup validation; tabs can change between selection and CDP attach.
+- Target validation should require the committed `tab.url` to be recordable; a recordable `pendingUrl` must not mask an extension/internal current page.
+- Give target errors a machine-readable code so startup can retry only safe target failures, while non-target CDP or provider failures still stop normally.
+- When AI startup retries a target, update and persist runtime `tabId`/`windowId` before broadcasting status or continuing the Agent loop.

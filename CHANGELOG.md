@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.2.6] - 2026-05-06
+
+### Fixed
+- AI recording now retries CDP attach with a fresh recordable target when a trusted popup start reaches a stale extension/internal target during debugger attachment.
+- Recording target validation now requires the committed tab URL to be recordable, preventing a recordable `pendingUrl` from masking an extension/internal current page.
+- CDP attach errors during AI startup now use the AI recording error context instead of the generic recording message.
+
 ## [2.2.5] - 2026-05-06
 
 ### Fixed

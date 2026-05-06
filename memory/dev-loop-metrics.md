@@ -153,3 +153,13 @@
 - Real AI smoke result with local OpenRouter config: `fallbackStartedFromExtensionTab=true`, `runtimeEnteredAiMode=true`, `runtimeReachedRunning=true`, `finishedWithoutFailure=true`, `historyCreated=true`, and `screenshotsCaptured=true`.
 - Provider-backed E2E target guard still rejects direct extension-page AI starts with `ok=false`, friendly Chinese error text, and runtime `isRecording=false`.
 - Verification: `npm run check`, `npm run watchdog`, `npm run smoke:ai`, and provider-backed `npm run validate:e2e` passed.
+
+## 2026-05-06 - v2.2.6 AI CDP Target Retry Metrics
+
+- Version metadata aligned at `2.2.6` across `package.json`, `package-lock.json`, and `manifest.json`.
+- Recording target validation now requires committed `tab.url` to use `http`, `https`, or `file`; `pendingUrl` is accepted only when it is absent or also recordable.
+- Target errors now carry `code=RECORDING_TARGET_UNAVAILABLE`, allowing AI startup to distinguish safe retry cases from non-target CDP/provider failures.
+- AI startup now calls `attachAiCdpDebuggerWithFallback()`: first attach uses `modeLabel='AI 录制'`, and one trusted fallback retry updates persisted runtime `tabId`/`windowId` before continuing.
+- Provider-backed E2E invalid target result now returns `无法开始 AI 录制` text and keeps runtime `isRecording=false`, while normal manual recording/export checks still pass.
+- Real AI smoke result with local OpenRouter config: `fallbackStartedFromExtensionTab=true`, `runtimeReachedRunning=true`, `finishedWithoutFailure=true`, `historyCreated=true`, and `screenshotsCaptured=true`.
+- Verification: `npm run check`, `npm run watchdog`, `npm run smoke:ai`, and provider-backed `npm run validate:e2e` passed.

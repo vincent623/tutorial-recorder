@@ -1197,7 +1197,18 @@ async function activateRecordingTargetTab(tab, modeLabel) {
 }
 
 function isRecordingTargetTab(tab) {
-  return Boolean(tab?.id && tab.id >= 0 && isRecordablePageUrl(tab.pendingUrl || tab.url || ''));
+  if (!tab?.id || tab.id < 0) {
+    return false;
+  }
+
+  const committedUrl = tab.url || '';
+  const pendingUrl = tab.pendingUrl || '';
+
+  if (!isRecordablePageUrl(committedUrl)) {
+    return false;
+  }
+
+  return !pendingUrl || isRecordablePageUrl(pendingUrl);
 }
 
 function compareRecordingStartTargetTabs(left, right) {
@@ -1219,13 +1230,17 @@ function assertRecordingTargetTab(tab, modeLabel) {
 
 function createRecordingTargetError(modeLabel) {
   if (!modeLabel) {
-    return new Error('请先打开要录制的 http/https/file 网页，再启动录制。');
+    const error = new Error('请先打开要录制的 http/https/file 网页，再启动录制。');
+    error.code = 'RECORDING_TARGET_UNAVAILABLE';
+    return error;
   }
 
   const startPhrase = modeLabel === 'AI 录制' ? '无法开始 AI 录制' : '无法开始录制';
-  return new Error(
+  const error = new Error(
     `当前标签页是扩展页或浏览器内部页面，${startPhrase}。请先切换到要录制的 http/https/file 网页后再启动。`
   );
+  error.code = 'RECORDING_TARGET_UNAVAILABLE';
+  return error;
 }
 
 function normalizeRecordingTargetError(error, modeLabel) {
@@ -1235,6 +1250,15 @@ function normalizeRecordingTargetError(error, modeLabel) {
   }
 
   return error instanceof Error ? error : new Error(message || '目标标签页不可访问');
+}
+
+function isRecordingTargetError(error) {
+  return (
+    error?.code === 'RECORDING_TARGET_UNAVAILABLE' ||
+    /当前标签页是扩展页或浏览器内部页面|请先打开要录制的 http\/https\/file 网页/.test(
+      String(error?.message || error || '')
+    )
+  );
 }
 
 function isRecordablePageUrl(url) {
@@ -1450,7 +1474,7 @@ async function startAiRecording(tabId, targetDescription, options = {}) {
   notifyAiStatus();
 
   try {
-    await attachCdpDebugger(tab.id);
+    tab = await attachAiCdpDebuggerWithFallback(tab, options);
     await updateAiAgentState({
       status: 'running',
       message: 'AI 正在观察页面...'
@@ -1478,7 +1502,7 @@ async function startAiRecording(tabId, targetDescription, options = {}) {
       });
     });
   } catch (error) {
-    await detachCdpDebugger(tab.id);
+    await detachCdpDebugger(currentRuntime.tabId || tab.id);
     await deleteRecording(currentRecording.id).catch(() => {});
     currentRecording = null;
     currentRuntime = createIdleRuntime();
@@ -1486,6 +1510,31 @@ async function startAiRecording(tabId, targetDescription, options = {}) {
     await updateBadge();
     throw error;
   }
+}
+
+async function attachAiCdpDebuggerWithFallback(initialTab, options = {}) {
+  try {
+    await attachCdpDebugger(initialTab.id, { modeLabel: 'AI 录制' });
+    return initialTab;
+  } catch (error) {
+    if (!options.allowFallbackTarget || !isRecordingTargetError(error)) {
+      throw error;
+    }
+  }
+
+  const fallbackTab = await findBestRecordingStartTargetTab(initialTab.id);
+  if (!fallbackTab) {
+    throw createRecordingTargetError('AI 录制');
+  }
+
+  const activatedTab = await activateRecordingTargetTab(fallbackTab, 'AI 录制');
+  currentRuntime.tabId = activatedTab.id;
+  currentRuntime.windowId = activatedTab.windowId;
+  await persistRuntime();
+  notifyAiStatus();
+
+  await attachCdpDebugger(activatedTab.id, { modeLabel: 'AI 录制' });
+  return activatedTab;
 }
 
 async function pauseRecording() {
@@ -1740,13 +1789,14 @@ async function captureScreenshotDataUrl(tab) {
   });
 }
 
-async function attachCdpDebugger(tabId) {
+async function attachCdpDebugger(tabId, options = {}) {
+  const modeLabel = options.modeLabel || 'CDP 录制';
   const tab = await getTabByIdSafely(tabId);
-  assertRecordingTargetTab(tab, 'CDP 录制');
+  assertRecordingTargetTab(tab, modeLabel);
 
   const target = { tabId: tab.id };
   await chrome.debugger.attach(target, CDP_PROTOCOL_VERSION).catch((error) => {
-    throw normalizeRecordingTargetError(error, 'CDP 录制');
+    throw normalizeRecordingTargetError(error, modeLabel);
   });
   currentRuntime.cdpAttached = true;
   currentRuntime.screenshotEngine = 'cdp';
