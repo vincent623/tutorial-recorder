@@ -2,6 +2,13 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.3.0] - 2026-05-07
+
+### Added
+- GitHub Actions CI/CD workflow that runs checks, packages the extension, uploads build artifacts, and publishes ZIP assets on `v*` tags.
+- Local `npm run package` command that builds a Chrome extension ZIP and `.sha256` checksum under `dist/`.
+- Release regression checks covering packaging scope, checksum generation, workflow triggers, artifacts, and tag releases.
+
 ## [2.2.7] - 2026-05-06
 
 ### Fixed

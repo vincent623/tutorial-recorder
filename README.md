@@ -100,6 +100,19 @@ npm install
 npm run check
 ```
 
+本地打包 Chrome 扩展：
+
+```bash
+npm run package
+```
+
+打包产物会写到：
+
+- `dist/tutorial-recorder-v版本号.zip`
+- `dist/tutorial-recorder-v版本号.zip.sha256`
+
+ZIP 只包含扩展运行所需文件：`manifest.json`、`background/`、`content/`、`offscreen/`、`popup/`、`settings/`、`icons/`、`lib/`。不会包含 `.env`、`node_modules/`、`output/`、`memory/` 或测试脚本。
+
 跑一轮真实浏览器验证：
 
 ```bash
@@ -138,6 +151,23 @@ npm run validate:e2e
 ```
 
 验证脚本会把 `API Key` 和附加请求头从控制台输出与 `report.json` 中自动脱敏。
+
+## GitHub CI/CD
+
+仓库包含 `.github/workflows/release.yml`：
+
+- push 到 `main`、PR、手动触发：运行 `npm ci`、`npm run check`、`npm run package`，并上传 ZIP 与 sha256 为 workflow artifact
+- push `v*` 标签：在通过检查和打包后创建 GitHub Release，并上传 `dist/*.zip` 与 `dist/*.sha256`
+
+发布步骤：
+
+```bash
+git tag v版本号
+git push origin main
+git push origin v版本号
+```
+
+GitHub Release 会自动使用 tag 名作为标题，并附带可安装的扩展 ZIP。
 
 ## AI 端点接入
 

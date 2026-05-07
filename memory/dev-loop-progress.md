@@ -18,3 +18,4 @@ The watchdog reads the first unchecked item and executes the mapped verification
 - [x] `v2.2.5-background-target-fallback` - Add background fallback target selection and normalize raw chrome-extension target errors.
 - [x] `v2.2.6-ai-cdp-target-retry` - Retry AI CDP attach with a fresh recordable target and tighten committed URL validation.
 - [x] `v2.2.7-pending-target-url` - Pass target URLs through startup and wait for recordable pending URLs to commit.
+- [x] `v2.3.0-github-release-automation` - Add GitHub Actions CI/CD packaging, release upload, and local package script.

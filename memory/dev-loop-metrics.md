@@ -173,3 +173,14 @@
 - AI startup can infer a target URL from the goal text via `extractFirstRecordableUrl()`.
 - Real AI smoke result: requested tab was `chrome-extension://.../popup/popup.html`, explicit `targetUrl` was the fixture `http` page, and startup still returned `ok=true`.
 - Verification: `npm run check`, `npm run watchdog`, `npm run smoke:ai`, and provider-backed `npm run validate:e2e` passed.
+
+## 2026-05-07 - v2.3.0 Release Automation Metrics
+
+- Version metadata aligned at `2.3.0` across `package.json`, `package-lock.json`, and `manifest.json`.
+- New local command: `npm run package`, implemented by `scripts/package-extension.mjs`.
+- Package allowlist contains `8` runtime roots: `manifest.json`, `background`, `content`, `offscreen`, `popup`, `settings`, `icons`, and `lib`.
+- Package outputs: `dist/tutorial-recorder-v2.3.0.zip` and `dist/tutorial-recorder-v2.3.0.zip.sha256`.
+- Local package result: `19` files, ZIP size `270743` bytes, SHA-256 `5b8e1112ff35b366af8e7681788e40ec1cce292eda313eb79cf93c31dcced426`.
+- GitHub workflow: `.github/workflows/release.yml`; triggers are `main` push, PR, `workflow_dispatch`, and `v*` tag push.
+- Release behavior: tag pushes run checks, package the extension, upload workflow artifacts, and create a GitHub Release with ZIP and checksum assets.
+- Verification: `npm run package`, ZIP listing inspection, `npm run watchdog`, and `npm run check` passed.

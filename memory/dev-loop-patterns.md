@@ -123,3 +123,10 @@
 - Treat a recordable `pendingUrl` as a navigation-in-progress state: wait briefly for it to become the committed `tab.url` before rejecting or attaching CDP.
 - Prefer fallback tabs that match the intended target URL, then fall back to active/recent recordable tabs so redirects and URL changes do not block recovery.
 - If the AI goal contains a URL, use it as a secondary target hint for workflows where popup focus cannot reliably identify the target tab.
+
+## 2026-05-07 - Release Automation Pattern
+
+- Keep extension packaging as a local Node script and call it from CI; release behavior should not depend on runner-specific shell tools such as `zip`.
+- Package from an explicit runtime allowlist so secrets, tests, generated output, memory logs, and dependencies cannot drift into release artifacts.
+- Emit a checksum next to every ZIP and upload both as workflow artifacts and tag release assets.
+- Run the same `npm run check` gate before packaging on main, PRs, manual dispatch, and tags so releases cannot bypass regression checks.
