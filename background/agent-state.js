@@ -37,6 +37,8 @@ export async function appendAiAgentStep(action, screenshotId, description) {
     ...(Number.isFinite(action.requestedX) ? { requestedX: action.requestedX } : {}),
     ...(Number.isFinite(action.requestedY) ? { requestedY: action.requestedY } : {}),
     ...(action.targetText ? { targetText: sanitizeEditableText(action.targetText, 160) } : {}),
+    ...(action.allowRepeat === true ? { allowRepeat: true } : {}),
+    ...(action.repeatReason ? { repeatReason: sanitizeEditableText(action.repeatReason, 240) } : {}),
     ...(action.matchedText ? { matchedText: sanitizeEditableText(action.matchedText, 160) } : {}),
     ...(action.coordinateSource ? { coordinateSource: sanitizeOperationId(action.coordinateSource) } : {}),
     description,

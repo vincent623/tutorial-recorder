@@ -138,6 +138,14 @@ const checks = [
         { action: 'click_at_xy', targetText: '下一步' },
         [{ action: 'click_at_xy', targetText: '提交' }]
       ) &&
+      !isRepeatedAgentAction(
+        { action: 'click_at_xy', targetText: '下一步', allowRepeat: true, repeatReason: '进入了新的向导页' },
+        [{ action: 'click_at_xy', targetText: '下一步' }]
+      ) &&
+      isRepeatedAgentAction(
+        { action: 'click_at_xy', targetText: '提交订单', allowRepeat: true, repeatReason: '再次提交' },
+        [{ action: 'click_at_xy', targetText: '提交订单' }]
+      ) &&
       /resolveAgentTargetCenter/.test(agentTargeting) &&
       /Runtime\.evaluate/.test(agentTargeting) &&
       /action\.targetText/.test(agentState) &&

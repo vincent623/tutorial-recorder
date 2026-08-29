@@ -12,6 +12,7 @@ All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 - AI smoke 主动删除含临时扩展设置的 Chromium Profile，CI 仅白名单上传脱敏浏览器证据。
 - DeepSeek Agent 决策强制结构化工具调用；自然语言完成声明不再推断为 `finish`。
 - 连续相同可见目标的重复点击会在 CDP 执行前被阻止并触发重新观察，避免重复提交或删除。
+- 新向导步骤可用带审计理由的 `allowRepeat` 重复低风险目标；提交、删除、支付等高风险目标始终禁止重复。
 
 ### Changed
 - 后台模块移除静态循环依赖，抽出设置读取与步骤描述纯模块，并通过回调解耦 Agent 停止流程。

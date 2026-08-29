@@ -28,6 +28,14 @@ export function buildAgentToolSchema(apiStyle) {
             type: 'string',
             description: 'Exact visible text of the button or link when available, used to calibrate the visual coordinate.'
           },
+          allowRepeat: {
+            type: 'boolean',
+            description: 'Only true when the same low-risk target must be clicked again on a distinct workflow step.'
+          },
+          repeatReason: {
+            type: 'string',
+            description: 'Required audit reason when allowRepeat is true.'
+          },
           description: { type: 'string' }
         },
         required: ['x', 'y', 'description']
@@ -278,11 +286,14 @@ export function sanitizeAgentAction(action = {}) {
     }
 
     const targetText = sanitizeEditableText(action.targetText, 160);
+    const repeatReason = sanitizeEditableText(action.repeatReason, 240);
+    const allowRepeat = action.allowRepeat === true && Boolean(repeatReason);
     return {
       action: normalizedAction,
       x,
       y,
       ...(targetText ? { targetText } : {}),
+      ...(allowRepeat ? { allowRepeat: true, repeatReason } : {}),
       description
     };
   }

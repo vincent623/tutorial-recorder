@@ -28,7 +28,14 @@ export function isRepeatedAgentAction(action, steps = []) {
   }
 
   const previous = steps[steps.length - 1];
-  return previous?.action === 'click_at_xy' && previous.targetText === action.targetText;
+  const repeatedTarget = previous?.action === 'click_at_xy' && previous.targetText === action.targetText;
+  if (!repeatedTarget) {
+    return false;
+  }
+
+  const highRiskTarget = /提交|删除|支付|发布|发送|购买|下单|确认订单/.test(action.targetText);
+  const auditedLowRiskRepeat = action.allowRepeat === true && Boolean(action.repeatReason) && !highRiskTarget;
+  return !auditedLowRiskRepeat;
 }
 
 export async function resolveAgentTargetCenter(targetText) {

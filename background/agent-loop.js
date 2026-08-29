@@ -387,6 +387,7 @@ export function buildAgentDecisionPrompt(screenshot) {
     '请选择下一步工具调用。只能使用 click_at_xy、type_text、scroll、press_key、navigate、hover、wait、finish。',
     '如果目标已完成，调用 finish。',
     '不得重复执行已完成步骤；如果上一动作已经让页面达到目标状态，必须直接调用 finish。',
+    '只有在新的向导步骤确实需要再次点击同一低风险控件时，才可设置 allowRepeat=true 并写明 repeatReason；提交、删除、支付、发布、发送、购买等高风险目标禁止重复。',
     '如果需要点击，给出视口坐标 x/y，并在可识别时用 targetText 返回目标控件的完整可见文字；如果需要悬停，给出视口坐标 x/y；如果需要输入，先确保输入框已聚焦；搜索类输入完成后通常需要 press_key Enter；如果需要打开新地址，使用 navigate 并给出完整 http/https 地址；如果页面正在加载或动效未完成，可用 wait 短暂等待。',
     '每次只执行一个动作，并写出一句中文教程步骤说明 description。',
     '如果不能使用工具调用，请只输出 JSON，例如 {"action":"click_at_xy","x":120,"y":240,"targetText":"提交","description":"点击提交按钮"}。'

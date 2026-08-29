@@ -365,6 +365,8 @@ function summarizeRuntime(runtime) {
                 requestedX: step.requestedX,
                 requestedY: step.requestedY,
                 targetText: step.targetText,
+                allowRepeat: step.allowRepeat,
+                repeatReason: step.repeatReason,
                 matchedText: step.matchedText,
                 coordinateSource: step.coordinateSource,
                 description: step.description
