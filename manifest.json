@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "教程自动录制器",
-  "version": "2.3.0",
+  "version": "2.6.1",
   "description": "边操作边录制截图、视频和音频，自动生成 PDF+Markdown 教程",
   "permissions": [
     "activeTab",
@@ -15,8 +15,7 @@
     "unlimitedStorage"
   ],
   "host_permissions": [
-    "<all_urls>",
-    "https://ark.cn-beijing.volces.com/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background/background.js",
@@ -34,13 +33,6 @@
     "page": "settings/settings.html",
     "open_in_tab": true
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
-      "run_at": "document_idle"
-    }
-  ],
   "commands": {
     "capture-screenshot": {
       "suggested_key": {

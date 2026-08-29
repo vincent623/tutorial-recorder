@@ -23,7 +23,11 @@ const taskCommands = new Map([
   ['v2.2.5-background-target-fallback', ['npm', ['run', 'check']]],
   ['v2.2.6-ai-cdp-target-retry', ['npm', ['run', 'check']]],
   ['v2.2.7-pending-target-url', ['npm', ['run', 'check']]],
-  ['v2.3.0-github-release-automation', ['npm', ['run', 'check']]]
+  ['v2.3.0-github-release-automation', ['npm', ['run', 'check']]],
+  ['v2.4.0-privacy-and-media-hardening', ['npm', ['run', 'check']]],
+  ['v2.5.0-global-provider-compatibility', ['npm', ['run', 'check']]],
+  ['v2.6.0-store-readiness-and-annotations', ['npm', ['run', 'check']]],
+  ['v2.6.1-background-module-budget', ['npm', ['run', 'check']]]
 ]);
 
 const progress = await readFile(progressPath, 'utf8');

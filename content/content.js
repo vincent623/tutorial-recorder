@@ -1,30 +1,38 @@
-console.log('[Content] Feedback layer loaded');
+if (window.__tutorialRecorderContentReady) {
+  console.debug('[Content] Feedback layer already injected, skipping');
+} else {
+  window.__tutorialRecorderContentReady = true;
+  initTutorialRecorderContent();
+}
 
-let lastInteractionFingerprint = '';
-let lastInteractionAt = 0;
+function initTutorialRecorderContent() {
+  console.log('[Content] Feedback layer loaded');
 
-chrome.runtime.onMessage.addListener((message) => {
-  switch (message.action) {
-    case 'screenshotFeedback':
-      showFeedback(`已截图 (${message.count})`, '#1677ff');
-      playBeep(880);
-      break;
-    case 'recordingStarted':
-      showFeedback('录制开始', '#52c41a');
-      break;
-    case 'recordingPaused':
-      showFeedback('录制已暂停', '#faad14');
-      break;
-    case 'recordingResumed':
-      showFeedback('录制继续', '#52c41a');
-      break;
-    case 'recordingStopped':
-      showFeedback('录制已停止', '#ff4d4f');
-      break;
-    default:
-      break;
-  }
-});
+  let lastInteractionFingerprint = '';
+  let lastInteractionAt = 0;
+
+  chrome.runtime.onMessage.addListener((message) => {
+    switch (message.action) {
+      case 'screenshotFeedback':
+        showFeedback(`已截图 (${message.count})`, '#1677ff');
+        playBeep(880);
+        break;
+      case 'recordingStarted':
+        showFeedback('录制开始', '#52c41a');
+        break;
+      case 'recordingPaused':
+        showFeedback('录制已暂停', '#faad14');
+        break;
+      case 'recordingResumed':
+        showFeedback('录制继续', '#52c41a');
+        break;
+      case 'recordingStopped':
+        showFeedback('录制已停止', '#ff4d4f');
+        break;
+      default:
+        break;
+    }
+  });
 
 document.addEventListener('click', (event) => {
   reportInteraction('click', event.target, {
@@ -192,6 +200,45 @@ function buildInteractionSummary(type, target, extra = {}) {
   return '';
 }
 
+const SENSITIVE_INPUT_TYPES = new Set([
+  'password',
+  'cc-number',
+  'cc-csc',
+  'cc-exp',
+  'one-time-code',
+  'otp',
+  'pin'
+]);
+const SENSITIVE_AUTOCOMPLETE_HINTS = [
+  'current-password',
+  'new-password',
+  'cc-number',
+  'cc-csc',
+  'cc-exp',
+  'one-time-code',
+  'otp',
+  'sms-code'
+];
+
+function isSensitiveField(element) {
+  const inputType = String(element.getAttribute('type') || '').toLowerCase();
+  if (SENSITIVE_INPUT_TYPES.has(inputType)) {
+    return true;
+  }
+
+  const autocomplete = String(element.getAttribute('autocomplete') || '').toLowerCase();
+  return SENSITIVE_AUTOCOMPLETE_HINTS.some((hint) => autocomplete.includes(hint));
+}
+
+function maskSensitiveText(text) {
+  return String(text || '')
+    .replace(/\b\d{6}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]\b/g, (id) =>
+      `${id.slice(0, 4)}**********${id.slice(-2)}`
+    )
+    .replace(/\b\d{16,19}\b/g, (card) => `${card.slice(0, 4)} **** **** ${card.slice(-4)}`)
+    .replace(/(?<!\d)1[3-9]\d{9}(?!\d)/g, (phone) => `${phone.slice(0, 3)}****${phone.slice(-2)}`);
+}
+
 function describeTarget(target) {
   const element = getDescribedElement(target);
   if (!element) {
@@ -199,13 +246,15 @@ function describeTarget(target) {
   }
 
   const tagName = element.tagName.toLowerCase();
+  const canReadValue =
+    (tagName === 'input' || tagName === 'textarea') && !isSensitiveField(element);
   const candidates = [
     element.getAttribute('aria-label'),
     element.getAttribute('title'),
     element.getAttribute('placeholder'),
     element.getAttribute('name'),
     element.getAttribute('data-testid'),
-    tagName === 'input' || tagName === 'textarea' ? element.value : '',
+    canReadValue ? maskSensitiveText(element.value) : '',
     normalizeText(element.innerText),
     normalizeText(element.textContent),
     getLabelText(element)
@@ -261,4 +310,5 @@ function fallbackTargetName(element) {
 
 function normalizeText(text) {
   return String(text || '').replace(/\s+/g, ' ').trim();
+}
 }

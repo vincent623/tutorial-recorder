@@ -204,12 +204,40 @@ async function loadAiConfig() {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+
+  const keyValuePairs = new Map();
+  for (const line of lines) {
+    if (line.startsWith('#')) {
+      continue;
+    }
+
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (match) {
+      keyValuePairs.set(match[1].toUpperCase(), match[2].trim());
+    }
+  }
+
+  const keyValueConfig = {
+    providerPreset: inferProviderPreset(
+      keyValuePairs.get('TUTORIAL_RECORDER_API_BASE_URL') || keyValuePairs.get('API_BASE_URL') || ''
+    ),
+    apiStyle: 'chatCompletions',
+    apiBaseUrl: keyValuePairs.get('TUTORIAL_RECORDER_API_BASE_URL') || keyValuePairs.get('API_BASE_URL') || '',
+    apiKey: keyValuePairs.get('TUTORIAL_RECORDER_API_KEY') || keyValuePairs.get('API_KEY') || '',
+    modelId: keyValuePairs.get('TUTORIAL_RECORDER_MODEL_ID') || keyValuePairs.get('MODEL_ID') || '',
+    extraHeadersJson: ''
+  };
+
+  if (keyValueConfig.apiBaseUrl && keyValueConfig.apiKey && keyValueConfig.modelId) {
+    return keyValueConfig;
+  }
+
   const providerComment = lines.find((line) => line.startsWith('##')) || '';
-  const values = lines.filter((line) => !line.startsWith('#'));
-  const [apiBaseUrl = '', apiKey = '', modelId = ''] = values;
+  const legacyValues = lines.filter((line) => !line.startsWith('#') && !line.includes('='));
+  const [apiBaseUrl = '', apiKey = '', modelId = ''] = legacyValues;
 
   if (!apiBaseUrl || !apiKey || !modelId) {
-    throw new Error('AI smoke requires PW_API_BASE_URL/PW_API_KEY/PW_MODEL_ID or a local .env with base URL, key, and model id');
+    throw new Error('AI smoke requires PW_API_BASE_URL/PW_API_KEY/PW_MODEL_ID or a local .env with KEY=VALUE pairs');
   }
 
   return {

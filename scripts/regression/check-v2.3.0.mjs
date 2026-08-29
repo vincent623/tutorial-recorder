@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -8,6 +9,7 @@ const files = {
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
   manifest: 'manifest.json',
+  checkSyntax: 'scripts/check-syntax.mjs',
   packageScript: 'scripts/package-extension.mjs',
   watchdog: 'scripts/dev-watchdog.mjs',
   progress: 'memory/dev-loop-progress.md',
@@ -15,14 +17,7 @@ const files = {
   gitignore: '.gitignore'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -58,7 +53,8 @@ const checks = [
     name: 'package script is registered and syntax-checked',
     pass:
       packageJson.scripts.package === 'node scripts/package-extension.mjs' &&
-      /node --check scripts\/package-extension\.mjs/.test(source.packageJson)
+      (/node --check scripts\/package-extension\.mjs/.test(source.packageJson) ||
+        /scripts\/package-extension\.mjs/.test(source.checkSyntax))
   },
   {
     name: 'package script includes only extension runtime entries',

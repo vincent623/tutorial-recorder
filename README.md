@@ -5,11 +5,12 @@
 ## 现在支持的能力
 
 - 自动截图和手动截图
-- 真实视频录制 + 麦克风录音
-- 基于火山方舟、硅基流动、阿里云百炼、OpenRouter、Google Gemini、Claude、OpenAI 或任意 OpenAI 兼容视觉端点生成步骤说明
-- 导出单个 `ZIP`，内含 `Markdown + PDF + 音频 WebM + 视频 WebM + PNG`
+- 真实视频录制 + 麦克风录音（音频/视频直接落盘 IndexedDB，分别带 100MB/400MB 体积熔断保护）
+- 基于 15 个 Provider 预设生成步骤说明：国产（火山方舟、智谱 GLM、硅基流动、阿里云百炼、月之暗面 Kimi）、海外（OpenAI、Claude、Google Gemini、Groq、Mistral）、中转与网关（OpenRouter、Azure OpenAI、One API / New API 自建中转、OpenAI Compatible、自定义），并支持一键"测试连接"验证全链路
+- 敏感信息防护：密码/验证码/卡号输入永不上报，手机号/身份证/银行卡号自动打码后才进入 AI 提示词
+- 导出单个 `ZIP`，内含 `Markdown + 单文件 HTML + PDF + 音频 WebM + 视频 WebM + PNG`
 - popup 负责录制与快速入口，独立工作台负责历史记录查看、编辑、重新导出和删除
-- 教程详情支持对每一步截图做增删改查：查看原图、替换截图、插入新步骤、删除步骤、拖拽或上下移动重排步骤
+- 教程详情支持对每一步截图做增删改查：查看原图、标注（箭头/方框/马赛克/文字）、替换截图、插入新步骤、删除步骤、拖拽或上下移动重排步骤
 - popup 只保留录制和快速设置，并提供独立完整设置页与历史工作台
 - 自定义下载子目录，或为 ZIP 弹出一次保存位置选择
 - 可选 CDP 精确截图模式，支持目标标签页非前台时继续截图，并可设置像素裁切区域
@@ -20,13 +21,15 @@
 
 ```text
 tutorial-recorder/
-├── background/          # service worker 编排、导出、AI 调用
-├── content/             # 页面内录制反馈
+├── background/          # service worker：background.js 仅做消息路由，20+ 个生命周期模块
+│                        # （录制/截图/AI Agent/导出/历史/媒体编排等，单文件 ≤500 行）
+├── content/             # 页面内录制反馈（录制期间按需注入）
 ├── offscreen/           # 屏幕/标签页录制、麦克风录音、定时截图、PDF 生成
-├── popup/               # 扩展 UI、设置、历史记录
+├── popup/               # 扩展 UI、设置、历史记录、截图标注编辑器
 ├── settings/            # 独立完整设置页
 ├── icons/               # 扩展图标
 ├── lib/                 # 第三方前端库
+├── docs/                # 隐私政策、商店上架素材
 ├── scripts/e2e/         # 本地真实浏览器验证脚本
 ├── output/playwright/   # e2e 运行产物
 ├── manifest.json
@@ -50,10 +53,12 @@ tutorial-recorder/
 - 是否自动截图
 - 是否显示实时 AI 建议
 - `AI 录制`：填写教程目标后启动自动录制，执行中可暂停 AI、接管操作或停止导出
+- AI Agent 支持 `click_at_xy / type_text / scroll / press_key / navigate / hover / wait / finish` 八种工具；决策截图会按视口 CSS 像素对齐，点击坐标更精准
 
 点击 `完整设置` 后，可以在独立设置页继续配置：
 
-- `Provider 预设`、`API Key`、`模型 / Endpoint ID`
+- `Provider 预设`（按国产 / 海外 / 中转与网关分组）、`API Key`、`模型 / Endpoint ID`
+- `测试连接`：用当前配置发送一次最小视觉请求，验证 Base URL、Key、模型与 API 风格是否全链路可用，并显示响应延迟与排错提示
 - 是否显示实时 AI 建议
 - `高级 AI 选项` 里可展开 `API 风格`、`API Base URL`、`附加请求头 JSON` 和 Prompt 编辑器
 - `默认（平衡）/ 动作优先 / 控件定位 / 简洁短句 / 自定义` 提示词版本
@@ -171,17 +176,33 @@ GitHub Release 会自动使用 tag 名作为标题，并附带可安装的扩展
 
 ## AI 端点接入
 
-当前内置了这些常用接入方式：
+当前内置了这些常用接入方式（预设下拉按国产 / 海外 / 中转与网关分组）：
+
+国产模型：
 
 - `火山方舟`：默认基地址 `https://ark.cn-beijing.volces.com/api/v3`，推荐 `Chat Completions`
+- `智谱 GLM`：默认基地址 `https://open.bigmodel.cn/api/paas/v4`，填 `glm-4.5v` 等视觉模型
 - `硅基流动`：默认基地址 `https://api.siliconflow.cn/v1`
 - `阿里云百炼`：默认基地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`
-- `OpenRouter`：默认基地址 `https://openrouter.ai/api/v1`
-- `Google Gemini`：默认基地址 `https://generativelanguage.googleapis.com/v1beta/openai`
-- `Claude`：默认基地址 `https://api.anthropic.com/v1`，直接走原生 `Messages`
+- `月之暗面 Kimi`：默认基地址 `https://api.moonshot.cn/v1`，填 `moonshot-v1-8k-vision-preview` 等视觉模型
+
+海外模型：
+
 - `OpenAI`：默认基地址 `https://api.openai.com/v1`，推荐 `Responses`
+- `Claude`：默认基地址 `https://api.anthropic.com/v1`，直接走原生 `Messages`
+- `Google Gemini`：默认基地址 `https://generativelanguage.googleapis.com/v1beta/openai`
+- `Groq`：默认基地址 `https://api.groq.com/openai/v1`，超低延迟推理
+- `Mistral`：默认基地址 `https://api.mistral.ai/v1`
+
+中转与网关：
+
+- `OpenRouter`：默认基地址 `https://openrouter.ai/api/v1`，可路由全球数百个模型
+- `Azure OpenAI`：填 `https://<你的资源名>.openai.azure.com/openai/v1`（v1 兼容层免部署路径），Key 用资源密钥
+- `One API / 中转站`：One API、New API 等自建中转填站点基地址（通常以 `/v1` 结尾），Key 用中转站令牌
 - `OpenAI Compatible`：适合各类兼容 OpenAI 的模型网关
 - `自定义`：完全手填 `Base URL + API 风格 + Model`
+
+配置完任意接入方式后，点击设置页的 `测试连接` 按钮即可一键验证链路并查看响应延迟与排错提示。
 
 这套配置方式是按类似 Vercel AI SDK 的思路做的：把服务商预设、基础 URL、API 风格和模型 ID 解耦。这样你既可以用默认预设，也可以直接指向任意 OpenAI 兼容代理或企业内部网关。
 

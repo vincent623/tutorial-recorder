@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
-  background: 'background/background.js',
+  background: 'background/',
   popupHtml: 'popup/popup.html',
   popupJs: 'popup/popup.js',
   settingsHtml: 'settings/settings.html',
@@ -15,14 +16,7 @@ const files = {
   manifest: 'manifest.json'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -51,16 +45,17 @@ const checks = [
   {
     name: 'screenshot completion enqueues non-blocking realtime AI work',
     pass:
-      /queueRealtimeSuggestion\(currentRecording\.id, screenshot\.id\)\.catch/.test(source.background) &&
+      /queueRealtimeSuggestion\(S\.currentRecording\.id, screenshot\.id\)\.catch/.test(source.background) &&
       /async function queueRealtimeSuggestion/.test(source.background) &&
-      /realtimeSuggestionQueue\.pending = \{ recordingId, screenshotId \}/.test(source.background)
+      /(S\.)?realtimeSuggestionQueue\.pending = \{ recordingId, screenshotId \}/.test(source.background)
   },
   {
     name: 'realtime queue is latest-only while one analysis is active',
     pass:
-      /let realtimeSuggestionQueue = \{[\s\S]*active: false,[\s\S]*pending: null/.test(source.background) &&
-      /if \(!realtimeSuggestionQueue\.active\)/.test(source.background) &&
-      /while \(realtimeSuggestionQueue\.pending\)/.test(source.background)
+      (/let realtimeSuggestionQueue = \{[\s\S]*active: false,[\s\S]*pending: null/.test(source.background) ||
+        /realtimeSuggestionQueue: \{ active: false, pending: null \}/.test(source.background)) &&
+      /if \(!S\.realtimeSuggestionQueue\.active\)|if \(!realtimeSuggestionQueue\.active\)/.test(source.background) &&
+      /while \(S\.realtimeSuggestionQueue\.pending\)|while \(realtimeSuggestionQueue\.pending\)/.test(source.background)
   },
   {
     name: 'popup displays and saves editable latest suggestion',
@@ -76,9 +71,10 @@ const checks = [
     pass:
       /async function updateRealtimeSuggestionOverride/.test(source.background) &&
       /descriptionSource = description \? 'realtime-user' : 'realtime-cleared'/.test(source.background) &&
-      /if \(hasStepDescription\(currentRecording\.screenshots\[index\]\)\) \{[\s\S]*continue;[\s\S]*\}/.test(
+      (/if \(hasStepDescription\(currentRecording\.screenshots\[index\]\)\) \{[\s\S]*continue;[\s\S]*\}/.test(
         source.background
-      )
+      ) ||
+        /\.filter\(\(\{ screenshot \}\) => !hasStepDescription\(screenshot\)\)/.test(source.background))
   }
 ];
 

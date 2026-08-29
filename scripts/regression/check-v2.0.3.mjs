@@ -1,12 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
   assetStore: 'background/asset-store.js',
-  background: 'background/background.js',
+  background: 'background/',
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
   manifest: 'manifest.json',
@@ -14,14 +15,7 @@ const files = {
   progress: 'memory/dev-loop-progress.md'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -96,7 +90,7 @@ const checks = [
       /catch \(error\) \{[\s\S]*await markRecordingRecoverableFailure\(recording, error, 'exportRecording'\);[\s\S]*throw error;[\s\S]*\}/.test(
         source.background
       ) &&
-      /await markRecordingRecoverableFailure\(currentRecording, error, 'generateTutorial'\)/.test(
+      /await markRecordingRecoverableFailure\((S\.)?currentRecording, error, 'generateTutorial'\)/.test(
         source.background
       )
   },

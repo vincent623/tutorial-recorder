@@ -133,15 +133,27 @@
       <label class="field">
         <span>Provider 预设</span>
         <select id="providerPreset">
-          <option value="volcengineArk">火山方舟</option>
-          <option value="siliconFlow">硅基流动</option>
-          <option value="aliyunDashScope">阿里云百炼</option>
-          <option value="openRouter">OpenRouter</option>
-          <option value="googleGemini">Google Gemini</option>
-          <option value="anthropicClaude">Claude</option>
-          <option value="openai">OpenAI</option>
-          <option value="openaiCompatible">OpenAI Compatible</option>
-          <option value="custom">自定义</option>
+          <optgroup label="国产模型">
+            <option value="volcengineArk">火山方舟</option>
+            <option value="zhipuBigModel">智谱 GLM</option>
+            <option value="siliconFlow">硅基流动</option>
+            <option value="aliyunDashScope">阿里云百炼</option>
+            <option value="moonshot">月之暗面 Kimi</option>
+          </optgroup>
+          <optgroup label="海外模型">
+            <option value="openai">OpenAI</option>
+            <option value="anthropicClaude">Claude</option>
+            <option value="googleGemini">Google Gemini</option>
+            <option value="groq">Groq</option>
+            <option value="mistral">Mistral</option>
+          </optgroup>
+          <optgroup label="中转与网关">
+            <option value="openRouter">OpenRouter</option>
+            <option value="azureOpenAI">Azure OpenAI</option>
+            <option value="oneApiRelay">One API / 中转站</option>
+            <option value="openaiCompatible">OpenAI Compatible</option>
+            <option value="custom">自定义</option>
+          </optgroup>
         </select>
       </label>
 
@@ -170,7 +182,7 @@
       <div class="grid grid-equal">
         <label class="field">
           <span>API Key</span>
-          <input type="password" id="apiKey" placeholder="用于自动生成步骤说明">
+          <input type="password" id="apiKey" placeholder="用于自动生成步骤说明" autocomplete="new-password">
         </label>
 
         <label class="field">
@@ -178,6 +190,11 @@
           <input type="text" id="modelId" placeholder="例如 ep-xxxx 或 gpt-4.1-mini">
           <small class="field-hint" id="modelHint">火山方舟填 Endpoint ID；OpenAI / 兼容接口填模型 ID。</small>
         </label>
+      </div>
+
+      <div class="field">
+        <button type="button" class="primary-btn" id="testConnectionBtn">测试连接</button>
+        <small class="field-hint" id="testConnectionStatus">用当前配置发送一次最小视觉请求，验证 Base URL、Key、模型与 API 风格全链路。</small>
       </div>
 
       <div class="field prompt-field">

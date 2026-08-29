@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
-  background: 'background/background.js',
+  background: 'background/',
   popupHtml: 'popup/popup.html',
   popupJs: 'popup/popup.js',
   packageJson: 'package.json',
@@ -13,14 +14,7 @@ const files = {
   manifest: 'manifest.json'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);

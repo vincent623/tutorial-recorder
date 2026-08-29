@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
-  background: 'background/background.js',
+  background: 'background/',
   popup: 'popup/popup.js',
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
@@ -14,14 +15,7 @@ const files = {
   progress: 'memory/dev-loop-progress.md'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -39,9 +33,9 @@ const checks = [
   {
     name: 'backend has exclusive, serialized, and idempotent operation guards',
     pass:
-      /const operationLocks = new Map\(\)/.test(source.background) &&
-      /const operationSerialQueues = new Map\(\)/.test(source.background) &&
-      /const recentOperationResults = new Map\(\)/.test(source.background) &&
+      (/const operationLocks = new Map\(\)/.test(source.background) || /operationLocks: new Map\(\)/.test(source.background)) &&
+      (/const operationSerialQueues = new Map\(\)/.test(source.background) || /operationSerialQueues: new Map\(\)/.test(source.background)) &&
+      (/const recentOperationResults = new Map\(\)/.test(source.background) || /recentOperationResults: new Map\(\)/.test(source.background)) &&
       /async function runExclusiveOperation/.test(source.background) &&
       /async function runSerializedOperation/.test(source.background) &&
       /async function runIdempotentOperation/.test(source.background)
@@ -71,7 +65,7 @@ const checks = [
       /screenshotSequence: 0/.test(source.background) &&
       /function getNextScreenshotSequence/.test(source.background) &&
       /function createScreenshotId\(recordingId, sequence\)/.test(source.background) &&
-      /id: createScreenshotId\(currentRecording\.id, sequence\)/.test(source.background) &&
+      /id: createScreenshotId\((S\.)?currentRecording\.id, sequence\)/.test(source.background) &&
       /operationId: resolvedOperationId/.test(source.background)
   },
   {

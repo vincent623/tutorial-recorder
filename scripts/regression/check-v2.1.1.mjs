@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
-  background: 'background/background.js',
+  background: 'background/',
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
   manifest: 'manifest.json',
@@ -13,14 +14,7 @@ const files = {
   progress: 'memory/dev-loop-progress.md'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -96,7 +90,7 @@ const checks = [
     pass:
       /已跳过 PDF；ZIP 仍包含 Markdown、全部截图和可用音视频/.test(source.background) &&
       /return \{ pdfDataUrl: null, skipped: true, reason: plan\.reason \}/.test(source.background) &&
-      /const pdfResult = await generatePdfForRecording\(currentRecording\)/.test(source.background) &&
+      /const pdfResult = await generatePdfForRecording\((S\.)?currentRecording\)/.test(source.background) &&
       /const pdfResult = await generatePdfForRecording\(recording\)/.test(source.background)
   },
   {

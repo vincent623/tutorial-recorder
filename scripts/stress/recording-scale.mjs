@@ -1,18 +1,24 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const backgroundPath = path.join(repoRoot, 'background', 'background.js');
+const backgroundDir = path.join(repoRoot, 'background');
 const reportPath = path.join(repoRoot, 'output', 'stress', 'recording-scale-report.json');
 const stepCounts = [100, 300, 1000];
 const screenshotBytes = 250 * 1024;
 const audioBytes = 8 * 1024 * 1024;
 const videoBytes = 40 * 1024 * 1024;
 
-const background = await readFile(backgroundPath, 'utf8');
+const background = await readBackgroundSources(backgroundDir);
 const pdfScreenshotLimit = readIntegerConstant(background, 'EXPORT_PDF_MAX_SCREENSHOTS');
 const pdfImageByteLimit = readByteExpressionConstant(background, 'EXPORT_PDF_MAX_IMAGE_BYTES');
+
+async function readBackgroundSources(dir) {
+  const names = (await readdir(dir)).filter((name) => name.endsWith('.js')).sort();
+  const contents = await Promise.all(names.map((name) => readFile(path.join(dir, name), 'utf8')));
+  return contents.join('\n');
+}
 
 const scenarios = stepCounts.map((steps) => buildScenario(steps));
 const report = {
@@ -67,7 +73,7 @@ function buildScenario(steps) {
     metadataReductionRatio: Number((inlineRecordingBytes / recordingMetadataBytes).toFixed(1)),
     assetPayloadBytes: screenshotPayloadBytes + audioBytes + videoBytes,
     screenshotPayloadBytes,
-    zipEntries: 1 + (pdf.shouldGenerate ? 1 : 0) + 2 + steps,
+      zipEntries: 2 + (pdf.shouldGenerate ? 1 : 0) + 2 + steps,
     pdf
   };
 }

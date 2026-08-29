@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -8,18 +9,11 @@ const files = {
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
   manifest: 'manifest.json',
-  background: 'background/background.js',
+  background: 'background/',
   popup: 'popup/popup.js'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -58,7 +52,8 @@ const checks = [
   {
     name: 'history caps and export path display remain in place',
     pass:
-      /\.slice\(0, 20\)/.test(source.background) &&
+      /HISTORY_MAX_ENTRIES = 100/.test(source.background) &&
+      /\.slice\(0, HISTORY_MAX_ENTRIES\)/.test(source.background) &&
       /history\.slice\(0, 3\)/.test(source.popup) &&
       /formatDownloadsPath\(exportBaseName\)/.test(source.popup)
   }

@@ -1,12 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
   popup: 'popup/popup.js',
-  background: 'background/background.js',
+  background: 'background/',
+  checkSyntax: 'scripts/check-syntax.mjs',
   aiSmoke: 'scripts/e2e/ai-recording-smoke.mjs',
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
@@ -16,14 +18,7 @@ const files = {
   gitignore: '.gitignore'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -71,9 +66,9 @@ const checks = [
     name: 'AI status messages carry runtime state into popup listeners',
     pass:
       /if \(typeof message\.isRecording === 'boolean'\)/.test(source.popup) &&
-      /isRecording: currentRuntime\.isRecording/.test(source.background) &&
-      /isPaused: currentRuntime\.isPaused/.test(source.background) &&
-      /recordingId: currentRuntime\.recordingId/.test(source.background)
+      /isRecording: (S\.)?currentRuntime\.isRecording/.test(source.background) &&
+      /isPaused: (S\.)?currentRuntime\.isPaused/.test(source.background) &&
+      /recordingId: (S\.)?currentRuntime\.recordingId/.test(source.background)
   },
   {
     name: 'background broadcasts starting before CDP attach and running after attach',
@@ -88,7 +83,8 @@ const checks = [
     name: 'real AI recording smoke script is registered but only syntax-checked by default',
     pass:
       /"smoke:ai": "node scripts\/e2e\/ai-recording-smoke\.mjs"/.test(source.packageJson) &&
-      /node --check scripts\/e2e\/ai-recording-smoke\.mjs/.test(source.packageJson) &&
+      (/node --check scripts\/e2e\/ai-recording-smoke\.mjs/.test(source.packageJson) ||
+        /scripts\/e2e\/ai-recording-smoke\.mjs/.test(source.checkSyntax)) &&
       !/npm run smoke:ai/.test(packageJson.scripts.check) &&
       /action: 'startAiRecording'/.test(source.aiSmoke) &&
       /ai-smoke-report\.json/.test(source.aiSmoke) &&

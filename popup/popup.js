@@ -6,9 +6,15 @@ const isWorkspaceMode = pageParams.get('workspace') === '1';
 const requestedWorkspaceDetailId = pageParams.get('id') || '';
 const PROVIDER_LABELS = {
   volcengineArk: '火山方舟',
+  zhipuBigModel: '智谱 GLM',
   siliconFlow: '硅基流动',
   aliyunDashScope: '阿里云百炼',
+  moonshot: '月之暗面 Kimi',
   openRouter: 'OpenRouter',
+  groq: 'Groq',
+  mistral: 'Mistral',
+  azureOpenAI: 'Azure OpenAI',
+  oneApiRelay: 'One API / 中转站',
   googleGemini: 'Google Gemini',
   anthropicClaude: 'Claude',
   openai: 'OpenAI',
@@ -665,6 +671,11 @@ function handleDetailStepAction(event) {
     return;
   }
 
+  if (action === 'annotate') {
+    openStepAnnotator(stepIndex);
+    return;
+  }
+
   if (action === 'replace') {
     queueDetailImageSelection({ mode: 'replace', stepIndex });
     return;
@@ -1076,7 +1087,9 @@ function renderAiPanel() {
 }
 
 function hasAiSettingsConfigured(settings = currentSettings) {
-  return Boolean(settings.apiKey && settings.modelId && settings.apiBaseUrl);
+  return Boolean(
+    (settings.apiKeyConfigured || settings.apiKey) && settings.modelId && settings.apiBaseUrl
+  );
 }
 
 function getAiStatusText(aiAgent = {}) {
@@ -1367,6 +1380,9 @@ function renderDetailPanel() {
             <button type="button" class="btn-inline btn-inline-light" data-step-action="preview" data-step-index="${index}" ${
               busy ? 'disabled' : ''
             }>查看原图</button>
+            <button type="button" class="btn-inline btn-inline-light" data-step-action="annotate" data-step-index="${index}" ${
+              busy ? 'disabled' : ''
+            }>标注</button>
             <button type="button" class="btn-inline btn-inline-light" data-step-action="replace" data-step-index="${index}" ${
               busy ? 'disabled' : ''
             }>替换截图</button>
@@ -1498,6 +1514,26 @@ function openStepPreview(stepIndex) {
   }
 
   window.open(screenshot.data, '_blank', 'noopener,noreferrer');
+}
+
+function openStepAnnotator(stepIndex) {
+  const screenshot = detailState.draft?.screenshots?.[stepIndex];
+  if (!screenshot?.data || !window.TutorialAnnotate) {
+    return;
+  }
+
+  window.TutorialAnnotate.open({
+    dataUrl: screenshot.data,
+    onSave: (annotatedDataUrl) => {
+      if (!detailState.draft?.screenshots?.[stepIndex]) {
+        return;
+      }
+
+      detailState.draft.screenshots[stepIndex].data = annotatedDataUrl;
+      renderDetailPanel();
+      syncDetailActionState('标注已应用到草稿，保存后导出新 ZIP。');
+    }
+  });
 }
 
 function queueDetailImageSelection(target) {

@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
-  background: 'background/background.js',
+  background: 'background/',
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
   manifest: 'manifest.json',
@@ -13,14 +14,7 @@ const files = {
   progress: 'memory/dev-loop-progress.md'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -89,7 +83,7 @@ const checks = [
     name: 'AI startup uses the retry helper and cleans up the current runtime target',
     pass:
       /tab = await attachAiCdpDebuggerWithFallback\(tab, targetOptions\)/.test(source.background) &&
-      /await detachCdpDebugger\(currentRuntime\.tabId \|\| tab\.id\)/.test(source.background)
+      /await detachCdpDebugger\((S\.)?currentRuntime\.tabId \|\| tab\.id\)/.test(source.background)
   },
   {
     name: 'CDP attach accepts a caller supplied target error context',

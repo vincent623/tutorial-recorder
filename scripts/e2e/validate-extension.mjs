@@ -131,6 +131,23 @@ async function main() {
       throw new Error(`AI missing-config feedback failed: ${aiMissingConfigDialogMessage}`);
     }
 
+    const connectionTestWithoutConfig = await popup.evaluate(async () => {
+      const result = await chrome.runtime.sendMessage({ action: 'testProviderConnection' });
+      return {
+        ok: result?.ok === true,
+        error: result?.error || ''
+      };
+    });
+    const connectionTestWithoutConfigHandled =
+      connectionTestWithoutConfig?.ok === false &&
+      /请先填写/.test(connectionTestWithoutConfig.error);
+    if (!connectionTestWithoutConfigHandled) {
+      throw new Error(
+        `Provider connection test without config failed: ${JSON.stringify(connectionTestWithoutConfig)}`
+      );
+    }
+    console.log('[e2e] connection test without config rejected with guidance');
+
     const invalidAiTargetResult = await popup.evaluate(async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       return chrome.runtime.sendMessage({
@@ -357,6 +374,9 @@ async function main() {
     detailCrudState.firstStepTextAfterReorder = await workspacePage
       .locator('textarea[data-step-index="0"]')
       .inputValue();
+
+    const annotateState = await runAnnotateEditorFlow(workspacePage);
+    console.log(`[e2e] annotate flow: ${JSON.stringify(annotateState)}`);
     detailCrudState.reorderWorked =
       detailCrudState.firstStepTextAfterReorder === detailCrudState.secondStepTextBeforeReorder;
 
@@ -466,6 +486,18 @@ async function main() {
         archiveHasScreenshot: archiveContents.some((archive) =>
           archive.entries.filter((entry) => entry.kind === 'png').length >= 1
         ),
+        archiveHasStandaloneHtml: archiveContents.some(
+          (archive) =>
+            archive.entries.some(
+              (entry) => entry.kind === 'html' && entry.name.endsWith('tutorial.html')
+            ) &&
+            archive.entries.some(
+              (entry) =>
+                entry.kind === 'html' &&
+                entry.name.endsWith('tutorial.html') &&
+                (entry.inlineImageCount || 0) >= 1
+            )
+        ),
         settingsPageOpened: settingsPageSummary.title.includes('设置'),
         outputDirPersisted: settingsState?.outputDir === customOutputDir,
         outputPreviewRendered:
@@ -475,6 +507,7 @@ async function main() {
           settingsState?.aiAgentMaxSteps === customAiAgentMaxSteps &&
           settingsState?.aiAgentMaxDurationMinutes === customAiAgentMaxDurationMinutes,
         aiMissingConfigShowsFeedback,
+        connectionTestGuidance: connectionTestWithoutConfigHandled,
         aiRejectsExtensionTarget:
           invalidAiTargetGuardPassed,
         popupSummaryRendered:
@@ -494,6 +527,12 @@ async function main() {
           detailCrudState.countAfterDelete === 3 &&
           detailCrudState.firstImageChanged === true &&
           detailCrudState.reorderWorked === true,
+        annotateEditorWorked:
+          annotateState.editorOpened === true &&
+          annotateState.drewShape === true &&
+          annotateState.drewMosaic === true &&
+          annotateState.imageUpdated === true &&
+          annotateState.editorClosed === true,
         assetStoreSplitWorked: assetStoreState.recordings.some(
           (recording) =>
             recording.id === historyState[0]?.id &&
@@ -736,8 +775,52 @@ async function waitForHistoryInStorage(serviceWorker) {
   throw new Error('Timed out waiting for history to persist');
 }
 
-async function waitForDialogCount(messages, minimumCount, timeoutMs = 5000) {
-  const startedAt = Date.now();
+async function runAnnotateEditorFlow(workspacePage) {
+  const state = {};
+
+  const imageSrcBefore = await workspacePage.evaluate(
+    () => document.querySelector('.detail-step img')?.getAttribute('src') || ''
+  );
+
+  await workspacePage.locator('button[data-step-action="annotate"][data-step-index="0"]').click();
+  await workspacePage.waitForSelector('.tr-annotate-overlay', { timeout: 10_000 });
+  state.editorOpened = true;
+
+  const canvasBox = await workspacePage.locator('.tr-annotate-canvas').boundingBox();
+  if (!canvasBox) {
+    throw new Error('Annotate canvas not visible');
+  }
+
+  await workspacePage.mouse.move(canvasBox.x + 10, canvasBox.y + 10);
+  await workspacePage.mouse.down();
+  await workspacePage.mouse.move(canvasBox.x + 60, canvasBox.y + 30, { steps: 4 });
+  await workspacePage.mouse.up();
+  state.drewShape = true;
+
+  await workspacePage.locator('.tr-annotate-tools [data-tool="mosaic"]').click();
+  await workspacePage.mouse.move(canvasBox.x + 20, canvasBox.y + 40);
+  await workspacePage.mouse.down();
+  await workspacePage.mouse.move(canvasBox.x + 90, canvasBox.y + 80, { steps: 4 });
+  await workspacePage.mouse.up();
+  state.drewMosaic = true;
+
+  await workspacePage.locator('.tr-annotate-save').click();
+  await workspacePage.waitForFunction(
+    (beforeSrc) => {
+      const overlayGone = !document.querySelector('.tr-annotate-overlay');
+      const currentSrc = document.querySelector('.detail-step img')?.getAttribute('src') || '';
+      return overlayGone && Boolean(currentSrc) && currentSrc !== beforeSrc;
+    },
+    imageSrcBefore,
+    { timeout: 15_000 }
+  );
+
+  state.imageUpdated = true;
+  state.editorClosed = await workspacePage.evaluate(() => !document.querySelector('.tr-annotate-overlay'));
+  return state;
+}
+
+async function waitForDialogCount(messages, minimumCount, timeoutMs = 5000) {  const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
     if (messages.length >= minimumCount) {
@@ -864,11 +947,20 @@ async function inspectZipArchives(rootDir, files) {
     const entries = Object.entries(archive)
       .map(([name, bytes]) => {
         const analysis = classifyBuffer(Buffer.from(bytes));
-        return {
+        const entry = {
           name,
           kind: analysis.kind,
           preview: analysis.preview
         };
+
+        if (analysis.kind === 'html') {
+          const text = Buffer.from(bytes).toString('utf8');
+          entry.inlineImageCount = (text.match(/data:image/g) || []).length;
+          entry.hasRelativeMedia =
+            text.includes('audio/tutorial-audio.webm') || text.includes('video/tutorial-video.webm');
+        }
+
+        return entry;
       })
       .sort((left, right) => left.name.localeCompare(right.name));
 
@@ -901,6 +993,13 @@ function classifyBuffer(buffer) {
   }
 
   const text = buffer.toString('utf8').trimStart();
+  if (/^<!doctype html>/i.test(text)) {
+    return {
+      kind: 'html',
+      preview: text.slice(0, 120)
+    };
+  }
+
   if (text.startsWith('# ')) {
     return {
       kind: 'markdown',

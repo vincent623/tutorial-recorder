@@ -1,3 +1,5 @@
+
+
 const DB_NAME = 'tutorialRecorder';
 const DB_VERSION = 2;
 const RECORDINGS_STORE = 'recordings';
@@ -5,6 +7,12 @@ const ASSETS_STORE = 'assets';
 const ASSETS_RECORDING_INDEX = 'recordingId';
 
 let dbPromise = null;
+let dbHandle = null;
+
+function resetDatabaseConnection() {
+  dbPromise = null;
+  dbHandle = null;
+}
 
 function openDatabase() {
   if (dbPromise) {
@@ -27,11 +35,57 @@ function openDatabase() {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+
+      db.addEventListener('versionchange', () => {
+        db.close();
+      });
+      db.addEventListener('close', () => {
+        if (dbHandle === db) {
+          resetDatabaseConnection();
+        }
+      });
+
+      dbHandle = db;
+      resolve(db);
+    };
+    request.onerror = () => {
+      resetDatabaseConnection();
+      reject(request.error);
+    };
+    request.onblocked = () => {
+      console.warn('[AssetStore] Database upgrade blocked by another open connection');
+    };
+  }).catch((error) => {
+    resetDatabaseConnection();
+    throw error;
   });
 
   return dbPromise;
+}
+
+function isConnectionLostError(error) {
+  const name = error?.name || '';
+  return (
+    name === 'InvalidStateError' ||
+    name === 'ConnectionClosedError' ||
+    name === 'TransactionInactiveError' ||
+    name === 'NotFoundError'
+  );
+}
+
+async function withStoreRobust(factory) {
+  try {
+    return await factory();
+  } catch (error) {
+    if (!isConnectionLostError(error) || !dbHandle) {
+      throw error;
+    }
+
+    resetDatabaseConnection();
+    return factory();
+  }
 }
 
 async function withStore(storeName, mode, callback) {
@@ -81,71 +135,78 @@ async function withStores(storeNames, mode, callback) {
 }
 
 export async function putRecording(recording) {
-  return withStore(RECORDINGS_STORE, 'readwrite', (store) => store.put(recording));
+  return withStoreRobust(() =>
+    withStore(RECORDINGS_STORE, 'readwrite', (store) => store.put(recording))
+  );
 }
 
 export async function putRecordingWithAssets(recording, assets = [], options = {}) {
-  return withStores([RECORDINGS_STORE, ASSETS_STORE], 'readwrite', (stores) => {
-    const assetStore = stores[ASSETS_STORE];
-    const deleteAssetIds = Array.isArray(options.deleteAssetIds) ? options.deleteAssetIds : [];
+  return withStoreRobust(() =>
+    withStores([RECORDINGS_STORE, ASSETS_STORE], 'readwrite', (stores) => {
+      const assetStore = stores[ASSETS_STORE];
+      const deleteAssetIds = Array.isArray(options.deleteAssetIds) ? options.deleteAssetIds : [];
 
-    for (const assetId of deleteAssetIds) {
-      if (assetId) {
-        assetStore.delete(assetId);
+      for (const assetId of deleteAssetIds) {
+        if (assetId) {
+          assetStore.delete(assetId);
+        }
       }
-    }
 
-    for (const asset of assets) {
-      if (asset?.id) {
-        assetStore.put(asset);
+      for (const asset of assets) {
+        if (asset?.id) {
+          assetStore.put(asset);
+        }
       }
-    }
 
-    return stores[RECORDINGS_STORE].put(recording);
-  });
+      return stores[RECORDINGS_STORE].put(recording);
+    })
+  );
 }
 
 export async function getRecording(id) {
-  return withStore(RECORDINGS_STORE, 'readonly', (store) => store.get(id));
+  return withStoreRobust(() => withStore(RECORDINGS_STORE, 'readonly', (store) => store.get(id)));
 }
 
 export async function listRecordings() {
-  return withStore(RECORDINGS_STORE, 'readonly', (store) => store.getAll());
+  return withStoreRobust(() => withStore(RECORDINGS_STORE, 'readonly', (store) => store.getAll()));
 }
 
 export async function putAsset(asset) {
-  return withStore(ASSETS_STORE, 'readwrite', (store) => store.put(asset));
+  return withStoreRobust(() => withStore(ASSETS_STORE, 'readwrite', (store) => store.put(asset)));
 }
 
 export async function getAsset(id) {
-  return withStore(ASSETS_STORE, 'readonly', (store) => store.get(id));
+  return withStoreRobust(() => withStore(ASSETS_STORE, 'readonly', (store) => store.get(id)));
 }
 
 export async function listAssetsForRecording(recordingId) {
-  return withStore(ASSETS_STORE, 'readonly', (store) =>
-    store.index(ASSETS_RECORDING_INDEX).getAll(recordingId)
+  return withStoreRobust(() =>
+    withStore(ASSETS_STORE, 'readonly', (store) => store.index(ASSETS_RECORDING_INDEX).getAll(recordingId))
   );
 }
 
 export async function deleteAssetsForRecording(recordingId) {
-  return withStore(ASSETS_STORE, 'readwrite', (store) => {
-    const index = store.index(ASSETS_RECORDING_INDEX);
-    const request = index.openCursor(IDBKeyRange.only(recordingId));
+  return withStoreRobust(() =>
+    withStore(ASSETS_STORE, 'readwrite', (store) => {
+      const index = store.index(ASSETS_RECORDING_INDEX);
+      const request = index.openCursor(IDBKeyRange.only(recordingId));
 
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) {
-        return;
-      }
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          return;
+        }
 
-      cursor.delete();
-      cursor.continue();
-    };
-  });
+        cursor.delete();
+        cursor.continue();
+      };
+    })
+  );
 }
 
 export async function deleteRecording(id) {
-  return withStores([RECORDINGS_STORE, ASSETS_STORE], 'readwrite', (stores) => {
+  return withStoreRobust(() =>
+    withStores([RECORDINGS_STORE, ASSETS_STORE], 'readwrite', (stores) => {
     stores[RECORDINGS_STORE].delete(id);
 
     const index = stores[ASSETS_STORE].index(ASSETS_RECORDING_INDEX);
@@ -160,5 +221,6 @@ export async function deleteRecording(id) {
       cursor.delete();
       cursor.continue();
     };
-  });
+    })
+  );
 }

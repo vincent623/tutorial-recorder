@@ -8,6 +8,13 @@ const PROVIDER_PRESETS = {
     modelHint: '火山方舟填 Endpoint ID，例如 ep-xxxx。',
     apiBaseHint: '会自动补成 /chat/completions，适合方舟视觉模型。'
   },
+  zhipuBigModel: {
+    apiBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: '智谱填视觉模型 ID，例如 glm-4v-plus 或 glm-4.5v。',
+    apiBaseHint: '走智谱开放平台 OpenAI 兼容接口，基地址会自动补成 /chat/completions。'
+  },
   siliconFlow: {
     apiBaseUrl: 'https://api.siliconflow.cn/v1',
     apiStyle: 'chatCompletions',
@@ -22,12 +29,47 @@ const PROVIDER_PRESETS = {
     modelHint: '阿里云百炼填视觉模型 ID，例如 qwen-vl 系列。',
     apiBaseHint: '走百炼 OpenAI 兼容模式，基地址会自动补成 /chat/completions。'
   },
+  moonshot: {
+    apiBaseUrl: 'https://api.moonshot.cn/v1',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: '月之暗面填视觉模型 ID，例如 moonshot-v1-8k-vision-preview。',
+    apiBaseHint: '走 Kimi OpenAI 兼容接口，基地址会自动补成 /chat/completions。'
+  },
   openRouter: {
     apiBaseUrl: 'https://openrouter.ai/api/v1',
     apiStyle: 'chatCompletions',
     modelLabel: '模型 ID',
     modelHint: 'OpenRouter 填模型路由名，例如 anthropic/claude-3.5-sonnet 或 google/gemini-2.5-flash。',
     apiBaseHint: '建议配合附加 Header JSON 一起使用，例如 HTTP-Referer 和 X-Title。'
+  },
+  groq: {
+    apiBaseUrl: 'https://api.groq.com/openai/v1',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: 'Groq 填支持视觉的模型 ID，例如 meta-llama/llama-4-scout-17b-16e-instruct。',
+    apiBaseHint: 'Groq 以极低延迟著称，走 OpenAI 兼容接口。'
+  },
+  mistral: {
+    apiBaseUrl: 'https://api.mistral.ai/v1',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: 'Mistral 填视觉模型 ID，例如 mistral-medium-latest 或 pixtral-12b。',
+    apiBaseHint: '走 Mistral OpenAI 兼容接口，基地址会自动补成 /chat/completions。'
+  },
+  azureOpenAI: {
+    apiBaseUrl: '',
+    apiStyle: 'chatCompletions',
+    modelLabel: '部署名 / 模型 ID',
+    modelHint: '填 Azure 部署名或模型 ID，例如 gpt-4.1-mini。',
+    apiBaseHint: '填 https://<你的资源名>.openai.azure.com/openai/v1（v1 兼容层免部署路径），Key 用资源密钥。'
+  },
+  oneApiRelay: {
+    apiBaseUrl: '',
+    apiStyle: 'chatCompletions',
+    modelLabel: '模型 ID',
+    modelHint: '填中转站里的模型名，例如 gpt-4o、Qwen/Qwen3-VL-32B-Instruct 等。',
+    apiBaseHint: 'One API / New API 等自建中转填站点基地址（通常以 /v1 结尾），Key 用中转站令牌。'
   },
   googleGemini: {
     apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -176,6 +218,8 @@ const elements = {
   modelLabel: $('modelLabel'),
   modelHint: $('modelHint'),
   extraHeadersJson: $('extraHeadersJson'),
+  testConnectionBtn: $('testConnectionBtn'),
+  testConnectionStatus: $('testConnectionStatus'),
   promptPreset: $('promptPreset'),
   promptPresetHint: $('promptPresetHint'),
   promptSystem: $('promptSystem'),
@@ -195,8 +239,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 async function hydrate() {
-  const snapshot = await sendAction('getPopupState');
-  if (!snapshot?.ok) {
+  const snapshot = await sendAction('getSecretSettings');
+  if (!snapshot?.ok || !snapshot.settings) {
     setSaveStatus('加载失败，请重试。', false);
     return;
   }
@@ -229,6 +273,7 @@ function bindEvents() {
   elements.apiBaseUrl.addEventListener('change', saveSettings);
   elements.modelId.addEventListener('change', saveSettings);
   elements.extraHeadersJson.addEventListener('change', saveSettings);
+  elements.testConnectionBtn.addEventListener('click', handleTestConnection);
   elements.promptPreset.addEventListener('change', handlePromptPresetChange);
   elements.promptSystem.addEventListener('input', handlePromptDraftInput);
   elements.promptUser.addEventListener('input', handlePromptDraftInput);
@@ -251,6 +296,44 @@ async function saveSettings() {
 
   applySettingsToForm(result.settings);
   setSaveStatus('已自动保存', true);
+}
+
+async function handleTestConnection() {
+  const button = elements.testConnectionBtn;
+  if (!button || button.disabled) {
+    return;
+  }
+
+  await saveSettings();
+
+  button.disabled = true;
+  setTestConnectionStatus('正在测试连接，最长约 45 秒...', 'pending');
+
+  const result = await sendAction('testProviderConnection', {
+    operationId: `settings-${Date.now().toString(36)}`
+  }).catch((error) => ({ ok: false, error: error?.message || '测试请求发送失败' }));
+
+  button.disabled = false;
+
+  if (result?.ok) {
+    setTestConnectionStatus(
+      `连接成功：${result.modelId || ''} 响应 ${result.latencyMs ?? '?'}ms${result.reply ? `，回复“${result.reply}”` : ''}`,
+      'success'
+    );
+    return;
+  }
+
+  const hint = result?.hint ? ` ${result.hint}` : '';
+  setTestConnectionStatus(`连接失败：${result?.error || '未知错误'}。${hint}`.trim(), 'error');
+}
+
+function setTestConnectionStatus(text, tone) {
+  if (!elements.testConnectionStatus) {
+    return;
+  }
+
+  elements.testConnectionStatus.textContent = text;
+  elements.testConnectionStatus.dataset.tone = tone || 'default';
 }
 
 function readSettingsFromForm() {

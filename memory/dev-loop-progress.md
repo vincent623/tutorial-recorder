@@ -19,3 +19,7 @@ The watchdog reads the first unchecked item and executes the mapped verification
 - [x] `v2.2.6-ai-cdp-target-retry` - Retry AI CDP attach with a fresh recordable target and tighten committed URL validation.
 - [x] `v2.2.7-pending-target-url` - Pass target URLs through startup and wait for recordable pending URLs to commit.
 - [x] `v2.3.0-github-release-automation` - Add GitHub Actions CI/CD packaging, release upload, and local package script.
+- [x] `v2.4.0-privacy-and-media-hardening` - Mask sensitive interactions, persist media assets offscreen, harden IndexedDB recovery, expand agent tools, and speed up AI analysis.
+- [x] `v2.5.0-global-provider-compatibility` - Add Groq/Mistral/Azure/One-API presets and a one-click provider connection test.
+- [x] `v2.6.0-store-readiness-and-annotations` - On-demand content injection, API-key redaction, module split, annotate editor, and store submission docs.
+- [x] `v2.6.1-background-module-budget` - Split the background service worker into 500-line lifecycle modules behind a shared state container.

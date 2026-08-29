@@ -1,12 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
   popup: 'popup/popup.js',
-  background: 'background/background.js',
+  background: 'background/',
   e2e: 'scripts/e2e/validate-extension.mjs',
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
@@ -15,14 +16,7 @@ const files = {
   progress: 'memory/dev-loop-progress.md'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);

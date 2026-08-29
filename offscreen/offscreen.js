@@ -4,8 +4,11 @@ let microphoneStream = null;
 let captureStream = null;
 let audioChunks = [];
 let videoChunks = [];
+let audioChunkBytes = 0;
+let videoChunkBytes = 0;
 let captureTimer = null;
 let sessionStartAt = null;
+let sessionRecordingId = '';
 let pausedDurationMs = 0;
 let pauseStartedAt = null;
 let autoCaptureEnabled = true;
@@ -13,7 +16,18 @@ let captureIntervalMs = 5000;
 let captureMode = 'displayMedia';
 let audioStartError = '';
 let videoStartError = '';
+let audioLimitWarning = '';
+let videoLimitWarning = '';
 let isStoppingSession = false;
+
+const MAX_MEDIA_CHUNK_BYTES = Object.freeze({
+  audio: 100 * 1024 * 1024,
+  video: 400 * 1024 * 1024
+});
+const MEDIA_DB_NAME = 'tutorialRecorder';
+const MEDIA_DB_VERSION = 2;
+const MEDIA_ASSETS_STORE = 'assets';
+const MEDIA_ASSETS_RECORDING_INDEX = 'recordingId';
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== 'offscreen' || message.action !== 'offscreenMessage') {
@@ -59,12 +73,17 @@ async function startSession(payload = {}) {
   captureIntervalMs = payload.intervalMs || 5000;
   autoCaptureEnabled = payload.autoCapture !== false;
   sessionStartAt = Date.now();
+  sessionRecordingId = String(payload.recordingId || '').slice(0, 80);
   pausedDurationMs = 0;
   pauseStartedAt = null;
   audioStartError = '';
   videoStartError = '';
+  audioLimitWarning = '';
+  videoLimitWarning = '';
   audioChunks = [];
   videoChunks = [];
+  audioChunkBytes = 0;
+  videoChunkBytes = 0;
   isStoppingSession = false;
 
   await stopRecordersAndTracks();
@@ -158,6 +177,7 @@ async function stopSession() {
   }
 
   const durationMs = sessionStartAt ? Math.max(0, Date.now() - sessionStartAt - pausedDurationMs) : 0;
+  const recordingId = sessionRecordingId;
   isStoppingSession = true;
   const audioMimeType = audioRecorder?.mimeType || 'audio/webm';
   const videoMimeType = videoRecorder?.mimeType || 'video/webm';
@@ -171,22 +191,112 @@ async function stopSession() {
   isStoppingSession = false;
 
   sessionStartAt = null;
+  sessionRecordingId = '';
   pausedDurationMs = 0;
   pauseStartedAt = null;
 
+  const audioAsset = audioBlob
+    ? await writeMediaAsset(recordingId, 'audio', audioBlob, durationMs).catch((error) => {
+        console.error('[Offscreen] Persist audio asset failed:', error);
+        return null;
+      })
+    : null;
+  const videoAsset = videoBlob
+    ? await writeMediaAsset(recordingId, 'video', videoBlob, durationMs).catch((error) => {
+        console.error('[Offscreen] Persist video asset failed:', error);
+        return null;
+      })
+    : null;
+
+  const audioError = audioAsset ? '' : audioStartError || audioLimitWarning || (audioBlob ? '音频写入本地存储失败' : '');
+  const videoError = videoAsset ? '' : videoStartError || videoLimitWarning || (videoBlob ? '视频写入本地存储失败' : '');
+
   return {
     ok: true,
-    audioDataUrl: audioBlob ? await blobToDataUrl(audioBlob) : null,
-    audioMimeType,
+    audioAssetId: audioAsset?.id || '',
+    audioMimeType: audioAsset?.mimeType || audioMimeType,
     audioDurationMs: durationMs,
-    audioSize: audioBlob?.size || 0,
-    audioError: audioBlob ? '' : audioStartError,
-    videoDataUrl: videoBlob ? await blobToDataUrl(videoBlob) : null,
-    videoMimeType,
+    audioSize: audioAsset?.size || audioBlob?.size || 0,
+    audioError,
+    audioLimitWarning,
+    videoAssetId: videoAsset?.id || '',
+    videoMimeType: videoAsset?.mimeType || videoMimeType,
     videoDurationMs: durationMs,
-    videoSize: videoBlob?.size || 0,
-    videoError: videoBlob ? '' : videoStartError
+    videoSize: videoAsset?.size || videoBlob?.size || 0,
+    videoError,
+    videoLimitWarning
   };
+}
+
+async function writeMediaAsset(recordingId, kind, blob, durationMs) {
+  if (!recordingId) {
+    throw new Error('缺少录制 ID，无法保存媒体');
+  }
+
+  const dataUrl = await blobToDataUrl(blob);
+  const now = Date.now();
+  const asset = {
+    id: [
+      recordingId,
+      'asset',
+      kind,
+      now.toString(36),
+      Math.random().toString(36).slice(2, 10)
+    ].join(':'),
+    recordingId,
+    kind,
+    dataUrl,
+    mimeType: blob.type || (kind === 'audio' ? 'audio/webm' : 'video/webm'),
+    size: blob.size,
+    durationMs,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await putMediaAsset(asset);
+  return asset;
+}
+
+function putMediaAsset(asset) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(MEDIA_DB_NAME, MEDIA_DB_VERSION);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('recordings')) {
+        db.createObjectStore('recordings', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(MEDIA_ASSETS_STORE)) {
+        const assetsStore = db.createObjectStore(MEDIA_ASSETS_STORE, { keyPath: 'id' });
+        assetsStore.createIndex(MEDIA_ASSETS_RECORDING_INDEX, 'recordingId', { unique: false });
+      }
+    };
+
+    request.onsuccess = () => {
+      const db = request.result;
+      let putRequest;
+
+      try {
+        const transaction = db.transaction(MEDIA_ASSETS_STORE, 'readwrite');
+        putRequest = transaction.objectStore(MEDIA_ASSETS_STORE).put(asset);
+      } catch (error) {
+        db.close();
+        reject(error);
+        return;
+      }
+
+      putRequest.onsuccess = () => {
+        db.close();
+        resolve(asset);
+      };
+      putRequest.onerror = () => {
+        db.close();
+        reject(putRequest.error || new Error('媒体写入失败'));
+      };
+    };
+
+    request.onerror = () => reject(request.error || new Error('无法打开本地存储'));
+  });
 }
 
 function startCaptureTimer() {
@@ -306,13 +416,59 @@ function createRecorder(stream, kind) {
 
     if (kind === 'audio') {
       audioChunks.push(event.data);
+      audioChunkBytes += event.data.size;
+      if (audioChunkBytes > MAX_MEDIA_CHUNK_BYTES.audio) {
+        enforceMediaLimit('audio');
+      }
       return;
     }
 
     videoChunks.push(event.data);
+    videoChunkBytes += event.data.size;
+    if (videoChunkBytes > MAX_MEDIA_CHUNK_BYTES.video) {
+      enforceMediaLimit('video');
+    }
   });
 
   return recorder;
+}
+
+function enforceMediaLimit(kind) {
+  const recorder = kind === 'audio' ? audioRecorder : videoRecorder;
+  if (!recorder || recorder.state === 'inactive') {
+    return;
+  }
+
+  const limitLabel = formatMediaLimit(kind);
+  if (kind === 'audio') {
+    audioLimitWarning = `音频体积超过 ${limitLabel} 保护上限，已提前结束音频录制；截图和其余素材不受影响。`;
+  } else {
+    videoLimitWarning = `视频体积超过 ${limitLabel} 保护上限，已提前结束视频录制；截图和其余素材不受影响。`;
+  }
+
+  try {
+    recorder.stop();
+  } catch (error) {
+    console.warn('[Offscreen] Stop on media limit failed:', error);
+  }
+
+  chrome.runtime
+    .sendMessage({
+      action: 'offscreenMediaUpdated',
+      payload: {
+        audioStarted: kind === 'audio' ? false : Boolean(audioRecorder && audioRecorder.state !== 'inactive'),
+        videoStarted: kind === 'video' ? false : Boolean(videoRecorder && videoRecorder.state !== 'inactive'),
+        message: kind === 'audio' ? audioLimitWarning : videoLimitWarning
+      }
+    })
+    .catch(() => {});
+}
+
+function formatMediaLimit(kind) {
+  const bytes = MAX_MEDIA_CHUNK_BYTES[kind];
+  return bytes >= 1024 * 1024 * 1024
+    ? `${Math.round(bytes / (1024 * 1024 * 1024))}GB`
+    : `${Math.round(bytes / (1024 * 1024))}MB`;
 }
 
 function getPreferredMimeType(kind) {
@@ -374,6 +530,8 @@ async function stopRecordersAndTracks() {
   captureStream = null;
   audioChunks = [];
   videoChunks = [];
+  audioChunkBytes = 0;
+  videoChunkBytes = 0;
 }
 
 function stopStreamTracks(stream) {

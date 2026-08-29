@@ -2,6 +2,50 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.6.1] - 2026-08-29
+
+### Changed
+- Background service worker fully modularized under a 500-line-per-file engineering budget: the entry file now only hosts message routing and top-level listeners, while 22 lifecycle modules (runtime state, operation safety, recording assets/targets/lifecycle, screenshot engine, agent loop/tools/state, tutorial generator, realtime suggestions, export pipeline, detail/history/media services, interaction capture, plus the earlier pure-function modules) own their concerns behind a shared `S` state container with auto-generated cross-module imports and a regression-enforced line budget.
+
+## [2.6.0] - 2026-08-29
+
+### Added
+- Screenshot annotation editor in the workspace: arrows, highlight boxes, pixel-mosaic redaction, and text callouts with color/width pickers, undo (Ctrl+Z), and original-resolution PNG export into the step draft.
+- Store submission kit: Chinese privacy policy (`docs/privacy-policy-zh.md`) and Chrome Web Store / Edge Add-ons listing material with per-permission review answers (`docs/store-listing.md`).
+- `.env.example` template plus KEY=VALUE support in the AI smoke config loader (legacy three-line format still accepted).
+
+### Changed
+- Content script is now injected on demand via `chrome.scripting` while recording (re-injected on tab navigation) instead of a static `<all_urls>` content_scripts declaration; the redundant Ark host permission entry was removed.
+- `getPopupState` no longer returns the plaintext API key (reports `apiKeyConfigured` instead); the full settings page reads secrets through a dedicated `getSecretSettings` action.
+- Engineering split: background service worker decomposed into focused modules — `settings-schema.js` (presets + normalization), `ai-vision.js` (vision request pipeline), `exporters.js` (Markdown/HTML/PDF/ZIP builders), `text-utils.js`, and `notify.js` — with a cross-reference audit, directory-aware regression source loading, and a dynamic `scripts/check-syntax.mjs` gate that scans every source file.
+
+## [2.5.0] - 2026-08-29
+
+### Added
+- Global provider compatibility: Groq and Mistral presets join OpenAI/Claude/Gemini for overseas users, plus Azure OpenAI (`/openai/v1` compatibility layer) and One API / New API self-hosted relay presets.
+- Provider dropdown now groups presets into 国产模型 / 海外模型 / 中转与网关 so domestic-first positioning stays clear while remaining globally usable.
+- One-click "测试连接" in the full settings page: sends a minimal real vision request through the exact configured chain (Base URL + Key + model + API style) and reports latency, the model reply, or a localized troubleshooting hint covering auth failures, missing models on relays, rate limits, timeouts, and http/https mismatches.
+- E2E coverage for the connection-test guidance path when providers are unconfigured.
+- API Key input opts out of browser password managers via `autocomplete="new-password"`.
+
+## [2.4.0] - 2026-08-29
+
+### Added
+- Sensitive input protection: password/OTP/card fields are never read into interaction summaries, and phone/ID-card/bank-card numbers are masked in both the content script and the background layer before they reach AI prompts.
+- Zhipu GLM (`open.bigmodel.cn`) and Moonshot Kimi (`api.moonshot.cn`) provider presets across background, settings page, and popup labels.
+- AI Agent tools `press_key` (Enter/Tab/Escape/Backspace/arrows), `navigate`, `hover`, and `wait`, unlocking search-submit and multi-page flows.
+- Viewport-aware agent decisions: CSS layout metrics are attached to each decision, and decision screenshots are normalized to viewport size so click coordinates map 1:1.
+- Standalone `tutorial.html` in every exported ZIP: a single file with inline screenshots and playable audio/video that opens directly in any browser.
+- Vision analysis retry with exponential backoff on 429/5xx honoring `Retry-After`, plus pre-upload downscaling (1280px JPEG) that cuts image tokens and upload size.
+- Concurrent batch description generation (3 workers) while preserving step order and fallback behavior.
+- Media size circuit breakers: audio stops gracefully past 100MB and video past 400MB with Chinese warnings; screenshots and the rest of the export continue.
+- History retention raised from 20 to 100 entries.
+
+### Changed
+- Offscreen media sessions now persist audio/video assets directly into IndexedDB and return asset IDs, removing the 64MB runtime-message ceiling for long recordings.
+- IndexedDB access now recovers from stale service-worker connections via `versionchange`/`close` handling and one automatic reconnect per operation.
+- Agent decision `max_tokens` raised to 512 to accommodate the expanded tool schema.
+
 ## [2.3.0] - 2026-05-07
 
 ### Added

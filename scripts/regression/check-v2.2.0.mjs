@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
-  background: 'background/background.js',
+  background: 'background/',
   popup: 'popup/popup.js',
   settingsHtml: 'settings/settings.html',
   settingsJs: 'settings/settings.js',
@@ -16,14 +17,7 @@ const files = {
   progress: 'memory/dev-loop-progress.md'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -92,7 +86,7 @@ const checks = [
       /maxDurationMs: agentMaxDurationMs/.test(source.background) &&
       /deadlineAt: startedAt \+ agentMaxDurationMs/.test(source.background) &&
       /`当前步数：\$\{stepIndex\}\/\$\{maxSteps\}`/.test(source.background) &&
-      /steps: \[\.\.\.steps, step\]\.slice\(-\(currentRuntime\.aiAgent\.maxSteps \|\| AI_AGENT_MAX_STEPS\)\)/.test(
+      /steps: \[\.\.\.steps, step\]\.slice\(-\((S\.)?currentRuntime\.aiAgent\.maxSteps \|\| AI_AGENT_MAX_STEPS\)\)/.test(
         source.background
       )
   },

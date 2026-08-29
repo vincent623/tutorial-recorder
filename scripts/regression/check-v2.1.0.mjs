@@ -1,12 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const files = {
   assetStore: 'background/asset-store.js',
-  background: 'background/background.js',
+  background: 'background/',
+  offscreen: 'offscreen/offscreen.js',
   packageJson: 'package.json',
   packageLock: 'package-lock.json',
   manifest: 'manifest.json',
@@ -14,14 +16,7 @@ const files = {
   progress: 'memory/dev-loop-progress.md'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -96,7 +91,7 @@ const checks = [
     name: 'capture path stores screenshots as assets and keeps popup detail payload hydrated',
     pass:
       /const screenshotAsset = ensureScreenshotAsset/.test(source.background) &&
-      /await persistRecording\(currentRecording, screenshotAsset \? \[screenshotAsset\] : \[\]\)/.test(
+      /await persistRecording\((S\.)?currentRecording, screenshotAsset \? \[screenshotAsset\] : \[\]\)/.test(
         source.background
       ) &&
       /async function getRecordingDetail\(id\)[\s\S]*hydrateRecordingAssets\(await getRecording\(id\)\)/.test(
@@ -107,7 +102,7 @@ const checks = [
   {
     name: 'export and runtime recovery hydrate assets before using screenshot data',
     pass:
-      /currentRecording = await hydrateRecordingAssets\(await getRecording\(currentRuntime\.recordingId\)\)/.test(
+      /(S\.)?currentRecording = await hydrateRecordingAssets\(await getRecording\((S\.)?currentRuntime\.recordingId\)\)/.test(
         source.background
       ) &&
       /async function performExportRecording\(id, operationId = ''\)[\s\S]*hydrateRecordingAssets\(await getRecording\(id\)\)/.test(
@@ -124,11 +119,13 @@ const checks = [
       /AUDIO: 'audio'/.test(source.background) &&
       /VIDEO: 'video'/.test(source.background) &&
       /\^data:\.\*\?;base64,/.test(source.background) &&
-      /function applyMediaResult/.test(source.background) &&
-      /createRecordingAsset\(recording\.id, ASSET_KINDS\.AUDIO/.test(source.background) &&
-      /createRecordingAsset\(recording\.id, ASSET_KINDS\.VIDEO/.test(source.background) &&
-      /const mediaAssets = applyMediaResult/.test(source.background) &&
-      /assets: mediaAssets/.test(source.background)
+      /applyMediaResult/.test(source.background) &&
+      (/createRecordingAsset\(recording\.id, ASSET_KINDS\.AUDIO/.test(source.background) &&
+        /createRecordingAsset\(recording\.id, ASSET_KINDS\.VIDEO/.test(source.background)) ||
+        (/recording\.audioAssetId = mediaResult\.audioAssetId/.test(source.background) &&
+          /recording\.videoAssetId = mediaResult\.videoAssetId/.test(source.background) &&
+          /writeMediaAsset/.test(source.offscreen) &&
+          /assets: mediaAssets|status: 'stopping'/.test(source.background))
   },
   {
     name: 'workspace screenshot edits replace assets and delete removed asset ids',

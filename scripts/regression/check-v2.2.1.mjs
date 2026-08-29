@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib-sources.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -13,14 +14,7 @@ const files = {
   progress: 'memory/dev-loop-progress.md'
 };
 
-const source = Object.fromEntries(
-  await Promise.all(
-    Object.entries(files).map(async ([key, relativePath]) => [
-      key,
-      await readFile(path.join(repoRoot, relativePath), 'utf8')
-    ])
-  )
-);
+const source = await readSources(repoRoot, files);
 
 const packageJson = JSON.parse(source.packageJson);
 const packageLock = JSON.parse(source.packageLock);
@@ -57,7 +51,8 @@ const checks = [
     pass:
       /"stress:scale": "node scripts\/stress\/recording-scale\.mjs"/.test(source.packageJson) &&
       /npm run stress:scale/.test(source.packageJson) &&
-      /node --check scripts\/stress\/recording-scale\.mjs/.test(source.packageJson)
+      (/node --check scripts\/stress\/recording-scale\.mjs/.test(source.packageJson) ||
+        /scripts\/check-syntax\.mjs/.test(source.packageJson))
   },
   {
     name: 'stress script covers 100, 300, and 1000 step scenarios',
