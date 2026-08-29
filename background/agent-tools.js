@@ -223,33 +223,8 @@ export function parseAgentActionText(text) {
   try {
     return sanitizeAgentAction(JSON.parse(jsonText));
   } catch (error) {
-    const finishDescription = inferAgentFinishFromText(raw);
-    if (finishDescription) {
-      return { action: 'finish', description: finishDescription };
-    }
     throw new Error(`AI 未返回可执行动作：${sanitizeEditableText(raw, 160) || '空响应'}`);
   }
-}
-
-export function inferAgentFinishFromText(text) {
-  const normalized = sanitizeEditableText(text, 400);
-  if (
-    !normalized ||
-    /未完成|尚未|还未|没有完成|无法确认|不能确认|尚需|仍需/.test(normalized) ||
-    /请|需|为了|以便|才能|接下来|随后|然后|之后|后再|条件|说明|要求|标准|示例|假设|如果|若/.test(normalized)
-  ) {
-    return '';
-  }
-
-  const startsWithCompletion =
-    /^(?:已经|已)(?:完成|达成|确认)/.test(normalized) ||
-    /^(?:目标|任务)(?:已经|已)(?:完成|达成)/.test(normalized) ||
-    /^确认(?:当前|页面|目标|任务)/.test(normalized);
-  const hasResultEvidence =
-    /(?:目标|任务).{0,20}(?:已经|已)?(?:完成|达成)/.test(normalized) ||
-    /(?:当前|页面|模式|状态).{0,40}(?:已经|已)(?:生效|变为|显示为)/.test(normalized);
-
-  return startsWithCompletion && hasResultEvidence ? normalized : '';
 }
 
 export const AGENT_KEY_EVENT_DEFS = Object.freeze({

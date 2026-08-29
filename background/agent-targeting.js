@@ -22,6 +22,15 @@ export async function calibrateAgentAction(action) {
   };
 }
 
+export function isRepeatedAgentAction(action, steps = []) {
+  if (action?.action !== 'click_at_xy' || !action.targetText || !Array.isArray(steps) || !steps.length) {
+    return false;
+  }
+
+  const previous = steps[steps.length - 1];
+  return previous?.action === 'click_at_xy' && previous.targetText === action.targetText;
+}
+
 export async function resolveAgentTargetCenter(targetText) {
   if (!S.currentRuntime.cdpAttached || !S.currentRuntime.tabId) {
     return null;

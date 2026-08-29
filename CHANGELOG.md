@@ -10,6 +10,8 @@ All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 - GitHub Actions 无密钥真实 Chromium E2E 门禁和浏览器证据 artifact。
 - 受信任 CI 强制执行的 DeepSeek 官方视觉 smoke（fork PR 安全跳过），以及基于可见控件文字的点击坐标校准与动作坐标审计。
 - AI smoke 主动删除含临时扩展设置的 Chromium Profile，CI 仅白名单上传脱敏浏览器证据。
+- DeepSeek Agent 决策强制结构化工具调用；自然语言完成声明不再推断为 `finish`。
+- 连续相同可见目标的重复点击会在 CDP 执行前被阻止并触发重新观察，避免重复提交或删除。
 
 ### Changed
 - 后台模块移除静态循环依赖，抽出设置读取与步骤描述纯模块，并通过回调解耦 Agent 停止流程。

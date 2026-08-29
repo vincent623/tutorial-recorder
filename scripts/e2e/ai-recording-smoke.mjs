@@ -173,7 +173,7 @@ async function main() {
         report.extensionDebuggerProbe.attached === false,
       browserActionCompleted:
         report.fixtureState.metricMode === '评审中' &&
-        Number.parseInt(report.fixtureState.metricCount, 10) >= 1,
+        Number.parseInt(report.fixtureState.metricCount, 10) === 1,
       historyCreated: finalState.history.some((item) => item.recordingMode === 'ai'),
       screenshotsCaptured: finalState.history.some((item) => item.recordingMode === 'ai' && item.screenshotCount >= 1)
     };

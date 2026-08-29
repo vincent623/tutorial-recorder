@@ -2,7 +2,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inferAgentFinishFromText } from '../../background/agent-tools.js';
+import { parseAgentActionText } from '../../background/agent-tools.js';
+import { isRepeatedAgentAction } from '../../background/agent-targeting.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (relativePath) => readFile(path.join(repoRoot, relativePath), 'utf8');
@@ -66,6 +67,15 @@ function findImportCycles(sources) {
   return [...graph.keys()].some(visit);
 }
 
+function rejectsNaturalAgentText(text) {
+  try {
+    parseAgentActionText(text);
+    return false;
+  } catch (error) {
+    return true;
+  }
+}
+
 function buildPackage() {
   const result = spawnSync(process.execPath, ['scripts/package-extension.mjs'], {
     cwd: repoRoot,
@@ -114,20 +124,26 @@ const checks = [
     name: 'AI click actions preserve coordinates and calibrate visible text targets',
     pass:
       /targetText/.test(agentTools) &&
-      /inferAgentFinishFromText/.test(agentTools) &&
-      Boolean(inferAgentFinishFromText('已经确认当前模式切换成功，目标达成。')) &&
-      Boolean(inferAgentFinishFromText('已经完成点击评审按钮，当前模式已生效，目标达成。')) &&
-      !inferAgentFinishFromText('尚未完成目标，仍需继续操作。') &&
-      !inferAgentFinishFromText('为了让任务完成，请点击提交。') &&
-      !inferAgentFinishFromText('请确认任务完成后继续。') &&
-      !inferAgentFinishFromText('已说明任务完成条件为点击提交。') &&
-      !inferAgentFinishFromText('已完成任务要求说明，仍需点击提交。') &&
-      !inferAgentFinishFromText('点击提交按钮继续。') &&
+      !/inferAgentFinishFromText/.test(agentTools) &&
+      /thinking: \{ type: 'disabled' \}/.test(backgroundSources['agent-loop.js']) &&
+      /settings\.providerPreset === 'deepseekOfficial' \? 'required' : 'auto'/.test(backgroundSources['agent-loop.js']) &&
+      parseAgentActionText('{"action":"finish","description":"目标已完成"}').action === 'finish' &&
+      rejectsNaturalAgentText('已经确认当前模式切换成功，目标达成。') &&
+      rejectsNaturalAgentText('已完成对任务完成情况的分析，下一步点击提交。') &&
+      isRepeatedAgentAction(
+        { action: 'click_at_xy', targetText: '提交' },
+        [{ action: 'click_at_xy', targetText: '提交' }]
+      ) &&
+      !isRepeatedAgentAction(
+        { action: 'click_at_xy', targetText: '下一步' },
+        [{ action: 'click_at_xy', targetText: '提交' }]
+      ) &&
       /resolveAgentTargetCenter/.test(agentTargeting) &&
       /Runtime\.evaluate/.test(agentTargeting) &&
       /action\.targetText/.test(agentState) &&
       /recentSteps/.test(aiSmoke) &&
       /partialReport/.test(aiSmoke) &&
+      /metricCount, 10\) === 1/.test(aiSmoke) &&
       /await rm\(profileDir/.test(aiSmoke)
   },
   {
