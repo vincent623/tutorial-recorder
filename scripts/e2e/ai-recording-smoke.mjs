@@ -14,6 +14,7 @@ const reportPath = path.join(artifactsDir, 'ai-smoke-report.json');
 const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48124', 10);
 const headless = process.env.PW_HEADLESS !== '0';
 const aiConfig = await loadAiConfig();
+let partialReport = null;
 
 async function main() {
   await mkdir(artifactsDir, { recursive: true });
@@ -29,6 +30,7 @@ async function main() {
     runtimeSamples: [],
     checks: {}
   };
+  partialReport = report;
 
   try {
     context = await chromium.launchPersistentContext(profileDir, {
@@ -82,7 +84,7 @@ async function main() {
             captureMode: 'displayMedia',
             screenshotInterval: 5,
             autoScreenshot: false,
-            aiAgentMaxSteps: 2,
+            aiAgentMaxSteps: 3,
             aiAgentMaxDurationMinutes: 2
           }
         }),
@@ -94,7 +96,7 @@ async function main() {
     }
     await popup.reload({ waitUntil: 'domcontentloaded' });
     await popup.waitForFunction(() => Boolean(chrome?.runtime?.sendMessage));
-    const goal = '确认当前演示页面可见后，直接完成 AI 录制。';
+    const goal = '点击“切换到评审面板”，确认当前模式变为“评审中”后完成 AI 录制。';
     await popup.locator('#aiGoal').fill(goal);
 
     report.fallbackStartResult = await popup.evaluate(async ({ targetDescription, targetUrl }) => {
@@ -141,6 +143,14 @@ async function main() {
     const finalState = await waitForAiCompletion(serviceWorker, report);
     report.finalRuntime = summarizeRuntime(finalState.runtime);
     report.historyState = finalState.history.map(summarizeHistoryItem);
+    report.extensionDebuggerProbe = await serviceWorker.evaluate(async (tabId) => {
+      try {
+        await chrome.debugger.sendCommand({ tabId }, 'Page.getLayoutMetrics');
+        return { attached: true, error: '' };
+      } catch (error) {
+        return { attached: false, error: String(error?.message || error || '').slice(0, 160) };
+      }
+    }, fixtureTab.id);
     report.fixtureState = await page.evaluate(() => ({
       headline: document.getElementById('headline')?.textContent || '',
       metricMode: document.getElementById('metricMode')?.textContent || '',
@@ -158,6 +168,12 @@ async function main() {
         report.runtimeSamples.some((item) => item?.aiAgent?.status === 'running') ||
         report.runtimeSamples.some((item) => item?.aiAgent?.status === 'finishing'),
       finishedWithoutFailure: finalState.runtime?.aiAgent?.status !== 'failed',
+      debuggerDetached:
+        finalState.runtime?.cdpAttached !== true &&
+        report.extensionDebuggerProbe.attached === false,
+      browserActionCompleted:
+        report.fixtureState.metricMode === '评审中' &&
+        Number.parseInt(report.fixtureState.metricCount, 10) >= 1,
       historyCreated: finalState.history.some((item) => item.recordingMode === 'ai'),
       screenshotsCaptured: finalState.history.some((item) => item.recordingMode === 'ai' && item.screenshotCount >= 1)
     };
@@ -252,6 +268,9 @@ async function loadAiConfig() {
 
 function inferProviderPreset(apiBaseUrl, providerComment = '') {
   const value = `${providerComment}\n${apiBaseUrl}`.toLowerCase();
+  if (value.includes('api.deepseek.com') || value.includes('deepseek')) {
+    return 'deepseekOfficial';
+  }
   if (value.includes('openrouter')) {
     return 'openRouter';
   }
@@ -329,12 +348,27 @@ function summarizeRuntime(runtime) {
     recordingMode: runtime.recordingMode || '',
     count: runtime.count || 0,
     mediaStatus: runtime.mediaStatus || '',
+    cdpAttached: runtime.cdpAttached === true,
     aiAgent: runtime.aiAgent
       ? {
           status: runtime.aiAgent.status || '',
           iteration: runtime.aiAgent.iteration || 0,
           message: runtime.aiAgent.message || '',
-          steps: Array.isArray(runtime.aiAgent.steps) ? runtime.aiAgent.steps.length : 0
+          steps: Array.isArray(runtime.aiAgent.steps) ? runtime.aiAgent.steps.length : 0,
+          recentSteps: Array.isArray(runtime.aiAgent.steps)
+            ? runtime.aiAgent.steps.slice(-3).map((step) => ({
+                index: step.index,
+                action: step.action,
+                x: step.x,
+                y: step.y,
+                requestedX: step.requestedX,
+                requestedY: step.requestedY,
+                targetText: step.targetText,
+                matchedText: step.matchedText,
+                coordinateSource: step.coordinateSource,
+                description: step.description
+              }))
+            : []
         }
       : null
   };
@@ -400,6 +434,7 @@ function delay(ms) {
 
 main().catch(async (error) => {
   const failure = {
+    ...(partialReport ? redactReport(partialReport) : {}),
     ok: false,
     error: error.message,
     stack: error.stack,

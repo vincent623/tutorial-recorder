@@ -13,7 +13,7 @@
 把"怎么做"一键变成图文教程 —— 录制你的操作，AI 写好每一步。
 
 【为什么选它】
-- 全中文 AI 步骤说明：接入火山方舟、智谱 GLM、硅基流动、阿里云百炼、Kimi 等国产模型，也支持 OpenAI、Claude、Gemini、Groq、OpenRouter 与自建中转站，一键"测试连接"
+- 全中文 AI 步骤说明：接入火山方舟、智谱 GLM、硅基流动、阿里云百炼、Kimi、DeepSeek 官方等国产模型，也支持 OpenAI、Claude、Gemini、Groq、OpenRouter 与自建中转站，一键"测试连接"
 - 数据 100% 本地：截图、录音、录像只存在你自己电脑，无账号、无遥测、无云端
 - 隐私保护：密码/验证码永不采集，手机号/身份证/银行卡自动打码
 
@@ -58,7 +58,7 @@
 
 ## 上架前待办
 
-- [ ] 部署隐私政策到公开 URL（GitHub Pages 即可：`/<repo>/privacy-policy-zh.md`）
+- [x] 隐私政策已部署到 `https://vincent623.github.io/tutorial-recorder/privacy-policy-zh.html`
 - [ ] 开发者账号：Chrome ($5 一次性) / Edge（免费）
 - [ ] 准备 4-6 张截图 + 1 个 ≤30s 演示视频（可选加分项）
 - [ ] 打包产物：`dist/tutorial-recorder-v版本号.zip`（`npm run package` 生成，商店直接上传）

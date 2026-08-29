@@ -47,6 +47,23 @@
       </div>
     </section>
 
+    <section class="panel" id="storagePanel">
+      <div class="panel-head">
+        <h2>本地存储</h2>
+        <span class="panel-tip">查看录制素材占用，必要时一次清理全部教程</span>
+      </div>
+
+      <div class="storage-summary" aria-live="polite">
+        <strong id="storageUsageValue">正在统计...</strong>
+        <span id="storageUsageDetail">读取 IndexedDB 和浏览器存储用量</span>
+      </div>
+      <div class="storage-actions">
+        <button type="button" id="btnRefreshStorage" class="mini-btn">刷新用量</button>
+        <button type="button" id="btnClearAllRecordings" class="danger-btn">清理全部教程</button>
+      </div>
+      <small class="field-hint">清理会永久删除历史索引、截图、音频和视频；导出到下载目录的 ZIP 不受影响。</small>
+    </section>
+
     <section class="panel">
       <div class="panel-head">
         <h2>导出设置</h2>
@@ -139,6 +156,7 @@
             <option value="siliconFlow">硅基流动</option>
             <option value="aliyunDashScope">阿里云百炼</option>
             <option value="moonshot">月之暗面 Kimi</option>
+            <option value="deepseekOfficial">DeepSeek 官方</option>
           </optgroup>
           <optgroup label="海外模型">
             <option value="openai">OpenAI</option>

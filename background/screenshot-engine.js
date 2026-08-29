@@ -1,4 +1,4 @@
-import { notifyContent } from './background.js';
+import { notifyContent } from './notify.js';
 import { getRelevantInteraction } from './interaction-capture.js';
 import { notifyPopup } from './notify.js';
 import { createOperationId, runIdempotentOperation, runSerializedOperation } from './op-safety.js';

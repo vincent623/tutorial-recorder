@@ -6,7 +6,7 @@
 
 - 自动截图和手动截图
 - 真实视频录制 + 麦克风录音（音频/视频直接落盘 IndexedDB，分别带 100MB/400MB 体积熔断保护）
-- 基于 15 个 Provider 预设生成步骤说明：国产（火山方舟、智谱 GLM、硅基流动、阿里云百炼、月之暗面 Kimi）、海外（OpenAI、Claude、Google Gemini、Groq、Mistral）、中转与网关（OpenRouter、Azure OpenAI、One API / New API 自建中转、OpenAI Compatible、自定义），并支持一键"测试连接"验证全链路
+- 基于 16 个 Provider 预设生成步骤说明：国产（火山方舟、智谱 GLM、硅基流动、阿里云百炼、月之暗面 Kimi、DeepSeek 官方）、海外（OpenAI、Claude、Google Gemini、Groq、Mistral）、中转与网关（OpenRouter、Azure OpenAI、One API / New API 自建中转、OpenAI Compatible、自定义），并支持一键"测试连接"验证全链路
 - 敏感信息防护：密码/验证码/卡号输入永不上报，手机号/身份证/银行卡号自动打码后才进入 AI 提示词
 - 导出单个 `ZIP`，内含 `Markdown + 单文件 HTML + PDF + 音频 WebM + 视频 WebM + PNG`
 - popup 负责录制与快速入口，独立工作台负责历史记录查看、编辑、重新导出和删除
@@ -42,7 +42,7 @@ tutorial-recorder/
 1. 打开 `chrome://extensions`
 2. 开启“开发者模式”
 3. 选择“加载已解压的扩展程序”
-4. 选中项目根目录 `/Volumes/My_data/dev/tutorial-recorder`
+4. 选中当前仓库的项目根目录
 
 打开插件 popup 后，可以直接改：
 
@@ -53,7 +53,7 @@ tutorial-recorder/
 - 是否自动截图
 - 是否显示实时 AI 建议
 - `AI 录制`：填写教程目标后启动自动录制，执行中可暂停 AI、接管操作或停止导出
-- AI Agent 支持 `click_at_xy / type_text / scroll / press_key / navigate / hover / wait / finish` 八种工具；决策截图会按视口 CSS 像素对齐，点击坐标更精准
+- AI Agent 支持 `click_at_xy / type_text / scroll / press_key / navigate / hover / wait / finish` 八种工具；决策截图会按视口 CSS 像素对齐，点击动作还会用可见控件文字校准目标中心并记录原始/执行坐标
 
 点击 `完整设置` 后，可以在独立设置页继续配置：
 
@@ -64,6 +64,7 @@ tutorial-recorder/
 - `默认（平衡）/ 动作优先 / 控件定位 / 简洁短句 / 自定义` 提示词版本
 - 导出目录
 - 是否在导出时为 ZIP 弹出保存位置
+- 本地存储用量、教程/素材数量和一键清理全部教程
 
 说明：
 
@@ -161,7 +162,8 @@ npm run validate:e2e
 
 仓库包含 `.github/workflows/release.yml`：
 
-- push 到 `main`、PR、手动触发：运行 `npm ci`、`npm run check`、`npm run package`，并上传 ZIP 与 sha256 为 workflow artifact
+- push 到 `main`、PR、手动触发：运行 `npm ci`、`npm run check`、真实 Chromium `npm run validate:e2e`、`npm run package`，并上传浏览器证据、ZIP 与 sha256 为 workflow artifact
+- 仓库配置 `DEEPSEEK_API_KEY` Secret 后，CI 会额外用 `deepseek-v4-flash-vision-exp` 执行真实“识别按钮 → 点击 → 确认状态 → 结束并释放调试器”回归；PR 没有 Secret 时安全跳过
 - push `v*` 标签：在通过检查和打包后创建 GitHub Release，并上传 `dist/*.zip` 与 `dist/*.sha256`
 
 发布步骤：
@@ -185,6 +187,7 @@ GitHub Release 会自动使用 tag 名作为标题，并附带可安装的扩展
 - `硅基流动`：默认基地址 `https://api.siliconflow.cn/v1`
 - `阿里云百炼`：默认基地址 `https://dashscope.aliyuncs.com/compatible-mode/v1`
 - `月之暗面 Kimi`：默认基地址 `https://api.moonshot.cn/v1`，填 `moonshot-v1-8k-vision-preview` 等视觉模型
+- `DeepSeek 官方`：默认基地址 `https://api.deepseek.com`，视觉模型可填 `deepseek-v4-flash-vision-exp`
 
 海外模型：
 

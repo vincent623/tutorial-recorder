@@ -2,6 +2,19 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.7.0] - 2026-08-30
+
+### Added
+- DeepSeek 官方 Provider 预设，支持账号实时开放的 `deepseek-v4-flash-vision-exp` 视觉模型。
+- 设置页本地存储治理：用量、教程/素材数量展示，以及带确认的一键清理。
+- GitHub Actions 无密钥真实 Chromium E2E 门禁和浏览器证据 artifact。
+- 可选的 CI DeepSeek 官方视觉 smoke，以及基于可见控件文字的点击坐标校准与动作坐标审计。
+
+### Changed
+- 后台模块移除静态循环依赖，抽出设置读取与步骤描述纯模块，并通过回调解耦 Agent 停止流程。
+- 扩展 ZIP 使用固定文件时间戳，同一提交可字节级复现并稳定校验。
+- 系统规格、隐私约束和上架材料同步到当前 16 Provider、100 条历史和已实现存储治理状态。
+
 ## [2.6.1] - 2026-08-29
 
 ### Changed

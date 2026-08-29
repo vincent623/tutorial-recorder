@@ -23,3 +23,4 @@ The watchdog reads the first unchecked item and executes the mapped verification
 - [x] `v2.5.0-global-provider-compatibility` - Add Groq/Mistral/Azure/One-API presets and a one-click provider connection test.
 - [x] `v2.6.0-store-readiness-and-annotations` - On-demand content injection, API-key redaction, module split, annotate editor, and store submission docs.
 - [x] `v2.6.1-background-module-budget` - Split the background service worker into 500-line lifecycle modules behind a shared state container.
+- [x] `v2.7.0-risk-closure` - Add CI browser E2E, DeepSeek vision, storage governance, acyclic modules, reproducible packages, and current docs.

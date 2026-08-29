@@ -1,13 +1,12 @@
 import { appendAiAgentStep, isAiAgentLimitReached, isAiAgentLoopActive, updateAgentScreenshotDescription, updateAiAgentState, waitForAiAgentResume } from './agent-state.js';
+import { calibrateAgentAction } from './agent-targeting.js';
 import { buildAgentToolSchema, describeAgentAction, executeAiAgentAction, extractAgentAction } from './agent-tools.js';
 import { AI_ANALYZE_TIMEOUT_MS, createAiTimeoutError, hasVisionAnalysisConfig, parseExtraHeaders, parseImageDataUrl, resizeDataUrlToSize, resolveVisionUrl, sanitizePageTitle, summarizeUrlForPrompt } from './ai-vision.js';
-import { notifyContent } from './background.js';
-import { notifyPopup } from './notify.js';
-import { stopRecording } from './recording-lifecycle.js';
+import { notifyContent, notifyPopup } from './notify.js';
 import { S, updateBadge } from './runtime-state.js';
 import { captureScreenshot } from './screenshot-engine.js';
 import { AI_AGENT_MAX_STEPS, normalizeApiStyle } from './settings-schema.js';
-import { getSettings } from './settings-service.js';
+import { getSettings } from './settings-store.js';
 import { delay, sanitizeEditableText } from './text-utils.js';
 
 export const AI_AGENT_STEP_DELAY_MS = 800;
@@ -88,7 +87,7 @@ export async function takeoverRecording() {
   notifyContent('recordingResumed');
 }
 
-export async function runAiAgentLoop(initialSettings) {
+export async function runAiAgentLoop(initialSettings, requestStop) {
   let settings = initialSettings;
 
   while (isAiAgentLoopActive()) {
@@ -102,7 +101,7 @@ export async function runAiAgentLoop(initialSettings) {
         status: 'limit',
         message: '已达到 AI 录制上限，正在保留已完成步骤并导出。'
       });
-      await stopRecording();
+      await requestStop?.();
       return;
     }
 
@@ -119,7 +118,8 @@ export async function runAiAgentLoop(initialSettings) {
     const screenshot = S.currentRecording.screenshots[S.currentRecording.screenshots.length - 1];
     settings = await getSettings();
     await readAgentViewport();
-    const action = await decideNextAgentActionWithRetry(screenshot, settings);
+    const decision = await decideNextAgentActionWithRetry(screenshot, settings);
+    const action = await calibrateAgentAction(decision);
 
     if (!isAiAgentLoopActive()) {
       return;
@@ -139,7 +139,7 @@ export async function runAiAgentLoop(initialSettings) {
         status: 'finishing',
         message: 'AI 已完成目标，正在生成教程。'
       });
-      await stopRecording();
+      await requestStop?.();
       return;
     }
 
@@ -373,9 +373,9 @@ export function buildAgentDecisionPrompt(screenshot) {
     completedSteps ? `已完成步骤：\n${completedSteps}` : '已完成步骤：无',
     '请选择下一步工具调用。只能使用 click_at_xy、type_text、scroll、press_key、navigate、hover、wait、finish。',
     '如果目标已完成，调用 finish。',
-    '如果需要点击或悬停，给出视口坐标 x/y；如果需要输入，先确保输入框已聚焦；搜索类输入完成后通常需要 press_key Enter；如果需要打开新地址，使用 navigate 并给出完整 http/https 地址；如果页面正在加载或动效未完成，可用 wait 短暂等待。',
+    '如果需要点击，给出视口坐标 x/y，并在可识别时用 targetText 返回目标控件的完整可见文字；如果需要悬停，给出视口坐标 x/y；如果需要输入，先确保输入框已聚焦；搜索类输入完成后通常需要 press_key Enter；如果需要打开新地址，使用 navigate 并给出完整 http/https 地址；如果页面正在加载或动效未完成，可用 wait 短暂等待。',
     '每次只执行一个动作，并写出一句中文教程步骤说明 description。',
-    '如果不能使用工具调用，请只输出 JSON，例如 {"action":"click_at_xy","x":120,"y":240,"description":"点击提交按钮"}。'
+    '如果不能使用工具调用，请只输出 JSON，例如 {"action":"click_at_xy","x":120,"y":240,"targetText":"提交","description":"点击提交按钮"}。'
   ].join('\n');
 }
 

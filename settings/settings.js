@@ -36,6 +36,13 @@ const PROVIDER_PRESETS = {
     modelHint: '月之暗面填视觉模型 ID，例如 moonshot-v1-8k-vision-preview。',
     apiBaseHint: '走 Kimi OpenAI 兼容接口，基地址会自动补成 /chat/completions。'
   },
+  deepseekOfficial: {
+    apiBaseUrl: 'https://api.deepseek.com',
+    apiStyle: 'chatCompletions',
+    modelLabel: 'DeepSeek 模型 ID',
+    modelHint: '视觉测试填写 deepseek-v4-flash-vision-exp；普通对话可使用 deepseek-v4-flash。',
+    apiBaseHint: '调用 DeepSeek 官方 OpenAI 兼容 Chat Completions 接口。'
+  },
   openRouter: {
     apiBaseUrl: 'https://openrouter.ai/api/v1',
     apiStyle: 'chatCompletions',
@@ -224,7 +231,11 @@ const elements = {
   promptPresetHint: $('promptPresetHint'),
   promptSystem: $('promptSystem'),
   promptUser: $('promptUser'),
-  promptEditorHint: $('promptEditorHint')
+  promptEditorHint: $('promptEditorHint'),
+  storageUsageValue: $('storageUsageValue'),
+  storageUsageDetail: $('storageUsageDetail'),
+  btnRefreshStorage: $('btnRefreshStorage'),
+  btnClearAllRecordings: $('btnClearAllRecordings')
 };
 
 let saveTimer = null;
@@ -246,6 +257,7 @@ async function hydrate() {
   }
 
   applySettingsToForm(snapshot.settings);
+  await refreshStorageUsage();
   setSaveStatus('已加载当前设置', true);
 }
 
@@ -279,6 +291,65 @@ function bindEvents() {
   elements.promptUser.addEventListener('input', handlePromptDraftInput);
   elements.promptSystem.addEventListener('change', handlePromptDraftCommit);
   elements.promptUser.addEventListener('change', handlePromptDraftCommit);
+  elements.btnRefreshStorage.addEventListener('click', refreshStorageUsage);
+  elements.btnClearAllRecordings.addEventListener('click', clearAllRecordings);
+}
+
+async function refreshStorageUsage() {
+  const result = await sendAction('getStorageUsage').catch(() => null);
+  if (!result?.ok || !result.storage) {
+    elements.storageUsageValue.textContent = '用量读取失败';
+    elements.storageUsageDetail.textContent = '请稍后重试';
+    return null;
+  }
+
+  renderStorageUsage(result.storage);
+  return result.storage;
+}
+
+async function clearAllRecordings() {
+  const confirmed = window.confirm('确定清理全部教程吗？截图、音频、视频和历史记录都会永久删除。');
+  if (!confirmed) {
+    return;
+  }
+
+  elements.btnClearAllRecordings.disabled = true;
+  const result = await sendAction('clearAllRecordings').catch((error) => ({
+    ok: false,
+    error: error?.message || '清理失败'
+  }));
+  elements.btnClearAllRecordings.disabled = false;
+
+  if (!result?.ok || !result.storage) {
+    setSaveStatus(`清理失败：${result?.error || '未知错误'}`, false);
+    return;
+  }
+
+  renderStorageUsage(result.storage);
+  setSaveStatus('全部教程已清理', true);
+}
+
+function renderStorageUsage(storage = {}) {
+  const usedBytes = Number(storage.usageBytes) || Number(storage.payloadBytes) || 0;
+  const quotaBytes = Number(storage.quotaBytes) || 0;
+  elements.storageUsageValue.textContent = quotaBytes
+    ? `${formatBytes(usedBytes)} / ${formatBytes(quotaBytes)}`
+    : formatBytes(usedBytes);
+  elements.storageUsageDetail.textContent = `${Number(storage.recordingCount) || 0} 条教程 · ${Number(storage.assetCount) || 0} 个素材 · 素材净荷约 ${formatBytes(storage.payloadBytes)}`;
+}
+
+function formatBytes(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 ** 2) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  if (bytes < 1024 ** 3) {
+    return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  }
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
 async function saveSettings() {

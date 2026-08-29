@@ -443,6 +443,34 @@ async function main() {
     const filesOnDisk = await listFiles(downloadsDir);
     const fileTypes = await classifyDownloadedFiles(downloadsDir, filesOnDisk);
     const archiveContents = await inspectZipArchives(downloadsDir, fileTypes);
+    const storagePage = await context.newPage();
+    await storagePage.goto(`chrome-extension://${extensionId}/settings/settings.html`, {
+      waitUntil: 'domcontentloaded'
+    });
+    await storagePage.waitForFunction(
+      () => document.getElementById('storageUsageDetail')?.textContent?.includes('条教程')
+    );
+    const storageBeforeClear = await storagePage.evaluate(() =>
+      chrome.runtime.sendMessage({ action: 'getStorageUsage' })
+    );
+    storagePage.once('dialog', (dialog) => dialog.accept());
+    await storagePage.locator('#btnClearAllRecordings').click();
+    await storagePage.waitForFunction(
+      () => document.getElementById('storageUsageDetail')?.textContent?.startsWith('0 条教程')
+    );
+    const storageAfterClear = await storagePage.evaluate(() =>
+      chrome.runtime.sendMessage({ action: 'getStorageUsage' })
+    );
+    const historyAfterClear = await storagePage.evaluate(async () => {
+      const result = await chrome.runtime.sendMessage({ action: 'getPopupState' });
+      return result?.history || [];
+    });
+    await storagePage.close();
+    const storageGovernance = {
+      before: storageBeforeClear?.storage || null,
+      after: storageAfterClear?.storage || null,
+      historyCountAfter: historyAfterClear.length
+    };
 
     const report = {
       extensionId,
@@ -469,6 +497,7 @@ async function main() {
       filesOnDisk,
       fileTypes,
       archiveContents,
+      storageGovernance,
       checks: {
         hasZip: fileTypes.some((item) => item.kind === 'zip'),
         archiveHasMarkdown: archiveContents.some((archive) =>
@@ -563,7 +592,13 @@ async function main() {
           archive.entries.some(
             (entry) => entry.kind === 'markdown' && entry.preview.includes(`# ${editedTitle}`)
           )
-        )
+        ),
+        storageGovernanceWorked:
+          (storageGovernance.before?.recordingCount || 0) >= 1 &&
+          (storageGovernance.before?.assetCount || 0) >= 1 &&
+          storageGovernance.after?.recordingCount === 0 &&
+          storageGovernance.after?.assetCount === 0 &&
+          storageGovernance.historyCountAfter === 0
       }
     };
 
@@ -617,6 +652,8 @@ function buildAiConfigFromEnv() {
 
 function getDefaultApiBaseUrl(providerPreset) {
   switch (providerPreset) {
+    case 'deepseekOfficial':
+      return 'https://api.deepseek.com';
     case 'siliconFlow':
       return 'https://api.siliconflow.cn/v1';
     case 'aliyunDashScope':

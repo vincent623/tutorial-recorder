@@ -185,6 +185,53 @@ export async function listAssetsForRecording(recordingId) {
   );
 }
 
+export async function listAllAssets() {
+  return withStoreRobust(() => withStore(ASSETS_STORE, 'readonly', (store) => store.getAll()));
+}
+
+export async function getStorageUsageSummary() {
+  const [recordings, assets, estimate] = await Promise.all([
+    listRecordings(),
+    listAllAssets(),
+    globalThis.navigator?.storage?.estimate?.().catch(() => null) || null
+  ]);
+  const payloadBytes = assets.reduce((total, asset) => total + estimateDataUrlBytes(asset?.dataUrl), 0);
+  const metadataBytes = new TextEncoder().encode(JSON.stringify(recordings)).byteLength;
+
+  return {
+    recordingCount: recordings.length,
+    assetCount: assets.length,
+    payloadBytes,
+    metadataBytes,
+    usageBytes: Number(estimate?.usage) || payloadBytes + metadataBytes,
+    quotaBytes: Number(estimate?.quota) || 0
+  };
+}
+
+export async function clearAllRecordingData() {
+  await withStoreRobust(() =>
+    withStores([RECORDINGS_STORE, ASSETS_STORE], 'readwrite', (stores) => {
+      stores[RECORDINGS_STORE].clear();
+      stores[ASSETS_STORE].clear();
+    })
+  );
+}
+
+function estimateDataUrlBytes(value) {
+  if (typeof value !== 'string' || !value) {
+    return 0;
+  }
+
+  const commaIndex = value.indexOf(',');
+  if (commaIndex < 0 || !/;base64/i.test(value.slice(0, commaIndex))) {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
+  const payload = value.slice(commaIndex + 1).replace(/\s/g, '');
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
+}
+
 export async function deleteAssetsForRecording(recordingId) {
   return withStoreRobust(() =>
     withStore(ASSETS_STORE, 'readwrite', (store) => {

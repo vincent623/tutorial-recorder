@@ -2,7 +2,7 @@ import { pauseAiAgent, resumeAiAgent, runAiAgentLoop } from './agent-loop.js';
 import { handleAiAgentFailure, notifyAiStatus, updateAiAgentState } from './agent-state.js';
 import { hasVisionAnalysisConfig } from './ai-vision.js';
 import { deleteRecording } from './asset-store.js';
-import { notifyContent } from './background.js';
+import { notifyContent } from './notify.js';
 import { applyMediaResult, closeOffscreenDocument, ensureOffscreenDocument, sendOffscreenMessage, summarizeMediaState } from './media-orchestrator.js';
 import { notifyPopup } from './notify.js';
 import { COMMIT_STATES, createRecordingOperation, markRecordingRecoverableFailure, runExclusiveOperation, runIdempotentOperation, updateRecordingCommitState } from './op-safety.js';
@@ -12,7 +12,7 @@ import { activateRecordingTargetTab, createRecordingTargetError, extractFirstRec
 import { S, createAiAgentState, createIdleRuntime, getElapsedMs, persistRuntime, updateBadge } from './runtime-state.js';
 import { attachCdpDebugger, captureScreenshot, detachCdpDebugger, injectContentScript } from './screenshot-engine.js';
 import { buildCdpCropFromSettings, normalizeAiAgentMaxDurationMs, normalizeAiAgentMaxSteps } from './settings-schema.js';
-import { getSettings } from './settings-service.js';
+import { getSettings } from './settings-store.js';
 import { sanitizeEditableText } from './text-utils.js';
 import { generateTutorial } from './tutorial-generator.js';
 
@@ -251,7 +251,7 @@ export async function startAiRecording(tabId, targetDescription, options = {}) {
     notifyContent('recordingStarted');
     notifyAiStatus();
 
-    runAiAgentLoop(settings).catch((error) => {
+    runAiAgentLoop(settings, stopRecording).catch((error) => {
       handleAiAgentFailure(error).catch((failureError) => {
         console.error('[Background] AI failure handling failed:', failureError);
       });

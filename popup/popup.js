@@ -10,6 +10,7 @@ const PROVIDER_LABELS = {
   siliconFlow: '硅基流动',
   aliyunDashScope: '阿里云百炼',
   moonshot: '月之暗面 Kimi',
+  deepseekOfficial: 'DeepSeek 官方',
   openRouter: 'OpenRouter',
   groq: 'Groq',
   mistral: 'Mistral',

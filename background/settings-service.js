@@ -3,6 +3,7 @@ import { sendOffscreenMessage } from './media-orchestrator.js';
 import { normalizeRealtimeSuggestionForSettings, notifyRealtimeSuggestion } from './realtime-suggestions.js';
 import { HISTORY_KEY, S, SETTINGS_KEY, persistRuntime, restoreRuntimeState, updateBadge } from './runtime-state.js';
 import { DEFAULT_SETTINGS, normalizeSettings } from './settings-schema.js';
+import { getSettings } from './settings-store.js';
 
 export async function ensureInitialized() {
   if (!S.initPromise) {
@@ -33,11 +34,6 @@ export async function initialize() {
   await restoreRuntimeState();
   await recoverInterruptedRecordings();
   await updateBadge();
-}
-
-export async function getSettings() {
-  const { [SETTINGS_KEY]: settings } = await chrome.storage.local.get(SETTINGS_KEY);
-  return normalizeSettings(settings);
 }
 
 export async function getPopupStateSettings() {

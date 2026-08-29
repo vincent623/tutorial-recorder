@@ -32,6 +32,13 @@ export async function appendAiAgentStep(action, screenshotId, description) {
     operationId: stepId,
     index: steps.length + 1,
     action: action.action,
+    ...(Number.isFinite(action.x) ? { x: action.x } : {}),
+    ...(Number.isFinite(action.y) ? { y: action.y } : {}),
+    ...(Number.isFinite(action.requestedX) ? { requestedX: action.requestedX } : {}),
+    ...(Number.isFinite(action.requestedY) ? { requestedY: action.requestedY } : {}),
+    ...(action.targetText ? { targetText: sanitizeEditableText(action.targetText, 160) } : {}),
+    ...(action.matchedText ? { matchedText: sanitizeEditableText(action.matchedText, 160) } : {}),
+    ...(action.coordinateSource ? { coordinateSource: sanitizeOperationId(action.coordinateSource) } : {}),
     description,
     screenshotId,
     timestamp: Date.now()
@@ -127,4 +134,3 @@ export async function handleAiAgentFailure(error) {
   await updateBadge();
   notifyPopup('warning', { message: S.currentRuntime.aiAgent.message });
 }
-

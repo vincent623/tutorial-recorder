@@ -40,6 +40,11 @@ export const PROVIDER_PRESETS = {
     apiBaseUrl: 'https://api.moonshot.cn/v1',
     apiStyle: 'chatCompletions'
   },
+  deepseekOfficial: {
+    label: 'DeepSeek 官方',
+    apiBaseUrl: 'https://api.deepseek.com',
+    apiStyle: 'chatCompletions'
+  },
   openRouter: {
     label: 'OpenRouter',
     apiBaseUrl: 'https://openrouter.ai/api/v1',

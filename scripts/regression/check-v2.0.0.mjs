@@ -53,7 +53,7 @@ const checks = [
       /captureScreenshot\(\{ trigger: 'agent'/.test(source.background) &&
       /decideNextAgentAction/.test(source.background) &&
       /executeAiAgentAction/.test(source.background) &&
-      /await stopRecording\(\);/.test(source.background)
+      (/await stopRecording\(\);/.test(source.background) || /await requestStop\?\.\(\);/.test(source.background))
   },
   {
     name: 'CDP tool executor supports required browser actions',

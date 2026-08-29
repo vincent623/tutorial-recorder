@@ -18,10 +18,10 @@
 **部署：** 纯客户端 Chrome 扩展，无后端服务。所有数据存储在用户本地浏览器，所有 AI 调用由 background service worker 直接发起。
 
 **架构特点：**
-- 无构建工具、无打包、无框架 — 原生 JS ES Module
-- Service Worker 作为唯一编排中枢，所有业务逻辑集中处理
+- 无前端编译工具、无框架 — 原生 JS ES Module，通过脚本生成可复现的商店 ZIP
+- Service Worker 作为唯一编排中枢，业务逻辑拆分到生命周期、Agent、存储、导出等聚焦模块
 - 多个 Chrome 上下文（Popup / Content Script / Offscreen / Settings）通过消息传递与 background 通信
-- CDP 调用通过 chrome.debugger API，仅 AI 录制模式使用
+- CDP 调用通过 chrome.debugger API，用于用户主动开启的精确截图或 AI 录制
 
 ---
 
@@ -151,9 +151,9 @@ settings.screenshotEngine === 'cdp' && recording.isCdpAvailable
 **职责：** 与外部视觉模型交互，包含单轮分析和多轮 Agent 两种模式。
 
 **组件：**
-- VisionApiGateway：统一的 AI 调用入口，支持 9 家 Provider、3 种 API 风格
+- VisionApiGateway：统一的 AI 调用入口，支持 16 个 Provider 预设、3 种 API 风格
 - PromptRenderer：渲染提示词模板（内置 4 版 + 自定义），注入页面上下文变量
-- AnalysisRunner：录制停止后逐图分析，串行调用 VisionApiGateway（现有）
+- AnalysisRunner：录制停止后以 3 个并发 worker 调用 VisionApiGateway，同时保持步骤顺序
 - AgentLoop：多轮浏览器操控循环（Phase 3 新增）
 - ToolExecutor：将 AI 决策转化为 CDP 操作（click_at_xy / type_text / scroll / finish）（Phase 3 新增）
 
@@ -222,8 +222,8 @@ tutorial-YYYYMMDD-HHMMSS-<id>/
 **组件：**
 - RecordingStore：存储轻量 recording 元数据、步骤顺序、说明、提交状态与 asset 引用，对象仓库 `recordings`，keyPath `id`
 - AssetStore：存储截图、音频、视频的大体量 data URL payload，对象仓库 `assets`，keyPath `id`，按 `recordingId` 建索引
-- HistoryIndex：在 chrome.storage.local 维护历史索引数组（最多 20 条），仅含摘要字段
-- StorageQuotaManager：监控存储用量，提供清理能力（未来）
+- HistoryIndex：在 chrome.storage.local 维护历史索引数组（最多 100 条），仅含摘要字段
+- StorageQuotaManager：已实现浏览器用量、教程/素材计数和带确认的一键清理
 
 **存储分层：**
 ```
@@ -249,7 +249,7 @@ tutorial-YYYYMMDD-HHMMSS-<id>/
 
 **组件：**
 - SettingsNormalizer：输入验证 + 默认值填充 + Provider 预设解析
-- ProviderPresetResolver：9 家 Provider 的 Base URL / API Style / Label 映射
+- ProviderPresetResolver：16 个 Provider 预设的 Base URL / API Style / Label 映射
 - PromptPresetResolver：4 个内置提示词版本 + 自定义模板的解析和渲染
 
 ---
@@ -692,4 +692,4 @@ Phase 1-3 已在现有原生扩展目录中落地，未执行 Plasmo / React / T
 - [x] 7 条技术决策（ADR）有明确的背景、决策和后果分析
 - [ ] Phase 0（Plasmo 迁移）后续执行，不再作为 Phase 1-3 前置步骤
 - [x] Phase 1-3 的当前原生 JS 文件级改动影响已明确
-- [ ] background.js 拆分策略后续执行，未与 Phase 1-3 功能交付合并
+- [x] background.js 已在 v2.6.1 拆分为聚焦模块，并在 v2.7.0 消除静态循环依赖

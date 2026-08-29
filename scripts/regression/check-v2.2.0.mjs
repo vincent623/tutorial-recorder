@@ -97,7 +97,7 @@ const checks = [
       /async function decideNextAgentActionWithRetry\(screenshot, settings\)/.test(source.background) &&
       /attempt <= AI_AGENT_DECISION_RETRY_LIMIT/.test(source.background) &&
       /status: 'retrying'/.test(source.background) &&
-      /const action = await decideNextAgentActionWithRetry\(screenshot, settings\)/.test(source.background)
+      /const (?:action|decision) = await decideNextAgentActionWithRetry\(screenshot, settings\)/.test(source.background)
   },
   {
     name: 'AI Agent action execution waits for page stability and detects anomalies',

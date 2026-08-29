@@ -2,9 +2,9 @@ import { analyzeImage, describeAiFailureForUser, hasVisionAnalysisConfig } from 
 import { notifyPopup } from './notify.js';
 import { persistRecording } from './recording-assets.js';
 import { S, createRealtimeSuggestionState, persistRuntime } from './runtime-state.js';
-import { getSettings } from './settings-service.js';
+import { getSettings } from './settings-store.js';
 import { sanitizeEditableText, sanitizeTextValue } from './text-utils.js';
-import { getFallbackDescription, hasStepDescription } from './tutorial-generator.js';
+import { getFallbackDescription, hasStepDescription } from './step-descriptions.js';
 
 export function createRealtimeSuggestionStateForSettings(settings = {}) {
   if (settings.realtimeSuggestions !== true) {

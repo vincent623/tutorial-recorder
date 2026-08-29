@@ -2,7 +2,7 @@ import { pauseAiAgent, resumeAiAgent, takeoverRecording } from './agent-loop.js'
 import { deleteRecording } from './asset-store.js';
 import { getRecordingDetail, updateRecordingDetails } from './detail-service.js';
 import { exportRecording } from './export-pipeline.js';
-import { deleteRecordingById, getHistory } from './history-service.js';
+import { clearAllRecordings, deleteRecordingById, getHistory, getStorageUsage } from './history-service.js';
 import { recordInteraction } from './interaction-capture.js';
 import { handleOffscreenMediaUpdated } from './media-orchestrator.js';
 import { notifyPopup } from './notify.js';
@@ -10,7 +10,8 @@ import { updateRealtimeSuggestionOverride } from './realtime-suggestions.js';
 import { pauseRecording, resumeRecording, startAiRecording, startRecording, stopRecording } from './recording-lifecycle.js';
 import { S, serializeRuntimeForUi } from './runtime-state.js';
 import { captureScreenshot, injectContentScript } from './screenshot-engine.js';
-import { ensureInitialized, getPopupStateSettings, getSettings, initialize, saveSettings } from './settings-service.js';
+import { ensureInitialized, getPopupStateSettings, initialize, saveSettings } from './settings-service.js';
+import { getSettings } from './settings-store.js';
 import { testProviderConnection } from './tutorial-generator.js';
 
 console.log('[Background] Service worker booted');
@@ -124,6 +125,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await deleteRecordingById(message.id);
         sendResponse({ ok: true });
         break;
+      case 'getStorageUsage':
+        sendResponse({ ok: true, storage: await getStorageUsage() });
+        break;
+      case 'clearAllRecordings':
+        sendResponse({ ok: true, storage: await clearAllRecordings() });
+        break;
       case 'offscreenCaptureTick':
         sendResponse(await captureScreenshot({ trigger: 'auto' }));
         break;
@@ -165,11 +172,3 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     })
     .catch(() => {});
 });
-
-export function notifyContent(action, payload = {}) {
-  if (!S.currentRuntime.tabId) {
-    return;
-  }
-
-  chrome.tabs.sendMessage(S.currentRuntime.tabId, { action, ...payload }).catch(() => {});
-}

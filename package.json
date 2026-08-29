@@ -1,11 +1,11 @@
 {
   "name": "tutorial-recorder",
-  "version": "2.6.1",
+  "version": "2.7.0",
   "private": true,
   "type": "module",
   "scripts": {
     "check": "node scripts/check-syntax.mjs && npm run test:regression && npm run stress:scale",
-    "test:regression": "node scripts/regression/check-v1.3.1.mjs && node scripts/regression/check-v1.4.0.mjs && node scripts/regression/check-v1.5.0.mjs && node scripts/regression/check-v2.0.0.mjs && node scripts/regression/check-v2.0.2.mjs && node scripts/regression/check-v2.0.3.mjs && node scripts/regression/check-v2.1.0.mjs && node scripts/regression/check-v2.1.1.mjs && node scripts/regression/check-v2.2.0.mjs && node scripts/regression/check-v2.2.1.mjs && node scripts/regression/check-v2.2.2.mjs && node scripts/regression/check-v2.2.3.mjs && node scripts/regression/check-v2.2.4.mjs && node scripts/regression/check-v2.2.5.mjs && node scripts/regression/check-v2.2.6.mjs && node scripts/regression/check-v2.2.7.mjs && node scripts/regression/check-v2.3.0.mjs && node scripts/regression/check-v2.4.0.mjs && node scripts/regression/check-v2.5.0.mjs && node scripts/regression/check-v2.6.0.mjs && node scripts/regression/check-v2.6.1.mjs",
+    "test:regression": "node scripts/regression/check-v1.3.1.mjs && node scripts/regression/check-v1.4.0.mjs && node scripts/regression/check-v1.5.0.mjs && node scripts/regression/check-v2.0.0.mjs && node scripts/regression/check-v2.0.2.mjs && node scripts/regression/check-v2.0.3.mjs && node scripts/regression/check-v2.1.0.mjs && node scripts/regression/check-v2.1.1.mjs && node scripts/regression/check-v2.2.0.mjs && node scripts/regression/check-v2.2.1.mjs && node scripts/regression/check-v2.2.2.mjs && node scripts/regression/check-v2.2.3.mjs && node scripts/regression/check-v2.2.4.mjs && node scripts/regression/check-v2.2.5.mjs && node scripts/regression/check-v2.2.6.mjs && node scripts/regression/check-v2.2.7.mjs && node scripts/regression/check-v2.3.0.mjs && node scripts/regression/check-v2.4.0.mjs && node scripts/regression/check-v2.5.0.mjs && node scripts/regression/check-v2.6.0.mjs && node scripts/regression/check-v2.6.1.mjs && node scripts/regression/check-v2.7.0.mjs",
     "package": "node scripts/package-extension.mjs",
     "stress:scale": "node scripts/stress/recording-scale.mjs",
     "smoke:ai": "node scripts/e2e/ai-recording-smoke.mjs",

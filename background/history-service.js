@@ -1,4 +1,4 @@
-import { deleteRecording, listRecordings } from './asset-store.js';
+import { clearAllRecordingData, deleteRecording, getStorageUsageSummary, listRecordings } from './asset-store.js';
 import { buildRecordingTitle, getRecordingDuration, hasRecordingAudio, hasRecordingVideo } from './exporters.js';
 import { notifyPopup } from './notify.js';
 import { COMMIT_STATES, RECOVERABLE_COMMIT_STATES, markRecordingRecoverableFailure } from './op-safety.js';
@@ -141,3 +141,17 @@ export async function deleteRecordingById(id) {
   notifyPopup('historyUpdated', { history: await getHistory() });
 }
 
+export async function getStorageUsage() {
+  return getStorageUsageSummary();
+}
+
+export async function clearAllRecordings() {
+  if (S.currentRuntime.isRecording || S.currentRuntime.isGenerating) {
+    throw new Error('录制或导出进行中，暂时不能清理全部教程');
+  }
+
+  await clearAllRecordingData();
+  await chrome.storage.local.set({ [HISTORY_KEY]: [] });
+  notifyPopup('historyUpdated', { history: [] });
+  return getStorageUsageSummary();
+}

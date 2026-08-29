@@ -6,7 +6,7 @@ import { notifyPopup } from './notify.js';
 import { COMMIT_STATES, createOperationId, markRecordingRecoverableFailure, runExclusiveOperation, runIdempotentOperation, updateRecordingCommitState } from './op-safety.js';
 import { hydrateRecordingAssets } from './recording-assets.js';
 import { S } from './runtime-state.js';
-import { getSettings } from './settings-service.js';
+import { getSettings } from './settings-store.js';
 import { sanitizeOperationId, sanitizeTextValue } from './text-utils.js';
 
 export async function generatePdfForRecording(recording) {

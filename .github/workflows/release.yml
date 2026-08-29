@@ -16,6 +16,7 @@ jobs:
   build:
     name: Check and Package
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -32,6 +33,41 @@ jobs:
 
       - name: Run checks
         run: npm run check
+
+      - name: Install Chromium for extension E2E
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser E2E
+        run: npm run validate:e2e
+
+      - name: Detect optional DeepSeek smoke secret
+        id: deepseek-secret
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run DeepSeek vision smoke
+        if: steps.deepseek-secret.outputs.available == 'true'
+        env:
+          PW_PROVIDER_PRESET: deepseekOfficial
+          PW_API_STYLE: chatCompletions
+          PW_API_BASE_URL: https://api.deepseek.com
+          PW_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PW_MODEL_ID: deepseek-v4-flash-vision-exp
+        run: npm run smoke:ai
+
+      - name: Upload browser E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tutorial-recorder-browser-e2e
+          path: output/playwright/
+          if-no-files-found: warn
 
       - name: Package extension
         run: npm run package

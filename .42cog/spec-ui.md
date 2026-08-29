@@ -562,7 +562,7 @@ AI 录制进度:
 | window.alert / confirm | shadcn/ui AlertDialog | 同上 |
 | innerHTML 拼接步骤列表 | React 组件 | 后续 Plasmo / React 迁移 |
 
-### 10.2 截图批注编辑器（未来）
+### 10.2 截图批注编辑器（v2.6.0 已实现）
 
 预留 `src/workspace/components/AnnotationCanvas.tsx` 组件位置。设计约束：
 - 全屏 Canvas 覆盖在截图上

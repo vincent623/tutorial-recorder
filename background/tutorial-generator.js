@@ -1,11 +1,12 @@
-import { AI_CONCURRENCY, PROVIDER_TEST_IMAGE_DATA_URL, analyzeImage, describeAiFailureForUser, describeConnectionFailureHint, hasVisionAnalysisConfig, sanitizePageTitle } from './ai-vision.js';
+import { AI_CONCURRENCY, PROVIDER_TEST_IMAGE_DATA_URL, analyzeImage, describeAiFailureForUser, describeConnectionFailureHint, hasVisionAnalysisConfig } from './ai-vision.js';
 import { downloadRecordingBundle, generatePdfForRecording } from './export-pipeline.js';
 import { buildMarkdown, buildRecordingTitle } from './exporters.js';
 import { buildHistoryEntry, getHistory, upsertHistoryEntry } from './history-service.js';
 import { notifyPopup } from './notify.js';
 import { COMMIT_STATES, createOperationId, runExclusiveOperation, runIdempotentOperation, updateRecordingCommitState } from './op-safety.js';
 import { S, createIdleRuntime, persistRuntime, updateBadge } from './runtime-state.js';
-import { getSettings } from './settings-service.js';
+import { getSettings } from './settings-store.js';
+import { getFallbackDescription, hasStepDescription } from './step-descriptions.js';
 import { sanitizeEditableText, sanitizeOperationId } from './text-utils.js';
 
 export async function generateTutorial(operationId = '') {
@@ -191,35 +192,3 @@ export async function performTestProviderConnection() {
     };
   }
 }
-
-
-export function hasStepDescription(screenshot) {
-  return Boolean(sanitizeEditableText(screenshot?.description, 400));
-}
-
-export function getFallbackDescription(screenshot, index) {
-  const interactionSummary = screenshot?.pageContext?.interaction?.summary;
-  if (interactionSummary) {
-    return interactionSummary;
-  }
-
-  const pageTitle = sanitizePageTitle(screenshot?.pageContext?.title);
-  if (pageTitle) {
-    return `查看 ${pageTitle}`;
-  }
-
-  return `步骤 ${index + 1}`;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-

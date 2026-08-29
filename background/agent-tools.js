@@ -24,6 +24,10 @@ export function buildAgentToolSchema(apiStyle) {
         properties: {
           x: { type: 'number' },
           y: { type: 'number' },
+          targetText: {
+            type: 'string',
+            description: 'Exact visible text of the button or link when available, used to calibrate the visual coordinate.'
+          },
           description: { type: 'string' }
         },
         required: ['x', 'y', 'description']
@@ -219,8 +223,26 @@ export function parseAgentActionText(text) {
   try {
     return sanitizeAgentAction(JSON.parse(jsonText));
   } catch (error) {
+    const finishDescription = inferAgentFinishFromText(raw);
+    if (finishDescription) {
+      return { action: 'finish', description: finishDescription };
+    }
     throw new Error(`AI 未返回可执行动作：${sanitizeEditableText(raw, 160) || '空响应'}`);
   }
+}
+
+export function inferAgentFinishFromText(text) {
+  const normalized = sanitizeEditableText(text, 400);
+  if (!normalized || /未完成|尚未|还未|没有完成|无法确认|不能确认|尚需|仍需/.test(normalized)) {
+    return '';
+  }
+
+  const explicitlyComplete =
+    /(?:目标|任务).{0,16}(?:已经|已)?(?:达成|完成)/.test(normalized) ||
+    /(?:已经|已)(?:确认.{0,24})?(?:完成|达成|生效)/.test(normalized) ||
+    /确认.{0,32}(?:目标|任务).{0,12}(?:达成|完成)/.test(normalized);
+
+  return explicitlyComplete ? normalized : '';
 }
 
 export const AGENT_KEY_EVENT_DEFS = Object.freeze({
@@ -273,7 +295,14 @@ export function sanitizeAgentAction(action = {}) {
       throw new Error(normalizedAction === 'hover' ? 'AI 悬停动作缺少有效坐标' : 'AI 点击动作缺少有效坐标');
     }
 
-    return { action: normalizedAction, x, y, description };
+    const targetText = sanitizeEditableText(action.targetText, 160);
+    return {
+      action: normalizedAction,
+      x,
+      y,
+      ...(targetText ? { targetText } : {}),
+      description
+    };
   }
 
   if (normalizedAction === 'type_text') {

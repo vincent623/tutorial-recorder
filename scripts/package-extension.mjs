@@ -17,6 +17,7 @@ const runtimeEntries = [
   'lib'
 ];
 const ignoredNames = new Set(['.DS_Store']);
+const PACKAGE_MTIME = new Date(2000, 0, 1, 0, 0, 0);
 
 async function main() {
   const packageJson = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
@@ -67,7 +68,10 @@ async function addPackageEntry(entries, relativePath) {
   }
 
   const zipPath = relativePath.split(path.sep).join(path.posix.sep);
-  entries[zipPath] = new Uint8Array(await readFile(absolutePath));
+  entries[zipPath] = [
+    new Uint8Array(await readFile(absolutePath)),
+    { mtime: PACKAGE_MTIME }
+  ];
 }
 
 await main();
