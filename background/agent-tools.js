@@ -233,14 +233,19 @@ export function parseAgentActionText(text) {
 
 export function inferAgentFinishFromText(text) {
   const normalized = sanitizeEditableText(text, 400);
-  if (!normalized || /未完成|尚未|还未|没有完成|无法确认|不能确认|尚需|仍需/.test(normalized)) {
+  if (
+    !normalized ||
+    /未完成|尚未|还未|没有完成|无法确认|不能确认|尚需|仍需/.test(normalized) ||
+    /请|需要|为了|以便|才能|接下来|随后|然后|之后|后再/.test(normalized)
+  ) {
     return '';
   }
 
   const explicitlyComplete =
-    /(?:目标|任务).{0,16}(?:已经|已)?(?:达成|完成)/.test(normalized) ||
-    /(?:已经|已)(?:确认.{0,24})?(?:完成|达成|生效)/.test(normalized) ||
-    /确认.{0,32}(?:目标|任务).{0,12}(?:达成|完成)/.test(normalized);
+    /(?:目标|任务).{0,16}(?:已经|已)(?:达成|完成)/.test(normalized) ||
+    /(?:已经|已).{0,32}(?:完成|达成|生效)/.test(normalized) ||
+    /确认.{0,32}(?:已经|已).{0,16}(?:达成|完成|生效)/.test(normalized) ||
+    /确认.{0,48}(?:目标|任务).{0,8}(?:完成|达成)/.test(normalized);
 
   return explicitlyComplete ? normalized : '';
 }

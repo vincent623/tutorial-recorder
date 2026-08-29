@@ -8,7 +8,8 @@ All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 - DeepSeek 官方 Provider 预设，支持账号实时开放的 `deepseek-v4-flash-vision-exp` 视觉模型。
 - 设置页本地存储治理：用量、教程/素材数量展示，以及带确认的一键清理。
 - GitHub Actions 无密钥真实 Chromium E2E 门禁和浏览器证据 artifact。
-- 可选的 CI DeepSeek 官方视觉 smoke，以及基于可见控件文字的点击坐标校准与动作坐标审计。
+- 受信任 CI 强制执行的 DeepSeek 官方视觉 smoke（fork PR 安全跳过），以及基于可见控件文字的点击坐标校准与动作坐标审计。
+- AI smoke 主动删除含临时扩展设置的 Chromium Profile，CI 仅白名单上传脱敏浏览器证据。
 
 ### Changed
 - 后台模块移除静态循环依赖，抽出设置读取与步骤描述纯模块，并通过回调解耦 Agent 停止流程。

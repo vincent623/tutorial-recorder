@@ -277,6 +277,8 @@ tutorial-YYYYMMDD-HHMMSS-<id>/
 | `getRecordingDetail` | `{ id }` | `{ ok, recording }` | 获取教程详情 |
 | `updateRecording` | `{ id, updates }` | `{ ok, recording, history }` | 保存编辑 |
 | `deleteRecording` | `{ id }` | `{ ok }` | 删除录制 |
+| `getStorageUsage` | — | `{ ok, storage }` | 读取教程、素材与浏览器存储用量 |
+| `clearAllRecordings` | — | `{ ok, storage }` | 空闲状态下清理全部教程、素材和历史索引 |
 
 ### 4.2 Background → Popup（推送通知）
 

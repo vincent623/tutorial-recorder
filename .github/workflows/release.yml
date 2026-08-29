@@ -40,7 +40,7 @@ jobs:
       - name: Run browser E2E
         run: npm run validate:e2e
 
-      - name: Detect optional DeepSeek smoke secret
+      - name: Detect DeepSeek smoke secret
         id: deepseek-secret
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -50,6 +50,12 @@ jobs:
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Require DeepSeek secret for trusted CI
+        if: steps.deepseek-secret.outputs.available != 'true' && github.event_name != 'pull_request'
+        run: |
+          echo "::error::Trusted CI requires the DEEPSEEK_API_KEY repository secret."
+          exit 1
 
       - name: Run DeepSeek vision smoke
         if: steps.deepseek-secret.outputs.available == 'true'
@@ -66,7 +72,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: tutorial-recorder-browser-e2e
-          path: output/playwright/
+          path: |
+            output/playwright/*.json
+            output/playwright/*.png
+            output/playwright/downloads/
           if-no-files-found: warn
 
       - name: Package extension

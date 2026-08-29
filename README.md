@@ -163,7 +163,8 @@ npm run validate:e2e
 仓库包含 `.github/workflows/release.yml`：
 
 - push 到 `main`、PR、手动触发：运行 `npm ci`、`npm run check`、真实 Chromium `npm run validate:e2e`、`npm run package`，并上传浏览器证据、ZIP 与 sha256 为 workflow artifact
-- 仓库配置 `DEEPSEEK_API_KEY` Secret 后，CI 会额外用 `deepseek-v4-flash-vision-exp` 执行真实“识别按钮 → 点击 → 确认状态 → 结束并释放调试器”回归；PR 没有 Secret 时安全跳过
+- 受信任的 push/tag/手动 CI 必须配置 `DEEPSEEK_API_KEY` Secret，并用 `deepseek-v4-flash-vision-exp` 执行真实“识别按钮 → 点击 → 确认状态 → 结束并释放调试器”回归；fork PR 拿不到 Secret 时安全跳过
+- 浏览器证据 artifact 只白名单上传脱敏 JSON、截图和下载结果；包含扩展设置的临时 Chromium Profile 会在 smoke 结束后删除，且不会进入 artifact
 - push `v*` 标签：在通过检查和打包后创建 GitHub Release，并上传 `dist/*.zip` 与 `dist/*.sha256`
 
 发布步骤：

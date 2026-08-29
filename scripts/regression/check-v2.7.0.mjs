@@ -97,7 +97,9 @@ const checks = [
       /npm run validate:e2e/.test(workflow) &&
       /secrets\.DEEPSEEK_API_KEY/.test(workflow) &&
       /npm run smoke:ai/.test(workflow) &&
-      /output\/playwright/.test(workflow)
+      /Require DeepSeek secret for trusted CI/.test(workflow) &&
+      /output\/playwright\/\*\.json/.test(workflow) &&
+      !/path: output\/playwright\/$/.test(workflow)
   },
   {
     name: 'DeepSeek official vision preset is wired across runtime and UI',
@@ -115,12 +117,15 @@ const checks = [
       /inferAgentFinishFromText/.test(agentTools) &&
       Boolean(inferAgentFinishFromText('已经确认当前模式切换成功，目标达成。')) &&
       !inferAgentFinishFromText('尚未完成目标，仍需继续操作。') &&
+      !inferAgentFinishFromText('为了让任务完成，请点击提交。') &&
+      !inferAgentFinishFromText('请确认任务完成后继续。') &&
       !inferAgentFinishFromText('点击提交按钮继续。') &&
       /resolveAgentTargetCenter/.test(agentTargeting) &&
       /Runtime\.evaluate/.test(agentTargeting) &&
       /action\.targetText/.test(agentState) &&
       /recentSteps/.test(aiSmoke) &&
-      /partialReport/.test(aiSmoke)
+      /partialReport/.test(aiSmoke) &&
+      /await rm\(profileDir/.test(aiSmoke)
   },
   {
     name: 'storage usage and batch cleanup are exposed and browser-tested',
@@ -150,6 +155,9 @@ const checks = [
       /DeepSeek/.test(readme) &&
       /最多 100 条/.test(systemDoc) &&
       /StorageQuotaManager[^\n]*已实现/.test(systemDoc) &&
+      /`getStorageUsage`/.test(systemDoc) &&
+      /`clearAllRecordings`/.test(systemDoc) &&
+      /已提供存储用量提示和批量清理能力/.test(realityDoc) &&
       /\[x\] 存储用量可见可清理/.test(realityDoc)
   },
   {

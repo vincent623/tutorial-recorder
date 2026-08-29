@@ -189,6 +189,7 @@ async function main() {
     }
   } finally {
     await context?.close().catch(() => {});
+    await rm(profileDir, { recursive: true, force: true }).catch(() => {});
     server.close();
   }
 }

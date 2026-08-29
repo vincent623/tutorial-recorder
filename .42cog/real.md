@@ -22,7 +22,7 @@
 ## 可选约束
 
 <real-optional>
-- 录制产生的所有媒体数据（截图 base64、音视频 WebM）已拆分进 IndexedDB `assets` store；后续仍应提供存储用量提示和批量清理能力
+- 录制产生的所有媒体数据（截图 base64、音视频 WebM）已拆分进 IndexedDB `assets` store；设置页已提供存储用量提示和批量清理能力
 - AI 调用失败（超时、配额耗尽、模型拒绝）时必须优雅降级到默认说明，不得阻塞导出流程
 </real-optional>
 
