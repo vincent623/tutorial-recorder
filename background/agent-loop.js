@@ -1,9 +1,11 @@
-import { requestAiAgentApproval } from './agent-approval.js';
+import { approveAndRevalidateAgentAction } from './agent-approval.js';
+import { enrichAgentActionGuard } from './agent-action-guard.js';
 import { appendAiAgentStep, isAiAgentLimitReached, isAiAgentLoopActive, updateAgentScreenshotDescription, updateAiAgentState, waitForAiAgentResume } from './agent-state.js';
 import { evaluateAgentActionPolicy } from './agent-policy.js';
 import { calibrateAgentAction, isRepeatedAgentAction } from './agent-targeting.js';
 import { buildAgentToolSchema, describeAgentAction, executeAiAgentAction, extractAgentAction } from './agent-tools.js';
-import { AI_ANALYZE_TIMEOUT_MS, createAiTimeoutError, hasVisionAnalysisConfig, parseExtraHeaders, parseImageDataUrl, resizeDataUrlToSize, resolveVisionUrl, sanitizePageTitle, summarizeUrlForPrompt } from './ai-vision.js';
+import { createTrackedAiRequestController, getAiRequestConfigurationEpoch, releaseTrackedAiRequestController } from './ai-request-control.js';
+import { AI_ANALYZE_TIMEOUT_MS, createAiSharingRevokedError, createAiTimeoutError, hasVisionAnalysisConfig, parseExtraHeaders, parseImageDataUrl, resizeDataUrlToSize, resolveVisionUrl, sanitizePageTitle, summarizeUrlForPrompt } from './ai-vision.js';
 import { notifyContent, notifyPopup } from './notify.js';
 import { S, updateBadge } from './runtime-state.js';
 import { captureScreenshot } from './screenshot-engine.js';
@@ -12,11 +14,8 @@ import { getSettings } from './settings-store.js';
 import { delay, sanitizeEditableText } from './text-utils.js';
 
 export const AI_AGENT_STEP_DELAY_MS = 800;
-
 export const AI_AGENT_DECISION_RETRY_LIMIT = 1;
-
 export const AI_AGENT_PAGE_STABILITY_TIMEOUT_MS = 8_000;
-
 export const AI_AGENT_PAGE_STABILITY_INTERVAL_MS = 400;
 
 export async function pauseAiAgent() {
@@ -42,7 +41,6 @@ export async function pauseAiAgent() {
   notifyPopup('paused');
   notifyContent('recordingPaused');
 }
-
 export async function resumeAiAgent() {
   if (!S.currentRuntime.isRecording || S.currentRuntime.recordingMode !== 'ai') {
     return;
@@ -73,7 +71,6 @@ export async function resumeAiAgent() {
   notifyPopup('resumed');
   notifyContent('recordingResumed');
 }
-
 export function runAiAgentLoop(initialSettings, requestStop) {
   if (S.aiAgentLoopPromise) {
     return S.aiAgentLoopPromise;
@@ -87,7 +84,6 @@ export function runAiAgentLoop(initialSettings, requestStop) {
   S.aiAgentLoopPromise = loopPromise;
   return loopPromise;
 }
-
 async function performRunAiAgentLoop(initialSettings, requestStop) {
   let settings = initialSettings;
 
@@ -120,7 +116,8 @@ async function performRunAiAgentLoop(initialSettings, requestStop) {
     settings = await getSettings();
     await readAgentViewport();
     const decision = await decideNextAgentActionWithRetry(screenshot, settings);
-    const action = await calibrateAgentAction(decision);
+    let action = await calibrateAgentAction(decision);
+    action = await enrichAgentActionGuard(action);
 
     if (!isAiAgentLoopActive()) {
       return;
@@ -156,15 +153,14 @@ async function performRunAiAgentLoop(initialSettings, requestStop) {
     }
 
     if (policy.decision === 'confirm') {
-      const approvalDecision = await requestAiAgentApproval({
-        action,
-        screenshotId: screenshot.id,
-        description,
-        policy
-      });
-      if (approvalDecision !== 'approved' || !isAiAgentLoopActive()) {
+      const approval = await approveAndRevalidateAgentAction({ action, screenshot, description, policy });
+      if (approval.outcome === 'retry') {
+        continue;
+      }
+      if (approval.outcome !== 'approved') {
         return;
       }
+      action = approval.action;
     }
 
     await updateAgentScreenshotDescription(screenshot.id, description);
@@ -221,13 +217,15 @@ export async function decideNextAgentActionWithRetry(screenshot, settings) {
 }
 
 export async function decideNextAgentAction(screenshot, settings) {
-  if (!hasVisionAnalysisConfig(settings)) {
-    throw new Error('AI 配置或截图发送授权不完整，无法继续 AI 录制');
+  const requestEpoch = getAiRequestConfigurationEpoch();
+  const currentSettings = await getSettings();
+  if (!hasVisionAnalysisConfig(currentSettings)) {
+    throw createAiSharingRevokedError();
   }
 
   const normalizedScreenshot = await normalizeAgentScreenshot(screenshot);
-  const request = buildAgentDecisionRequest(normalizedScreenshot, settings);
-  const controller = new AbortController();
+  const request = buildAgentDecisionRequest(normalizedScreenshot, currentSettings);
+  const controller = createTrackedAiRequestController(requestEpoch);
   const timeoutId = setTimeout(() => controller.abort(), AI_ANALYZE_TIMEOUT_MS);
 
   try {
@@ -247,6 +245,9 @@ export async function decideNextAgentAction(screenshot, settings) {
     const data = await response.json();
     return extractAgentAction(data, settings.apiStyle);
   } catch (error) {
+    if (controller.signal.reason?.name === 'AISharingRevokedError') {
+      throw controller.signal.reason;
+    }
     if (error?.name === 'AbortError') {
       throw createAiTimeoutError();
     }
@@ -254,6 +255,7 @@ export async function decideNextAgentAction(screenshot, settings) {
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    releaseTrackedAiRequestController(controller);
   }
 }
 

@@ -8,6 +8,7 @@
 - 真实视频录制 + 麦克风录音（音频/视频直接落盘 IndexedDB，分别带 100MB/400MB 体积熔断保护）
 - 基于 16 个 Provider 预设生成步骤说明：国产（火山方舟、智谱 GLM、硅基流动、阿里云百炼、月之暗面 Kimi、DeepSeek 官方）、海外（OpenAI、Claude、Google Gemini、Groq、Mistral）、中转与网关（OpenRouter、Azure OpenAI、One API / New API 自建中转、OpenAI Compatible、自定义），并支持一键"测试连接"验证全链路
 - AI 截图发送默认关闭，只有用户在完整设置页明确授权后才会把当前页面截图发送到所选服务商；授权可随时撤回
+- 远程 AI 服务端点强制使用 HTTPS；HTTP 仅允许本机回环开发地址
 - 敏感信息防护：密码/验证码/卡号输入永不上报，手机号/身份证/银行卡号自动打码后才进入 AI 提示词；页面截图本身仍可能含可见敏感信息，启用 AI 前会明确提示
 - 导出单个 `ZIP`，内含 `Markdown + 单文件 HTML + PDF + 音频 WebM + 视频 WebM + PNG`
 - popup 负责录制与快速入口，独立工作台负责历史记录查看、编辑、重新导出和删除

@@ -45,7 +45,8 @@ const checks = [
     name: 'AI high-impact actions cross a one-time approval seam',
     pass:
       /evaluateAgentActionPolicy/.test(agentPolicy) &&
-      /requestAiAgentApproval/.test(agentLoop) &&
+      /approveAndRevalidateAgentAction/.test(agentLoop) &&
+      /requestAiAgentApproval/.test(agentApproval) &&
       /resolveAiAgentApproval/.test(agentApproval) &&
       /pendingApproval/.test(agentApproval) &&
       /id="aiApprovalPanel"/.test(popupHtml) &&
@@ -78,6 +79,7 @@ const checks = [
       /name: DeepSeek Vision Provider Smoke/.test(workflow) &&
       /continue-on-error:.*startsWith/.test(workflow) &&
       /environment: production-release/.test(workflow) &&
+      !/--clobber/.test(workflow) &&
       /permissions:\n      contents: write/.test(workflow) &&
       /check-release-version\.mjs/.test(workflow) &&
       /sha256sum --check/.test(workflow) &&

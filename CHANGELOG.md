@@ -14,6 +14,11 @@ All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 - CI now separates deterministic browser quality gates from provider-backed smoke, pins GitHub Actions to immutable commits, defaults the token to read-only, and reserves write access for the protected release job.
 - Tag releases require an exact package-version match, successful DeepSeek smoke, and SHA256 verification of the quality-job artifact.
 - Store and privacy copy now distinguishes default local processing from explicitly authorized AI screenshot transfer.
+- Approval is revalidated against the live page before execution; permission, publishing, invitation, subscription, and semantic form-submit controls are treated as high impact.
+- AI batch workers and retries recheck consent before every request, active requests abort when consent/config changes, and remote provider endpoints must use HTTPS.
+- AI settings writes are serialized to prevent stale consent restoration; approved actions bind the exact page URL, and coordinate/Enter actions also bind the live hit target or keyboard focus immediately before dispatch.
+- Explicit URL navigation now always requires one-time approval, including same-origin paths that could trigger state-changing GET endpoints.
+- Published GitHub Release assets are immutable; an existing version requires a new tag instead of overwrite.
 
 ## [2.7.0] - 2026-08-30
 

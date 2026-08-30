@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { hasVisionAnalysisConfig } from '../../background/ai-vision.js';
+import { readFile } from 'node:fs/promises';
+import { hasVisionAnalysisConfig, isSecureAiEndpoint } from '../../background/ai-vision.js';
+import {
+  beginAiRequestConfigurationChange,
+  createTrackedAiRequestController,
+  finishAiRequestConfigurationChange,
+  getAiRequestConfigurationEpoch,
+  releaseTrackedAiRequestController
+} from '../../background/ai-request-control.js';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../background/settings-schema.js';
 
 const configured = {
@@ -17,3 +25,61 @@ assert.equal(
   'explicit consent enables configured AI features'
 );
 console.log('ok - AI screenshot sharing is explicit opt-in and revocable through settings');
+
+assert.equal(isSecureAiEndpoint('https://api.example.com/v1'), true, 'HTTPS provider endpoints are allowed');
+assert.equal(isSecureAiEndpoint('http://127.0.0.1:8080/v1'), true, 'loopback development endpoints are allowed');
+assert.equal(isSecureAiEndpoint('http://localhost:8080/v1'), true, 'localhost development endpoints are allowed');
+assert.equal(isSecureAiEndpoint('http://api.example.com/v1'), false, 'remote plaintext endpoints are rejected');
+assert.equal(isSecureAiEndpoint('https://user:pass@api.example.com/v1'), false, 'URL-embedded credentials are rejected');
+assert.equal(
+  hasVisionAnalysisConfig({ ...configured, aiDataSharingConsent: true, apiBaseUrl: 'http://api.example.com/v1' }),
+  false,
+  'credentials and consent cannot enable plaintext remote screenshot upload'
+);
+console.log('ok - AI credentials and screenshots only use HTTPS or explicit loopback endpoints');
+
+const tutorialGeneratorSource = await readFile(new URL('../../background/tutorial-generator.js', import.meta.url), 'utf8');
+const aiVisionSource = await readFile(new URL('../../background/ai-vision.js', import.meta.url), 'utf8');
+const agentLoopSource = await readFile(new URL('../../background/agent-loop.js', import.meta.url), 'utf8');
+const settingsServiceSource = await readFile(new URL('../../background/settings-service.js', import.meta.url), 'utf8');
+const requestControlSource = await readFile(new URL('../../background/ai-request-control.js', import.meta.url), 'utf8');
+const workerSource = tutorialGeneratorSource.match(/export async function runDescriptionAnalysisWorker[\s\S]*?\n}\n/)?.[0] || '';
+assert.match(workerSource, /while \(queue\.length\)[\s\S]*await getSettings\(\)/, 'each queue iteration must reload settings');
+assert.match(workerSource, /hasVisionAnalysisConfig\(settings\)/, 'each queue iteration must recheck consent');
+console.log('ok - batch workers recheck AI sharing consent before every queued screenshot');
+
+assert.match(aiVisionSource, /for \(let attempt[\s\S]*await getSettings\(\)[\s\S]*fetch\(request\.url/, 'vision retries must reload consent before fetch');
+assert.match(agentLoopSource, /decideNextAgentAction[\s\S]*await getSettings\(\)[\s\S]*fetch\(request\.url/, 'agent retries must reload consent before fetch');
+const originalEpoch = getAiRequestConfigurationEpoch();
+const activeController = createTrackedAiRequestController(originalEpoch);
+beginAiRequestConfigurationChange();
+assert.equal(activeController.signal.aborted, true, 'configuration changes abort active requests');
+beginAiRequestConfigurationChange();
+assert.throws(
+  () => createTrackedAiRequestController(getAiRequestConfigurationEpoch()),
+  { name: 'AISharingRevokedError' },
+  'new requests remain blocked while settings are being written'
+);
+finishAiRequestConfigurationChange();
+assert.throws(
+  () => createTrackedAiRequestController(getAiRequestConfigurationEpoch()),
+  { name: 'AISharingRevokedError' },
+  'overlapping settings writes keep request admission blocked until the final writer exits'
+);
+finishAiRequestConfigurationChange();
+assert.throws(
+  () => createTrackedAiRequestController(originalEpoch),
+  { name: 'AISharingRevokedError' },
+  'a request holding the pre-change epoch cannot start after settings are written'
+);
+const currentController = createTrackedAiRequestController(getAiRequestConfigurationEpoch());
+releaseTrackedAiRequestController(currentController);
+assert.match(requestControlSource, /aiRequestsBlocked[\s\S]*expectedEpoch !== aiRequestConfigurationEpoch/, 'request admission must enforce both the write gate and configuration epoch');
+assert.match(requestControlSource, /aiRequestConfigurationChangeDepth[\s\S]*aiRequestsBlocked = aiRequestConfigurationChangeDepth > 0/, 'overlapping settings writes must use a reentrant admission gate');
+assert.match(settingsServiceSource, /beginAiRequestConfigurationChange\(\)[\s\S]*chrome\.storage\.local\.set[\s\S]*finally[\s\S]*finishAiRequestConfigurationChange\(\)/, 'settings writes must stay inside the blocked request window');
+assert.match(
+  settingsServiceSource,
+  /settingsWriteQueue\.then\(\(\) => performSaveSettings\(settings\)\)[\s\S]*async function performSaveSettings[\s\S]*await getSettings\(\)/,
+  'all settings writes must serialize before rereading and merging the latest stored settings'
+);
+console.log('ok - revoking consent aborts active requests, blocks the write window, and rejects stale request epochs');

@@ -172,10 +172,10 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" dist/*.zip dist/*.sha256 --clobber
-          else
-            gh release create "$TAG_NAME" dist/*.zip dist/*.sha256 \
-              --title "$TAG_NAME" \
-              --generate-notes \
-              --verify-tag
+            echo "::error::Release $TAG_NAME already exists; published assets are immutable. Create a new version tag."
+            exit 1
           fi
+          gh release create "$TAG_NAME" dist/*.zip dist/*.sha256 \
+            --title "$TAG_NAME" \
+            --generate-notes \
+            --verify-tag

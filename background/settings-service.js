@@ -1,9 +1,13 @@
 import { recoverInterruptedRecordings, recoverPendingStorageCleanup } from './history-service.js';
+import { beginAiRequestConfigurationChange, finishAiRequestConfigurationChange } from './ai-request-control.js';
+import { isSecureAiEndpoint } from './ai-vision.js';
 import { sendOffscreenMessage } from './media-orchestrator.js';
 import { normalizeRealtimeSuggestionForSettings, notifyRealtimeSuggestion } from './realtime-suggestions.js';
 import { HISTORY_KEY, S, SETTINGS_KEY, persistRuntime, restoreRuntimeState, updateBadge } from './runtime-state.js';
 import { DEFAULT_SETTINGS, normalizeSettings } from './settings-schema.js';
 import { getSettings } from './settings-store.js';
+
+let settingsWriteQueue = Promise.resolve();
 
 export async function ensureInitialized() {
   if (!S.initPromise) {
@@ -46,13 +50,38 @@ export async function getPopupStateSettings() {
   };
 }
 
-export async function saveSettings(settings) {
+export function saveSettings(settings) {
+  const operation = settingsWriteQueue.then(() => performSaveSettings(settings));
+  settingsWriteQueue = operation.catch(() => {});
+  return operation;
+}
+
+async function performSaveSettings(settings) {
   const currentSettings = await getSettings();
-  const nextSettings = normalizeSettings({
+  const candidateSettings = {
     ...currentSettings,
     ...settings
-  });
-  await chrome.storage.local.set({ [SETTINGS_KEY]: nextSettings });
+  };
+  if (
+    candidateSettings.aiDataSharingConsent === true &&
+    candidateSettings.apiKey &&
+    candidateSettings.apiBaseUrl &&
+    !isSecureAiEndpoint(candidateSettings.apiBaseUrl)
+  ) {
+    throw new Error('为保护 API Key 和截图，AI Base URL 必须使用 HTTPS；仅本机回环地址可使用 HTTP。');
+  }
+  const nextSettings = normalizeSettings(candidateSettings);
+  const aiRequestConfigChanged = hasAiRequestConfigChanged(currentSettings, nextSettings);
+  if (aiRequestConfigChanged) {
+    beginAiRequestConfigurationChange();
+  }
+  try {
+    await chrome.storage.local.set({ [SETTINGS_KEY]: nextSettings });
+  } finally {
+    if (aiRequestConfigChanged) {
+      finishAiRequestConfigurationChange();
+    }
+  }
 
   if (S.currentRuntime.isRecording) {
     S.currentRuntime.captureIntervalMs = nextSettings.screenshotInterval * 1000;
@@ -72,4 +101,9 @@ export async function saveSettings(settings) {
   }
 
   return nextSettings;
+}
+
+function hasAiRequestConfigChanged(currentSettings, candidateSettings) {
+  return ['aiDataSharingConsent', 'apiBaseUrl', 'apiKey', 'modelId', 'apiStyle', 'extraHeadersJson']
+    .some((key) => currentSettings[key] !== candidateSettings[key]);
 }

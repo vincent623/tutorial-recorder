@@ -363,7 +363,7 @@ async function saveSettings() {
   setSaveStatus('正在保存...', false);
   const result = await sendAction('saveSettings', { settings });
   if (!result?.ok || !result.settings) {
-    setSaveStatus('保存失败，请稍后重试。', false);
+    setSaveStatus(`保存失败：${result?.error || '请稍后重试。'}`, false);
     return;
   }
 

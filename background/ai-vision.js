@@ -1,5 +1,7 @@
 import { blobToDataUrl } from './exporters.js';
+import { createTrackedAiRequestController, getAiRequestConfigurationEpoch, releaseTrackedAiRequestController } from './ai-request-control.js';
 import { DEFAULT_SETTINGS, getEffectivePromptConfig, getProviderPreset, normalizeApiStyle, renderPromptTemplate, sanitizeApiBaseUrl } from './settings-schema.js';
+import { getSettings } from './settings-store.js';
 import { delay, sanitizeEditableText } from './text-utils.js';
 
 // Vision analysis request pipeline: build, send, retry, downscale, and parse.
@@ -18,12 +20,17 @@ export const AI_IMAGE_JPEG_QUALITY = 0.85;
 
 export async function analyzeImage(screenshot, settings, index, screenshots) {
   const aiImage = await downscaleDataUrlForAi(screenshot.data);
-  const request = buildVisionRequest({ ...screenshot, data: aiImage }, settings, index, screenshots);
 
   let lastError = null;
 
   for (let attempt = 0; attempt <= AI_RETRY_MAX_ATTEMPTS; attempt += 1) {
-    const controller = new AbortController();
+    const requestEpoch = getAiRequestConfigurationEpoch();
+    const currentSettings = await getSettings();
+    if (!hasVisionAnalysisConfig(currentSettings)) {
+      throw createAiSharingRevokedError();
+    }
+    const request = buildVisionRequest({ ...screenshot, data: aiImage }, currentSettings, index, screenshots);
+    const controller = createTrackedAiRequestController(requestEpoch);
     const timeoutId = setTimeout(() => controller.abort(), AI_ANALYZE_TIMEOUT_MS);
 
     try {
@@ -46,7 +53,9 @@ export async function analyzeImage(screenshot, settings, index, screenshots) {
       const data = await response.json();
       return extractVisionText(data, settings.apiStyle) || '未命名步骤';
     } catch (error) {
-      if (error?.name === 'AbortError') {
+      if (controller.signal.reason?.name === 'AISharingRevokedError') {
+        lastError = controller.signal.reason;
+      } else if (error?.name === 'AbortError') {
         lastError = createAiTimeoutError();
       } else {
         lastError = error;
@@ -60,10 +69,17 @@ export async function analyzeImage(screenshot, settings, index, screenshots) {
       await delay(Math.max(error?.retryAfterMs || 0, AI_RETRY_BASE_DELAY_MS * 2 ** attempt));
     } finally {
       clearTimeout(timeoutId);
+      releaseTrackedAiRequestController(controller);
     }
   }
 
   throw lastError || new Error('AI 识别失败');
+}
+
+export function createAiSharingRevokedError() {
+  const error = new Error('AI 截图发送授权已关闭或连接配置已失效');
+  error.name = 'AISharingRevokedError';
+  return error;
 }
 
 export function isRetryableAiStatus(status) {
@@ -152,8 +168,29 @@ export function hasVisionAnalysisConfig(settings = {}) {
     settings.aiDataSharingConsent === true &&
     settings.apiKey &&
     settings.modelId &&
-    settings.apiBaseUrl
+    settings.apiBaseUrl &&
+    isSecureAiEndpoint(settings.apiBaseUrl)
   );
+}
+
+export function isSecureAiEndpoint(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (parsed.username || parsed.password) {
+      return false;
+    }
+    if (parsed.protocol === 'https:') {
+      return true;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    return (
+      parsed.protocol === 'http:' &&
+      (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]')
+    );
+  } catch (error) {
+    return false;
+  }
 }
 
 export const PROVIDER_TEST_IMAGE_DATA_URL =
@@ -343,6 +380,9 @@ export function describeAiFailureForUser(error) {
 
 export function resolveVisionUrl(apiBaseUrl, apiStyle) {
   const base = sanitizeApiBaseUrl(apiBaseUrl || getProviderPreset(DEFAULT_SETTINGS.providerPreset).apiBaseUrl);
+  if (!isSecureAiEndpoint(base)) {
+    throw new Error('AI Base URL 必须使用 HTTPS；仅本机 localhost、127.0.0.1 或 [::1] 可使用 HTTP。');
+  }
   const normalizedBase = base
     .replace(/\/chat\/completions$/i, '')
     .replace(/\/responses$/i, '')

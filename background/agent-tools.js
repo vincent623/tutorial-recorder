@@ -1,4 +1,6 @@
 import { extractVisionText } from './ai-vision.js';
+import { assertApprovedActionSourceFresh, assertApprovedSensitiveActionFresh } from './agent-action-guard.js';
+import { assertAgentClickTargetFresh } from './agent-targeting.js';
 import { runExclusiveOperation } from './op-safety.js';
 import { S } from './runtime-state.js';
 import { clampNumber, delay, sanitizeCoordinate, sanitizeEditableText } from './text-utils.js';
@@ -391,8 +393,11 @@ export async function performExecuteAiAgentAction(action) {
   }
 
   const target = { tabId: S.currentRuntime.tabId };
+  await assertApprovedActionSourceFresh(action);
 
   if (action.action === 'click_at_xy') {
+    await assertAgentClickTargetFresh(action);
+    await assertApprovedSensitiveActionFresh(action);
     await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x: action.x,
@@ -438,6 +443,7 @@ export async function performExecuteAiAgentAction(action) {
   }
 
   if (action.action === 'press_key') {
+    await assertApprovedSensitiveActionFresh(action);
     const keyDef = AGENT_KEY_EVENT_DEFS[action.key] || AGENT_KEY_EVENT_DEFS.enter;
     const baseEvent = {
       key: keyDef.key,

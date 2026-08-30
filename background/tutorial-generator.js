@@ -29,7 +29,7 @@ export async function performGenerateTutorial(operationId = '') {
 
     const workerCount = Math.min(AI_CONCURRENCY, queue.length);
     await Promise.all(
-      Array.from({ length: workerCount }, () => runDescriptionAnalysisWorker(queue, settings))
+      Array.from({ length: workerCount }, () => runDescriptionAnalysisWorker(queue))
     );
   } else {
     notifyPopup('generating', {
@@ -100,7 +100,7 @@ export async function performGenerateTutorial(operationId = '') {
   });
 }
 
-export async function runDescriptionAnalysisWorker(queue, settings) {
+export async function runDescriptionAnalysisWorker(queue) {
   while (queue.length) {
     const item = queue.shift();
     if (!item) {
@@ -108,6 +108,14 @@ export async function runDescriptionAnalysisWorker(queue, settings) {
     }
 
     const { screenshot, index } = item;
+    const settings = await getSettings();
+    if (!hasVisionAnalysisConfig(settings)) {
+      screenshot.description = getFallbackDescription(screenshot, index);
+      screenshot.descriptionSource = 'fallback-consent-revoked';
+      screenshot.descriptionUpdatedAt = Date.now();
+      continue;
+    }
+
     notifyPopup('generating', {
       message: `正在分析步骤 ${index + 1}/${S.currentRecording.screenshots.length}...`
     });

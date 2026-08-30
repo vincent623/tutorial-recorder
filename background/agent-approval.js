@@ -1,5 +1,7 @@
-import { buildAgentApprovalRequest } from './agent-policy.js';
+import { buildAgentApprovalRequest, evaluateApprovedActionFreshness } from './agent-policy.js';
+import { readSensitiveActionContext, sealApprovedAgentAction } from './agent-action-guard.js';
 import { isAiAgentLoopActive, updateAiAgentState } from './agent-state.js';
+import { calibrateAgentAction } from './agent-targeting.js';
 import { notifyContent, notifyPopup } from './notify.js';
 import { S, updateBadge } from './runtime-state.js';
 import { delay } from './text-utils.js';
@@ -24,6 +26,33 @@ export async function requestAiAgentApproval({ action, screenshotId, description
     await updateAiAgentState({ pendingApproval: null });
   }
   return decision;
+}
+
+export async function approveAndRevalidateAgentAction({ action, screenshot, description, policy }) {
+  const decision = await requestAiAgentApproval({
+    action,
+    screenshotId: screenshot.id,
+    description,
+    policy
+  });
+  if (decision !== 'approved' || !isAiAgentLoopActive()) {
+    return { outcome: 'cancelled', action };
+  }
+
+  const freshness = await revalidateApprovedAgentAction(action, screenshot);
+  if (!freshness.fresh) {
+    await updateAiAgentState({
+      status: 'retrying',
+      iteration: S.currentRuntime.aiAgent.iteration + 1,
+      lastAction: 'expired_approval',
+      message: freshness.reason
+    });
+    notifyPopup('warning', { message: freshness.reason });
+    await delay(800);
+    return { outcome: 'retry', action };
+  }
+
+  return { outcome: 'approved', action: freshness.action };
 }
 
 export async function resolveAiAgentApproval(approvalId, approved) {
@@ -56,6 +85,42 @@ export async function resolveAiAgentApproval(approvalId, approved) {
   notifyPopup('resumed');
   notifyContent('recordingResumed');
   return { approved: true, takeover: false };
+}
+
+export async function revalidateApprovedAgentAction(action, screenshot) {
+  const tab = await chrome.tabs.get(S.currentRuntime.tabId).catch(() => null);
+  if (!tab) {
+    return { fresh: false, action, reason: '确认期间目标页面已关闭，原批准已失效。' };
+  }
+
+  let freshAction = action;
+  let currentImage = '';
+  let currentFocusFingerprint = '';
+  let sensitiveContext = {};
+  if (action.action === 'click_at_xy' && action.coordinateSource === 'visible-text') {
+    freshAction = await calibrateAgentAction(action);
+  } else {
+    sensitiveContext = await readSensitiveActionContext(action, tab);
+    currentImage = sensitiveContext.image || '';
+    currentFocusFingerprint = sensitiveContext.focusFingerprint || '';
+  }
+
+  const result = evaluateApprovedActionFreshness({
+    action,
+    freshAction,
+    originalUrl: screenshot?.pageContext?.url || '',
+    currentUrl: tab.url || '',
+    originalImage: screenshot?.data || '',
+    currentImage,
+    originalFocusFingerprint: action.focusFingerprint || '',
+    currentFocusFingerprint,
+    originalPointFingerprint: action.pointFingerprint || '',
+    currentPointFingerprint: sensitiveContext.pointFingerprint || ''
+  });
+  return {
+    ...result,
+    action: result.fresh ? sealApprovedAgentAction(freshAction, sensitiveContext, tab.url || '') : freshAction
+  };
 }
 
 export async function takeoverRecording() {

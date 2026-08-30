@@ -59,7 +59,7 @@
 
 ## 上架前待办
 
-- [x] 隐私政策已部署到 `https://vincent623.github.io/tutorial-recorder/privacy-policy-zh.html`
+- [ ] 将 v2.8 隐私政策部署到 `https://vincent623.github.io/tutorial-recorder/privacy-policy-zh.html`，并在未登录浏览器确认不再出现“完全不上传用户数据”的旧文案
 - [ ] 开发者账号：Chrome ($5 一次性) / Edge（免费）
 - [ ] 准备 4-6 张截图 + 1 个 ≤30s 演示视频（可选加分项）
 - [ ] 打包产物：`dist/tutorial-recorder-v版本号.zip`（`npm run package` 生成，商店直接上传）

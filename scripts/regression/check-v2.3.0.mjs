@@ -94,7 +94,8 @@ const checks = [
       /dist\/\*\.sha256/.test(source.workflow) &&
       /startsWith\(github\.ref, 'refs\/tags\/v'\)/.test(source.workflow) &&
       /gh release create/.test(source.workflow) &&
-      /gh release upload "\$TAG_NAME" dist\/\*\.zip dist\/\*\.sha256 --clobber/.test(source.workflow)
+      /published assets are immutable/.test(source.workflow) &&
+      !/--clobber/.test(source.workflow)
   },
   {
     name: 'watchdog knows the v2.3.0 release automation task',

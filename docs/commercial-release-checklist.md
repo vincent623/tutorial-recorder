@@ -18,6 +18,7 @@ This checklist separates code readiness from external publication evidence. A re
 - [ ] Push the release candidate and obtain green CI for the exact commit SHA
 - [ ] Configure the `DEEPSEEK_API_KEY` repository secret; never paste it into workflow YAML, logs, issues, or artifacts
 - [ ] Protect `main`: require pull request, require `Deterministic Quality Gate`, block force pushes and deletion
+- [ ] Add a `v*` tag ruleset that blocks tag updates and deletion; published release assets are immutable
 - [ ] Protect the `production-release` environment with an authorized reviewer
 - [ ] Choose and publish the product's source-code license and commercial terms; this is an owner/legal decision
 - [ ] Enable GitHub Private Vulnerability Reporting
@@ -27,6 +28,7 @@ This checklist separates code readiness from external publication evidence. A re
 
 - [ ] Confirm legal publisher name, support email, privacy contact, and target markets
 - [ ] Review the privacy policy URL from a logged-out browser
+- [ ] Deploy the v2.8 privacy text before submission and verify the public page no longer claims that no user data is uploaded
 - [ ] Complete Chrome Web Store and Edge Add-ons data-use declarations using the wording in `memory/store-listing.md`
 - [ ] Provide current screenshots showing recording, workspace editing, AI consent, and high-risk action confirmation
 - [ ] Verify install/update/uninstall on stable Chrome and Edge on at least macOS and Windows
