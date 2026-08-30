@@ -10,25 +10,25 @@ This checklist separates code readiness from external publication evidence. A re
 - [x] Tag/version equality and SHA256 verification before GitHub Release
 - [x] GitHub Actions pinned to immutable commits with read-only default token permissions
 - [x] AI screenshot sharing explicit opt-in
-- [x] One-time confirmation for destructive clicks, coordinate fallback, Enter submission, and cross-origin navigation
+- [x] One-time confirmation for destructive clicks, coordinate fallback, Enter submission, and every explicit URL navigation
 - [x] Visible-history retention also removes IndexedDB recording and asset payloads through a crash-recoverable cleanup queue
 
 ## Repository and release controls
 
-- [ ] Push the release candidate and obtain green CI for the exact commit SHA
-- [ ] Configure the `DEEPSEEK_API_KEY` repository secret; never paste it into workflow YAML, logs, issues, or artifacts
-- [ ] Protect `main`: require pull request, require `Deterministic Quality Gate`, block force pushes and deletion
-- [ ] Add a `v*` tag ruleset that blocks tag updates and deletion; published release assets are immutable
-- [ ] Protect the `production-release` environment with an authorized reviewer
+- [x] Push the release candidate and obtain green CI for exact commit `612559a32c00797b9d4150e0e662557f8079f86b` ([run 33312330526](https://github.com/vincent623/tutorial-recorder/actions/runs/33312330526))
+- [x] Configure the `DEEPSEEK_API_KEY` repository secret; never paste it into workflow YAML, logs, issues, or artifacts
+- [x] Protect `main`: require pull request, require `Deterministic Quality Gate`, block force pushes and deletion
+- [x] Add a `v*` tag ruleset that blocks tag updates and deletion; published release assets are immutable
+- [x] Protect the `production-release` environment with an authorized reviewer
 - [ ] Choose and publish the product's source-code license and commercial terms; this is an owner/legal decision
-- [ ] Enable GitHub Private Vulnerability Reporting
-- [ ] Record the final ZIP SHA256 and GitHub Actions run URL in the release notes
+- [x] Enable GitHub Private Vulnerability Reporting
+- [x] Record the final ZIP SHA256 and GitHub Actions run URL in the [v2.8.0 release notes](https://github.com/vincent623/tutorial-recorder/releases/tag/v2.8.0)
 
 ## Store submission
 
 - [ ] Confirm legal publisher name, support email, privacy contact, and target markets
-- [ ] Review the privacy policy URL from a logged-out browser
-- [ ] Deploy the v2.8 privacy text before submission and verify the public page no longer claims that no user data is uploaded
+- [x] Review the [privacy policy URL](https://vincent623.github.io/tutorial-recorder/privacy-policy-zh.html) from a logged-out browser
+- [x] Deploy the v2.8 privacy text and verify the public page no longer claims that no user data is uploaded
 - [ ] Complete Chrome Web Store and Edge Add-ons data-use declarations using the wording in `memory/store-listing.md`
 - [ ] Provide current screenshots showing recording, workspace editing, AI consent, and high-risk action confirmation
 - [ ] Verify install/update/uninstall on stable Chrome and Edge on at least macOS and Windows
