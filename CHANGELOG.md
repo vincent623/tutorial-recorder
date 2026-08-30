@@ -12,6 +12,7 @@ All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
 ### Changed
 - CI now separates deterministic browser quality gates from provider-backed smoke, pins GitHub Actions to immutable commits, defaults the token to read-only, and reserves write access for the protected release job.
+- Official GitHub Actions use current Node 24-compatible major releases while remaining pinned to immutable commit SHAs.
 - Tag releases require an exact package-version match, successful DeepSeek smoke, and SHA256 verification of the quality-job artifact.
 - Store and privacy copy now distinguishes default local processing from explicitly authorized AI screenshot transfer.
 - Approval is revalidated against the live page before execution; permission, publishing, invitation, subscription, and semantic form-submit controls are treated as high impact.
