@@ -45,6 +45,15 @@
         <button type="button" id="btnAiStart" class="btn btn-primary">AI 录制</button>
         <button type="button" id="btnAiTakeover" class="btn btn-secondary" disabled>接管操作</button>
       </div>
+      <div class="agent-approval" id="aiApprovalPanel" role="alertdialog" aria-labelledby="aiApprovalTitle" hidden>
+        <strong id="aiApprovalTitle">AI 请求执行高风险动作</strong>
+        <p id="aiApprovalReason"></p>
+        <code id="aiApprovalAction"></code>
+        <div class="agent-approval-actions">
+          <button type="button" id="btnAiRejectAction" class="btn btn-secondary">拒绝并接管</button>
+          <button type="button" id="btnAiApproveAction" class="btn btn-danger">仅允许这一次</button>
+        </div>
+      </div>
       <div class="ai-step-list" id="aiStepList" hidden></div>
     </section>
 

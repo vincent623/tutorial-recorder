@@ -89,7 +89,7 @@ const checks = [
   {
     name: 'GitHub workflow uploads artifacts and publishes tag releases',
     pass:
-      /actions\/upload-artifact@v4/.test(source.workflow) &&
+      /actions\/upload-artifact@[0-9a-f]{40}/.test(source.workflow) &&
       /dist\/\*\.zip/.test(source.workflow) &&
       /dist\/\*\.sha256/.test(source.workflow) &&
       /startsWith\(github\.ref, 'refs\/tags\/v'\)/.test(source.workflow) &&

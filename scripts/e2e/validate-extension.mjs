@@ -19,6 +19,7 @@ const detailInsertImagePath = path.join(repoRoot, 'icons', 'icon128.png');
 const detailReplaceImagePath = path.join(repoRoot, 'icons', 'icon48.png');
 const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48123', 10);
 const headless = process.env.PW_HEADLESS !== '0';
+const browserChannel = process.env.PW_BROWSER_CHANNEL?.trim() || 'chromium';
 const customOutputDir = process.env.PW_OUTPUT_SUBDIR || 'codex-e2e/tutorial-recorder';
 const customAiAgentMaxSteps = 75;
 const customAiAgentMaxDurationMinutes = 15;
@@ -41,7 +42,7 @@ async function main() {
     context = await chromium.launchPersistentContext(profileDir, {
       headless,
       downloadsPath: downloadsDir,
-      channel: 'chromium',
+      channel: browserChannel,
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
@@ -58,6 +59,10 @@ async function main() {
       (await context.waitForEvent('serviceworker', {
         timeout: 20000
       }));
+    serviceWorker.on('console', (message) =>
+      console.log(`[service worker console:${message.type()}] ${message.text()}`)
+    );
+    serviceWorker.on('close', () => console.log('[e2e] service worker closed'));
 
     context.on('close', () => console.log('[e2e] browser context closed'));
     context.browser()?.on('disconnected', () => console.log('[e2e] browser disconnected'));
@@ -102,7 +107,10 @@ async function main() {
     });
     await popup.waitForLoadState('domcontentloaded');
     await popup.waitForFunction(
-      () => window.location.protocol === 'chrome-extension:' && Boolean(chrome?.runtime?.sendMessage)
+      () =>
+        window.location.protocol === 'chrome-extension:' &&
+        Boolean(chrome?.runtime?.sendMessage) &&
+        document.documentElement.dataset.appReady === 'true'
     );
     console.log('[e2e] popup page ready');
 
@@ -201,6 +209,7 @@ async function main() {
           apiBaseUrl: aiConfig.apiBaseUrl,
           modelId: aiConfig.modelId,
           extraHeadersJson: aiConfig.extraHeadersJson,
+          aiDataSharingConsent: true,
           captureMode: 'displayMedia',
           outputDir,
           aiAgentMaxSteps: 75,
@@ -465,6 +474,43 @@ async function main() {
       const result = await chrome.runtime.sendMessage({ action: 'getPopupState' });
       return result?.history || [];
     });
+    const retentionGovernance = await storagePage.evaluate(async () => {
+      const assetStore = await import(chrome.runtime.getURL('background/asset-store.js'));
+      const historyService = await import(chrome.runtime.getURL('background/history-service.js'));
+
+      for (let index = 0; index < 101; index += 1) {
+        const id = `retention-${String(index).padStart(3, '0')}`;
+        const assetId = `${id}:asset:screenshot:1`;
+        await assetStore.putRecordingWithAssets(
+          {
+            id,
+            startTime: index,
+            title: `Retention ${index}`,
+            status: 'ready',
+            commitState: 'complete',
+            screenshots: [{ id: `${id}:shot:1`, assetId }]
+          },
+          [{ id: assetId, recordingId: id, kind: 'screenshot', dataUrl: 'data:image/png;base64,AA==' }]
+        );
+        await historyService.upsertHistoryEntry({ id, title: `Retention ${index}`, createdAt: index });
+      }
+
+      const [history, recordings, assets, cleanupState] = await Promise.all([
+        historyService.getHistory(),
+        assetStore.listRecordings(),
+        assetStore.listAllAssets(),
+        chrome.storage.local.get(historyService.CLEANUP_QUEUE_KEY)
+      ]);
+      return {
+        historyCount: history.length,
+        recordingCount: recordings.length,
+        assetCount: assets.length,
+        oldestEvicted: !recordings.some((item) => item.id === 'retention-000'),
+        newestVisible: history[0]?.id === 'retention-100',
+        pendingCleanupCount: (cleanupState[historyService.CLEANUP_QUEUE_KEY] || []).length
+      };
+    });
+    await storagePage.evaluate(() => chrome.runtime.sendMessage({ action: 'clearAllRecordings' }));
     await storagePage.close();
     const storageGovernance = {
       before: storageBeforeClear?.storage || null,
@@ -498,6 +544,7 @@ async function main() {
       fileTypes,
       archiveContents,
       storageGovernance,
+      retentionGovernance,
       checks: {
         hasZip: fileTypes.some((item) => item.kind === 'zip'),
         archiveHasMarkdown: archiveContents.some((archive) =>
@@ -598,7 +645,14 @@ async function main() {
           (storageGovernance.before?.assetCount || 0) >= 1 &&
           storageGovernance.after?.recordingCount === 0 &&
           storageGovernance.after?.assetCount === 0 &&
-          storageGovernance.historyCountAfter === 0
+          storageGovernance.historyCountAfter === 0,
+        retentionDeletesInvisiblePayloads:
+          retentionGovernance.historyCount === 100 &&
+          retentionGovernance.recordingCount === 100 &&
+          retentionGovernance.assetCount === 100 &&
+          retentionGovernance.oldestEvicted === true &&
+          retentionGovernance.newestVisible === true &&
+          retentionGovernance.pendingCleanupCount === 0
       }
     };
 

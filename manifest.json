@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "教程自动录制器",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "边操作边录制截图、视频和音频，自动生成 PDF+Markdown 教程",
   "permissions": [
     "activeTab",

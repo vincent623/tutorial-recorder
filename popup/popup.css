@@ -237,6 +237,41 @@ body.workspace-mode {
   font-size: 11px;
 }
 
+.agent-approval {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(207, 19, 34, 0.34);
+  border-radius: 14px;
+  background: #fff1f0;
+  color: #5c0011;
+}
+
+.agent-approval[hidden] {
+  display: none;
+}
+
+.agent-approval p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.agent-approval code {
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+}
+
+.agent-approval-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .field {
   display: flex;
   flex-direction: column;

@@ -168,7 +168,7 @@ export async function startAiRecording(tabId, targetDescription, options = {}) {
   let tab = await getRecordingStartTargetTab(tabId, 'AI 录制', targetOptions);
   const settings = await getSettings();
   if (!hasVisionAnalysisConfig(settings)) {
-    throw new Error('请先在完整设置中配置 AI Provider、API Key 和模型');
+    throw new Error('请先配置 AI，并明确允许截图发送到所选服务商');
   }
 
   const startedAt = Date.now();

@@ -13,6 +13,7 @@ const profileDir = path.join(artifactsDir, 'ai-profile');
 const reportPath = path.join(artifactsDir, 'ai-smoke-report.json');
 const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48124', 10);
 const headless = process.env.PW_HEADLESS !== '0';
+const browserChannel = process.env.PW_BROWSER_CHANNEL?.trim() || 'chromium';
 const aiConfig = await loadAiConfig();
 let partialReport = null;
 
@@ -35,7 +36,7 @@ async function main() {
   try {
     context = await chromium.launchPersistentContext(profileDir, {
       headless,
-      channel: 'chromium',
+      channel: browserChannel,
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
@@ -80,6 +81,7 @@ async function main() {
             apiBaseUrl: config.apiBaseUrl,
             modelId: config.modelId,
             extraHeadersJson: config.extraHeadersJson,
+            aiDataSharingConsent: true,
             outputDir: 'codex-e2e/tutorial-recorder-ai-smoke',
             captureMode: 'displayMedia',
             screenshotInterval: 5,

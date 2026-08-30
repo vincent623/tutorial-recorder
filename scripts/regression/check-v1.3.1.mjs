@@ -53,7 +53,7 @@ const checks = [
     name: 'history caps and export path display remain in place',
     pass:
       /HISTORY_MAX_ENTRIES = 100/.test(source.background) &&
-      /\.slice\(0, HISTORY_MAX_ENTRIES\)/.test(source.background) &&
+      /planHistoryRetention\(history, entry, HISTORY_MAX_ENTRIES\)/.test(source.background) &&
       /history\.slice\(0, 3\)/.test(source.popup) &&
       /formatDownloadsPath\(exportBaseName\)/.test(source.popup)
   }

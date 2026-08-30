@@ -222,8 +222,8 @@ tutorial-YYYYMMDD-HHMMSS-<id>/
 **组件：**
 - RecordingStore：存储轻量 recording 元数据、步骤顺序、说明、提交状态与 asset 引用，对象仓库 `recordings`，keyPath `id`
 - AssetStore：存储截图、音频、视频的大体量 data URL payload，对象仓库 `assets`，keyPath `id`，按 `recordingId` 建索引
-- HistoryIndex：在 chrome.storage.local 维护历史索引数组（最多 100 条），仅含摘要字段
-- StorageQuotaManager：已实现浏览器用量、教程/素材计数和带确认的一键清理
+- HistoryIndex：在 chrome.storage.local 维护历史索引数组（最多 100 条），仅含摘要字段；淘汰项进入持久清理队列并级联删除 IndexedDB payload
+- StorageQuotaManager：已实现浏览器用量、教程/素材计数、可恢复的一键清理意图和启动重试
 
 **存储分层：**
 ```
@@ -272,6 +272,7 @@ tutorial-YYYYMMDD-HHMMSS-<id>/
 | `takeoverRecording` | — | `{ ok }` | AI → 手动接管（Phase 3） |
 | `pauseAiAgent` | — | `{ ok }` | 暂停 AI Agent（Phase 3） |
 | `resumeAiAgent` | — | `{ ok }` | 继续 AI Agent（Phase 3） |
+| `resolveAiAgentApproval` | `{ approvalId, approved }` | `{ ok, approved, takeover }` | 允许一次高风险动作，或拒绝并人工接管 |
 | `manualCapture` | — | `{ ok, captured, count }` | 手动截图 |
 | `downloadRecording` | `{ id }` | `{ ok }` | 导出指定录制 |
 | `getRecordingDetail` | `{ id }` | `{ ok, recording }` | 获取教程详情 |
@@ -498,6 +499,7 @@ create-plasmo → 迁移 assets/icon.svg → 配置 permissions → 验证空壳
 ├─────────────────────────────────────────────────┤
 │              Data Privacy                        │
 │  • 截图可能含敏感信息（密码、个人资料）          │
+│  • AI 截图发送默认关闭，用户显式授权后才外发     │
 │  • ZIP 仅下载到本地，不自动上传                  │
 │  • 分享功能必须用户主动触发并确认                │
 ├─────────────────────────────────────────────────┤
@@ -506,6 +508,7 @@ create-plasmo → 迁移 assets/icon.svg → 配置 permissions → 验证空壳
 │  • 步数和超时可配置                              │
 │  • 达到限制后优雅停止                            │
 │  • 用户可随时接管                                │
+│  • 高影响动作、坐标兜底和跨站导航单次确认        │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -514,10 +517,10 @@ create-plasmo → 迁移 assets/icon.svg → 配置 permissions → 验证空壳
 | 层 | 需求 | 实现 |
 |------|------|------|
 | 权限 | 最小权限集 | 仅申请必要 permission + host_permissions |
-| 密钥 | API Key 保护 | chrome.storage.local 加密存储，不外泄 |
+| 密钥 | API Key 保护 | chrome.storage.local 扩展专属存储，仅 trusted extension contexts 可读；不写日志、IndexedDB、导出或证据，不宣称静态加密 |
 | 调试 | CDP 生命周期 | 录制开始 attach，结束/异常立即 detach |
-| 隐私 | 截图数据保护 | ZIP 仅本地下载，不自动上传 |
-| Agent | 循环控制 | 步数上限 + 超时 + 用户接管 |
+| 隐私 | 截图数据保护 | 默认不外发；用户显式授权 AI 截图发送；ZIP 仅本地下载，不自动上传 |
+| Agent | 循环控制 | 步数上限 + 超时 + 用户接管 + 高影响动作一次性确认 |
 | 输入 | 参数校验 | SettingsManager 统一校验（URL/interval/dir/title） |
 
 ---
@@ -694,4 +697,4 @@ Phase 1-3 已在现有原生扩展目录中落地，未执行 Plasmo / React / T
 - [x] 7 条技术决策（ADR）有明确的背景、决策和后果分析
 - [ ] Phase 0（Plasmo 迁移）后续执行，不再作为 Phase 1-3 前置步骤
 - [x] Phase 1-3 的当前原生 JS 文件级改动影响已明确
-- [x] background.js 已在 v2.6.1 拆分为聚焦模块，并在 v2.7.0 消除静态循环依赖
+- [x] background.js 已在 v2.6.1 拆分为聚焦模块，在 v2.7.0 消除静态循环依赖，并在 v2.8.0 抽出 Agent 审批与历史保留深模块

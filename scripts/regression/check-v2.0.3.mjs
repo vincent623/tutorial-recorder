@@ -82,7 +82,7 @@ const checks = [
       /shouldRecoverInterruptedRecording/.test(source.background) &&
       /shouldIndexRecording/.test(source.background) &&
       /isHistoryEntryStale/.test(source.background) &&
-      /await chrome\.storage\.local\.set\(\{ \[HISTORY_KEY\]: history \}\)/.test(source.background)
+      /await persistHistoryAndQueueCleanup\(history, evictedIds\)/.test(source.background)
   },
   {
     name: 're-export failure is marked recoverable instead of ambiguous',

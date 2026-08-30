@@ -148,7 +148,12 @@ export async function resizeDataUrlToSize(dataUrl, width, height) {
 }
 
 export function hasVisionAnalysisConfig(settings = {}) {
-  return Boolean(settings.apiKey && settings.modelId && settings.apiBaseUrl);
+  return Boolean(
+    settings.aiDataSharingConsent === true &&
+    settings.apiKey &&
+    settings.modelId &&
+    settings.apiBaseUrl
+  );
 }
 
 export const PROVIDER_TEST_IMAGE_DATA_URL =

@@ -55,6 +55,11 @@ const elements = {
   aiGoal: $('aiGoal'),
   btnAiStart: $('btnAiStart'),
   btnAiTakeover: $('btnAiTakeover'),
+  aiApprovalPanel: $('aiApprovalPanel'),
+  aiApprovalReason: $('aiApprovalReason'),
+  aiApprovalAction: $('aiApprovalAction'),
+  btnAiRejectAction: $('btnAiRejectAction'),
+  btnAiApproveAction: $('btnAiApproveAction'),
   aiStepList: $('aiStepList'),
   screenshotCount: $('screenshotCount'),
   recordTime: $('recordTime'),
@@ -103,9 +108,10 @@ const pendingOperationIds = new Map();
 
 document.addEventListener('DOMContentLoaded', async () => {
   applyPageMode();
-  await hydrate();
   bindEvents();
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+  await hydrate();
+  document.documentElement.dataset.appReady = 'true';
 });
 
 function createIdleState() {
@@ -141,6 +147,7 @@ function createAiAgentState(overrides = {}) {
     maxDurationMs: 10 * 60 * 1000,
     paused: false,
     awaitingTakeover: false,
+    pendingApproval: null,
     message: '',
     updatedAt: 0,
     ...overrides
@@ -240,6 +247,8 @@ function bindEvents() {
   elements.btnCapture.addEventListener('click', captureManually);
   elements.btnAiStart.addEventListener('click', startAiRecording);
   elements.btnAiTakeover.addEventListener('click', takeoverRecording);
+  elements.btnAiApproveAction.addEventListener('click', () => resolveAiAgentApproval(true));
+  elements.btnAiRejectAction.addEventListener('click', () => resolveAiAgentApproval(false));
   elements.historyList.addEventListener('click', handleHistoryAction);
 
   elements.btnCloseDetail.addEventListener('click', closeDetail);
@@ -340,7 +349,7 @@ async function startAiRecording() {
 
   if (!hasAiSettingsConfigured()) {
     elements.aiStatus.textContent = '需配置 AI';
-    alert('请先在完整设置中配置 AI Provider、API Key 和模型，然后再启动 AI 录制。');
+    alert('请先在完整设置中配置 AI Provider、API Key 和模型，并明确允许截图发送到所选服务商，然后再启动 AI 录制。');
     return;
   }
 
@@ -462,6 +471,25 @@ async function takeoverRecording() {
   const result = await sendAction('takeoverRecording');
   if (!result?.ok) {
     alert(`接管失败：${result?.error || '未知错误'}`);
+  }
+}
+
+async function resolveAiAgentApproval(approved) {
+  const pendingApproval = state.aiAgent?.pendingApproval;
+  if (!pendingApproval?.id) {
+    return;
+  }
+
+  elements.btnAiApproveAction.disabled = true;
+  elements.btnAiRejectAction.disabled = true;
+  const result = await sendAction('resolveAiAgentApproval', {
+    approvalId: pendingApproval.id,
+    approved
+  });
+  if (!result?.ok) {
+    alert(`处理 AI 动作确认失败：${result?.error || '未知错误'}`);
+    elements.btnAiApproveAction.disabled = false;
+    elements.btnAiRejectAction.disabled = false;
   }
 }
 
@@ -998,7 +1026,9 @@ function updateUi() {
 
   elements.btnStart.disabled = state.isRecording || state.isGenerating;
   elements.btnPause.disabled =
-    !state.isRecording || state.isGenerating || (state.recordingMode === 'ai' && state.aiAgent.status === 'failed');
+    !state.isRecording ||
+    state.isGenerating ||
+    (state.recordingMode === 'ai' && ['failed', 'awaiting_confirmation'].includes(state.aiAgent.status));
   elements.btnStop.disabled = !state.isRecording || state.isGenerating;
   elements.btnCapture.disabled = !state.isRecording || state.isGenerating;
   elements.btnPause.textContent =
@@ -1044,6 +1074,9 @@ function normalizeAiAgent(aiAgent = {}) {
     maxDurationMs: Number.parseInt(aiAgent?.maxDurationMs, 10) || 10 * 60 * 1000,
     paused: aiAgent?.paused === true,
     awaitingTakeover: aiAgent?.awaitingTakeover === true,
+    pendingApproval: aiAgent?.pendingApproval && typeof aiAgent.pendingApproval === 'object'
+      ? { ...aiAgent.pendingApproval }
+      : null,
     message: typeof aiAgent?.message === 'string' ? aiAgent.message : ''
   };
 }
@@ -1063,9 +1096,17 @@ function renderAiPanel() {
   elements.btnAiStart.disabled = state.isRecording || state.isGenerating;
   elements.btnAiStart.title = aiConfigured
     ? ''
-    : '请先在完整设置中配置 AI Provider、API Key 和模型。';
+    : '请先配置 AI 并明确允许截图发送到所选服务商。';
   elements.btnAiTakeover.disabled =
     !isAiRecording || state.isGenerating || (!aiAgent.awaitingTakeover && aiAgent.status !== 'running' && aiAgent.status !== 'paused');
+  const pendingApproval = aiAgent.pendingApproval?.decision === 'pending' ? aiAgent.pendingApproval : null;
+  elements.aiApprovalPanel.hidden = !pendingApproval;
+  elements.btnAiApproveAction.disabled = !pendingApproval;
+  elements.btnAiRejectAction.disabled = !pendingApproval;
+  if (pendingApproval) {
+    elements.aiApprovalReason.textContent = pendingApproval.reason || '该动作需要您确认。';
+    elements.aiApprovalAction.textContent = pendingApproval.description || pendingApproval.action?.action || 'AI 动作';
+  }
   elements.aiGoal.disabled = state.isRecording || state.isGenerating;
 
   if (!elements.aiGoal.value && aiAgent.goal) {
@@ -1089,7 +1130,10 @@ function renderAiPanel() {
 
 function hasAiSettingsConfigured(settings = currentSettings) {
   return Boolean(
-    (settings.apiKeyConfigured || settings.apiKey) && settings.modelId && settings.apiBaseUrl
+    settings.aiDataSharingConsent === true &&
+    (settings.apiKeyConfigured || settings.apiKey) &&
+    settings.modelId &&
+    settings.apiBaseUrl
   );
 }
 
@@ -1108,6 +1152,10 @@ function getAiStatusText(aiAgent = {}) {
 
   if (aiAgent.status === 'failed') {
     return aiAgent.message || 'AI 异常';
+  }
+
+  if (aiAgent.status === 'awaiting_confirmation') {
+    return aiAgent.message || '等待确认高风险动作';
   }
 
   if (aiAgent.status === 'takeover') {

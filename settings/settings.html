@@ -147,6 +147,14 @@
         <span class="panel-tip">支持多家视觉模型和 OpenAI 兼容网关</span>
       </div>
 
+      <div class="field toggle-field ai-consent-field">
+        <div class="toggle-row">
+          <span>允许将当前页面截图发送给所选 AI 服务商</span>
+          <input type="checkbox" id="aiDataSharingConsent">
+        </div>
+        <small class="field-hint">默认关闭。开启后，AI 录制、实时建议、步骤生成和连接测试会把当前页面截图发送到您配置的服务商；截图可能包含页面上可见的个人或企业数据，可随时关闭。</small>
+      </div>
+
       <label class="field">
         <span>Provider 预设</span>
         <select id="providerPreset">

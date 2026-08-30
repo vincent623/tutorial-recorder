@@ -1,4 +1,6 @@
+import { requestAiAgentApproval } from './agent-approval.js';
 import { appendAiAgentStep, isAiAgentLimitReached, isAiAgentLoopActive, updateAgentScreenshotDescription, updateAiAgentState, waitForAiAgentResume } from './agent-state.js';
+import { evaluateAgentActionPolicy } from './agent-policy.js';
 import { calibrateAgentAction, isRepeatedAgentAction } from './agent-targeting.js';
 import { buildAgentToolSchema, describeAgentAction, executeAiAgentAction, extractAgentAction } from './agent-tools.js';
 import { AI_ANALYZE_TIMEOUT_MS, createAiTimeoutError, hasVisionAnalysisConfig, parseExtraHeaders, parseImageDataUrl, resizeDataUrlToSize, resolveVisionUrl, sanitizePageTitle, summarizeUrlForPrompt } from './ai-vision.js';
@@ -20,6 +22,10 @@ export const AI_AGENT_PAGE_STABILITY_INTERVAL_MS = 400;
 export async function pauseAiAgent() {
   if (!S.currentRuntime.isRecording || S.currentRuntime.recordingMode !== 'ai') {
     return;
+  }
+
+  if (S.currentRuntime.aiAgent?.pendingApproval?.decision === 'pending') {
+    throw new Error('当前有待确认的 AI 动作，请先允许一次或拒绝并接管');
   }
 
   if (!S.currentRuntime.isPaused) {
@@ -46,6 +52,10 @@ export async function resumeAiAgent() {
     throw new Error('AI 已失败，请接管操作或停止导出');
   }
 
+  if (S.currentRuntime.aiAgent?.pendingApproval?.decision === 'pending') {
+    throw new Error('不能用“继续 AI”绕过待确认动作');
+  }
+
   if (S.currentRuntime.pauseStartedAt) {
     S.currentRuntime.pausedDurationMs += Date.now() - S.currentRuntime.pauseStartedAt;
   }
@@ -56,6 +66,7 @@ export async function resumeAiAgent() {
     status: 'running',
     paused: false,
     awaitingTakeover: false,
+    pendingApproval: null,
     message: 'AI 正在继续执行...'
   });
   await updateBadge();
@@ -63,31 +74,21 @@ export async function resumeAiAgent() {
   notifyContent('recordingResumed');
 }
 
-export async function takeoverRecording() {
-  if (!S.currentRuntime.isRecording || S.currentRuntime.recordingMode !== 'ai') {
-    return;
+export function runAiAgentLoop(initialSettings, requestStop) {
+  if (S.aiAgentLoopPromise) {
+    return S.aiAgentLoopPromise;
   }
 
-  if (S.currentRuntime.pauseStartedAt) {
-    S.currentRuntime.pausedDurationMs += Date.now() - S.currentRuntime.pauseStartedAt;
-  }
-
-  S.currentRuntime.recordingMode = 'manual';
-  S.currentRuntime.isPaused = false;
-  S.currentRuntime.pauseStartedAt = null;
-  S.currentRuntime.mediaStatus = '人工接管';
-  await updateAiAgentState({
-    status: 'takeover',
-    paused: false,
-    awaitingTakeover: false,
-    message: '已切换为人工接管，可继续截图或停止导出。'
+  const loopPromise = performRunAiAgentLoop(initialSettings, requestStop).finally(() => {
+    if (S.aiAgentLoopPromise === loopPromise) {
+      S.aiAgentLoopPromise = null;
+    }
   });
-  await updateBadge();
-  notifyPopup('resumed');
-  notifyContent('recordingResumed');
+  S.aiAgentLoopPromise = loopPromise;
+  return loopPromise;
 }
 
-export async function runAiAgentLoop(initialSettings, requestStop) {
+async function performRunAiAgentLoop(initialSettings, requestStop) {
   let settings = initialSettings;
 
   while (isAiAgentLoopActive()) {
@@ -138,6 +139,34 @@ export async function runAiAgentLoop(initialSettings, requestStop) {
     }
 
     const description = action.description || describeAgentAction(action);
+    const policy = evaluateAgentActionPolicy(action, {
+      currentUrl: screenshot?.pageContext?.url || ''
+    });
+
+    if (policy.decision === 'block') {
+      await updateAiAgentState({
+        status: 'retrying',
+        iteration: S.currentRuntime.aiAgent.iteration + 1,
+        lastAction: 'blocked_by_policy',
+        message: `已阻止 AI 动作：${policy.reason}`
+      });
+      notifyPopup('warning', { message: S.currentRuntime.aiAgent.message });
+      await delay(AI_AGENT_STEP_DELAY_MS);
+      continue;
+    }
+
+    if (policy.decision === 'confirm') {
+      const approvalDecision = await requestAiAgentApproval({
+        action,
+        screenshotId: screenshot.id,
+        description,
+        policy
+      });
+      if (approvalDecision !== 'approved' || !isAiAgentLoopActive()) {
+        return;
+      }
+    }
+
     await updateAgentScreenshotDescription(screenshot.id, description);
     await appendAiAgentStep(action, screenshot.id, description);
 
@@ -193,7 +222,7 @@ export async function decideNextAgentActionWithRetry(screenshot, settings) {
 
 export async function decideNextAgentAction(screenshot, settings) {
   if (!hasVisionAnalysisConfig(settings)) {
-    throw new Error('AI 配置不完整，无法继续 AI 录制');
+    throw new Error('AI 配置或截图发送授权不完整，无法继续 AI 录制');
   }
 
   const normalizedScreenshot = await normalizeAgentScreenshot(screenshot);

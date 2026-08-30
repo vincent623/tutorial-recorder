@@ -49,7 +49,7 @@ const checks = [
   {
     name: 'AI agent loop captures, decides, executes, and finishes through existing export',
     pass:
-      /async function runAiAgentLoop/.test(source.background) &&
+      /function runAiAgentLoop/.test(source.background) &&
       /captureScreenshot\(\{ trigger: 'agent'/.test(source.background) &&
       /decideNextAgentAction/.test(source.background) &&
       /executeAiAgentAction/.test(source.background) &&

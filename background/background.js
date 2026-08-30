@@ -1,4 +1,6 @@
-import { pauseAiAgent, resumeAiAgent, takeoverRecording } from './agent-loop.js';
+import { resolveAiAgentApproval, takeoverRecording } from './agent-approval.js';
+import { pauseAiAgent, resumeAiAgent, runAiAgentLoop } from './agent-loop.js';
+import { handleAiAgentFailure } from './agent-state.js';
 import { deleteRecording } from './asset-store.js';
 import { getRecordingDetail, updateRecordingDetails } from './detail-service.js';
 import { exportRecording } from './export-pipeline.js';
@@ -84,6 +86,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await takeoverRecording();
         sendResponse({ ok: true });
         break;
+      case 'resolveAiAgentApproval': {
+        const result = await resolveAiAgentApproval(message.approvalId || '', message.approved === true);
+        if (result.approved) {
+          runAiAgentLoop(await getSettings(), stopRecording).catch((error) => {
+            handleAiAgentFailure(error).catch((failureError) => {
+              console.error('[Background] AI failure handling failed:', failureError);
+            });
+          });
+        }
+        sendResponse({ ok: true, ...result });
+        break;
+      }
       case 'stopRecording':
         await stopRecording(message.operationId);
         sendResponse({ ok: true });

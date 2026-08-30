@@ -150,7 +150,8 @@ const checks = [
   {
     name: 'store submission materials document privacy and review answers',
     pass:
-      /100% 保存在您自己的电脑/.test(source.privacyPolicy) &&
+      /录制数据默认保存在您自己的电脑/.test(source.privacyPolicy) &&
+      /AI 截图发送默认关闭/.test(source.privacyPolicy) &&
       /自动打码/.test(source.privacyPolicy) &&
       /debugger/.test(source.storeListing) &&
       /隐私政策/.test(source.storeListing) &&

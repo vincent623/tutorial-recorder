@@ -15,7 +15,8 @@ export const S = {
   operationSequence: 0,
   operationLocks: new Map(),
   operationSerialQueues: new Map(),
-  recentOperationResults: new Map()
+  recentOperationResults: new Map(),
+  aiAgentLoopPromise: null
 };
 
 export function createIdleRuntime() {
@@ -61,6 +62,7 @@ export function createAiAgentState(overrides = {}) {
     deadlineAt: null,
     paused: false,
     awaitingTakeover: false,
+    pendingApproval: null,
     lastAction: '',
     message: '',
     updatedAt: 0,

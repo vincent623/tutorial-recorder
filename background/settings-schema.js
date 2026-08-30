@@ -181,6 +181,7 @@ export const DEFAULT_SETTINGS = {
   screenshotInterval: 5,
   autoScreenshot: true,
   realtimeSuggestions: false,
+  aiDataSharingConsent: false,
   aiAgentMaxSteps: AI_AGENT_MAX_STEPS,
   aiAgentMaxDurationMinutes: Math.round(AI_AGENT_MAX_DURATION_MS / 60_000),
   screenshotEngine: 'standard',
@@ -225,6 +226,7 @@ export function normalizeSettings(settings = {}) {
     screenshotInterval: clampInterval(settings.screenshotInterval ?? DEFAULT_SETTINGS.screenshotInterval),
     autoScreenshot: settings.autoScreenshot !== false,
     realtimeSuggestions: settings.realtimeSuggestions === true,
+    aiDataSharingConsent: settings.aiDataSharingConsent === true,
     aiAgentMaxSteps: clampInteger(
       settings.aiAgentMaxSteps ?? DEFAULT_SETTINGS.aiAgentMaxSteps,
       AI_AGENT_MIN_STEPS,

@@ -2,6 +2,19 @@
 
 All notable changes to Tutorial Recorder are tracked using Semantic Versioning.
 
+## [2.8.0] - 2026-08-30
+
+### Added
+- Explicit, revocable opt-in before any AI feature sends a page screenshot to the configured provider.
+- One-time user approval for destructive or submission-capable Agent actions, visual-coordinate fallback clicks, and cross-origin navigation; rejection switches to manual takeover.
+- Crash-recoverable cleanup queue so the 100-entry history cap also deletes evicted IndexedDB recordings and media assets.
+- Commercial release checklist, security reporting policy, and third-party notices included in the extension package.
+
+### Changed
+- CI now separates deterministic browser quality gates from provider-backed smoke, pins GitHub Actions to immutable commits, defaults the token to read-only, and reserves write access for the protected release job.
+- Tag releases require an exact package-version match, successful DeepSeek smoke, and SHA256 verification of the quality-job artifact.
+- Store and privacy copy now distinguishes default local processing from explicitly authorized AI screenshot transfer.
+
 ## [2.7.0] - 2026-08-30
 
 ### Added

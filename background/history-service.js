@@ -4,8 +4,11 @@ import { notifyPopup } from './notify.js';
 import { COMMIT_STATES, RECOVERABLE_COMMIT_STATES, markRecordingRecoverableFailure } from './op-safety.js';
 import { HISTORY_KEY, S, createIdleRuntime, persistRuntime } from './runtime-state.js';
 import { DEFAULT_SETTINGS } from './settings-schema.js';
+import { planHistoryRetention } from './history-retention.js';
 
 export const HISTORY_MAX_ENTRIES = 100;
+export const CLEANUP_QUEUE_KEY = 'recordingCleanupQueue';
+export const CLEAR_ALL_PENDING_KEY = 'recordingClearAllPending';
 
 export async function recoverInterruptedRecordings() {
   const recordings = await listRecordings().catch((error) => {
@@ -19,6 +22,7 @@ export async function recoverInterruptedRecordings() {
 
   let history = await getHistory();
   let historyChanged = false;
+  const evictedIds = [];
   const now = Date.now();
 
   for (const recording of recordings) {
@@ -50,7 +54,9 @@ export async function recoverInterruptedRecordings() {
       const existingIndex = history.findIndex((item) => item?.id === recording.id);
 
       if (existingIndex < 0) {
-        history = [entry, ...history].slice(0, HISTORY_MAX_ENTRIES);
+        const retention = planHistoryRetention(history, entry, HISTORY_MAX_ENTRIES);
+        history = retention.history;
+        evictedIds.push(...retention.evictedIds);
         historyChanged = true;
       } else if (isHistoryEntryStale(history[existingIndex], entry)) {
         history = history.map((item, index) => (index === existingIndex ? entry : item));
@@ -60,7 +66,8 @@ export async function recoverInterruptedRecordings() {
   }
 
   if (historyChanged) {
-    await chrome.storage.local.set({ [HISTORY_KEY]: history });
+    await persistHistoryAndQueueCleanup(history, evictedIds);
+    await drainRecordingCleanupQueue();
   }
 
   if (historyChanged) {
@@ -108,8 +115,9 @@ export async function getHistory() {
 
 export async function upsertHistoryEntry(entry) {
   const history = await getHistory();
-  const nextHistory = [entry, ...history.filter((item) => item.id !== entry.id)].slice(0, HISTORY_MAX_ENTRIES);
-  await chrome.storage.local.set({ [HISTORY_KEY]: nextHistory });
+  const retention = planHistoryRetention(history, entry, HISTORY_MAX_ENTRIES);
+  await persistHistoryAndQueueCleanup(retention.history, retention.evictedIds);
+  await drainRecordingCleanupQueue();
 }
 
 export function buildHistoryEntry(recording) {
@@ -132,11 +140,9 @@ export function buildHistoryEntry(recording) {
 }
 
 export async function deleteRecordingById(id) {
-  await deleteRecording(id);
   const history = await getHistory();
-  await chrome.storage.local.set({
-    [HISTORY_KEY]: history.filter((item) => item.id !== id)
-  });
+  await persistHistoryAndQueueCleanup(history.filter((item) => item.id !== id), [id]);
+  await drainRecordingCleanupQueue();
 
   notifyPopup('historyUpdated', { history: await getHistory() });
 }
@@ -150,8 +156,62 @@ export async function clearAllRecordings() {
     throw new Error('录制或导出进行中，暂时不能清理全部教程');
   }
 
-  await clearAllRecordingData();
-  await chrome.storage.local.set({ [HISTORY_KEY]: [] });
+  await chrome.storage.local.set({ [CLEAR_ALL_PENDING_KEY]: true });
+  await completePendingClearAll();
   notifyPopup('historyUpdated', { history: [] });
   return getStorageUsageSummary();
+}
+
+export async function recoverPendingStorageCleanup() {
+  const { [CLEAR_ALL_PENDING_KEY]: clearAllPending } = await chrome.storage.local.get(CLEAR_ALL_PENDING_KEY);
+  if (clearAllPending === true) {
+    await completePendingClearAll();
+    return;
+  }
+
+  await drainRecordingCleanupQueue();
+}
+
+export async function drainRecordingCleanupQueue() {
+  const { [CLEANUP_QUEUE_KEY]: storedQueue } = await chrome.storage.local.get(CLEANUP_QUEUE_KEY);
+  const queue = normalizeCleanupIds(storedQueue);
+  if (!queue.length) {
+    return { deletedIds: [], pendingIds: [] };
+  }
+
+  const deletedIds = [];
+  const pendingIds = [];
+  for (const id of queue) {
+    try {
+      await deleteRecording(id);
+      deletedIds.push(id);
+    } catch (error) {
+      console.warn(`[Background] Deferred recording cleanup failed for ${id}:`, error);
+      pendingIds.push(id);
+    }
+  }
+
+  await chrome.storage.local.set({ [CLEANUP_QUEUE_KEY]: pendingIds });
+  return { deletedIds, pendingIds };
+}
+
+async function persistHistoryAndQueueCleanup(history, cleanupIds) {
+  const { [CLEANUP_QUEUE_KEY]: storedQueue } = await chrome.storage.local.get(CLEANUP_QUEUE_KEY);
+  await chrome.storage.local.set({
+    [HISTORY_KEY]: history,
+    [CLEANUP_QUEUE_KEY]: normalizeCleanupIds([...normalizeCleanupIds(storedQueue), ...cleanupIds])
+  });
+}
+
+async function completePendingClearAll() {
+  await clearAllRecordingData();
+  await chrome.storage.local.set({
+    [HISTORY_KEY]: [],
+    [CLEANUP_QUEUE_KEY]: [],
+    [CLEAR_ALL_PENDING_KEY]: false
+  });
+}
+
+function normalizeCleanupIds(values) {
+  return [...new Set((Array.isArray(values) ? values : []).filter((id) => typeof id === 'string' && id))];
 }

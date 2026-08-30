@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const distDir = path.join(repoRoot, 'dist');
 const runtimeEntries = [
   'manifest.json',
+  'THIRD_PARTY_NOTICES.txt',
   'background',
   'content',
   'offscreen',

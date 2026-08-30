@@ -93,9 +93,10 @@ const secondPackage = await buildPackage();
 
 const checks = [
   {
-    name: 'version metadata is aligned at v2.7.0',
+    name: 'version metadata remains aligned at or above v2.7.0',
     pass:
-      packageJson.version === '2.7.0' &&
+      (Number(packageJson.version.split('.')[0]) > 2 ||
+        (Number(packageJson.version.split('.')[0]) === 2 && Number(packageJson.version.split('.')[1]) >= 7)) &&
       packageLock.version === packageJson.version &&
       packageLock.packages?.['']?.version === packageJson.version &&
       manifest.version === packageJson.version
@@ -107,8 +108,8 @@ const checks = [
       /npm run validate:e2e/.test(workflow) &&
       /secrets\.DEEPSEEK_API_KEY/.test(workflow) &&
       /npm run smoke:ai/.test(workflow) &&
-      /Require DeepSeek secret for trusted CI/.test(workflow) &&
-      /output\/playwright\/\*\.json/.test(workflow) &&
+      /Require DeepSeek repository secret/.test(workflow) &&
+      /output\/playwright\/report\.json/.test(workflow) &&
       !/path: output\/playwright\/$/.test(workflow)
   },
   {

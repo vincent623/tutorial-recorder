@@ -1,4 +1,4 @@
-import { recoverInterruptedRecordings } from './history-service.js';
+import { recoverInterruptedRecordings, recoverPendingStorageCleanup } from './history-service.js';
 import { sendOffscreenMessage } from './media-orchestrator.js';
 import { normalizeRealtimeSuggestionForSettings, notifyRealtimeSuggestion } from './realtime-suggestions.js';
 import { HISTORY_KEY, S, SETTINGS_KEY, persistRuntime, restoreRuntimeState, updateBadge } from './runtime-state.js';
@@ -31,6 +31,7 @@ export async function initialize() {
     await chrome.storage.local.set({ [HISTORY_KEY]: [] });
   }
 
+  await recoverPendingStorageCleanup();
   await restoreRuntimeState();
   await recoverInterruptedRecordings();
   await updateBadge();

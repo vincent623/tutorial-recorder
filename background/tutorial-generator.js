@@ -157,6 +157,10 @@ export async function performTestProviderConnection() {
     return { ok: false, error: '请先填写模型 / Endpoint ID。' };
   }
 
+  if (settings.aiDataSharingConsent !== true) {
+    return { ok: false, error: '请先明确允许将测试图片发送到所选 AI 服务商。' };
+  }
+
   const testScreenshot = {
     data: PROVIDER_TEST_IMAGE_DATA_URL,
     pageContext: {

@@ -18,7 +18,7 @@ export function createRealtimeSuggestionStateForSettings(settings = {}) {
     return createRealtimeSuggestionState({
       enabled: true,
       status: 'unconfigured',
-      message: '请先配置 AI Provider、API Key 和模型。'
+      message: '请先配置 AI，并允许截图发送到所选服务商。'
     });
   }
 

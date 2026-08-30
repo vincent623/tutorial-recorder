@@ -7,7 +7,8 @@
 - 自动截图和手动截图
 - 真实视频录制 + 麦克风录音（音频/视频直接落盘 IndexedDB，分别带 100MB/400MB 体积熔断保护）
 - 基于 16 个 Provider 预设生成步骤说明：国产（火山方舟、智谱 GLM、硅基流动、阿里云百炼、月之暗面 Kimi、DeepSeek 官方）、海外（OpenAI、Claude、Google Gemini、Groq、Mistral）、中转与网关（OpenRouter、Azure OpenAI、One API / New API 自建中转、OpenAI Compatible、自定义），并支持一键"测试连接"验证全链路
-- 敏感信息防护：密码/验证码/卡号输入永不上报，手机号/身份证/银行卡号自动打码后才进入 AI 提示词
+- AI 截图发送默认关闭，只有用户在完整设置页明确授权后才会把当前页面截图发送到所选服务商；授权可随时撤回
+- 敏感信息防护：密码/验证码/卡号输入永不上报，手机号/身份证/银行卡号自动打码后才进入 AI 提示词；页面截图本身仍可能含可见敏感信息，启用 AI 前会明确提示
 - 导出单个 `ZIP`，内含 `Markdown + 单文件 HTML + PDF + 音频 WebM + 视频 WebM + PNG`
 - popup 负责录制与快速入口，独立工作台负责历史记录查看、编辑、重新导出和删除
 - 教程详情支持对每一步截图做增删改查：查看原图、标注（箭头/方框/马赛克/文字）、替换截图、插入新步骤、删除步骤、拖拽或上下移动重排步骤
@@ -15,7 +16,7 @@
 - 自定义下载子目录，或为 ZIP 弹出一次保存位置选择
 - 可选 CDP 精确截图模式，支持目标标签页非前台时继续截图，并可设置像素裁切区域
 - 可选实时 AI 建议，录制中异步生成最新步骤文案并允许立即覆盖
-- AI 自动录制：输入教程目标后由 AI 通过 CDP 执行单步浏览器动作，支持暂停、接管和停止导出
+- AI 自动录制：输入教程目标后由 AI 通过 CDP 执行单步浏览器动作，危险按钮、坐标兜底点击、Enter 提交和跨站导航需要单次确认，支持暂停、接管和停止导出
 
 ## 项目结构
 
@@ -58,6 +59,7 @@ tutorial-recorder/
 点击 `完整设置` 后，可以在独立设置页继续配置：
 
 - `Provider 预设`（按国产 / 海外 / 中转与网关分组）、`API Key`、`模型 / Endpoint ID`
+- AI 截图发送授权（默认关闭，可随时撤回；关闭后仍可使用本地录制与导出）
 - `测试连接`：用当前配置发送一次最小视觉请求，验证 Base URL、Key、模型与 API 风格是否全链路可用，并显示响应延迟与排错提示
 - 是否显示实时 AI 建议
 - `高级 AI 选项` 里可展开 `API 风格`、`API Base URL`、`附加请求头 JSON` 和 Prompt 编辑器
@@ -128,6 +130,7 @@ npm run validate:e2e
 可选环境变量：
 
 - `PW_HEADLESS=0`：以有界面模式运行验证
+- `PW_BROWSER_CHANNEL=chrome`：本机 Playwright Chromium 缓存不可用时，改用已安装的稳定版 Chrome；CI 保持默认 `chromium`
 - `PW_OUTPUT_SUBDIR=foo/bar`：覆盖 e2e 中写入插件设置的导出目录
 - `PW_FIXTURE_PORT=48123`：覆盖本地验证页端口
 - `PW_PROVIDER_PRESET=siliconFlow`：用指定 provider 预设跑真实模型回归
@@ -163,9 +166,9 @@ npm run validate:e2e
 仓库包含 `.github/workflows/release.yml`：
 
 - push 到 `main`、PR、手动触发：运行 `npm ci`、`npm run check`、真实 Chromium `npm run validate:e2e`、`npm run package`，并上传浏览器证据、ZIP 与 sha256 为 workflow artifact
-- 受信任的 push/tag/手动 CI 必须配置 `DEEPSEEK_API_KEY` Secret，并用 `deepseek-v4-flash-vision-exp` 执行真实“识别按钮 → 点击 → 确认状态 → 结束并释放调试器”回归；fork PR 拿不到 Secret 时安全跳过
+- main/tag/手动 CI 会在独立作业中使用 `DEEPSEEK_API_KEY` Secret 和 `deepseek-v4-flash-vision-exp` 执行真实“识别按钮 → 点击 → 确认状态 → 结束并释放调试器”回归；main 上的供应商波动不会遮蔽确定性门禁，标签发布则必须实模通过
 - 浏览器证据 artifact 只白名单上传脱敏 JSON、截图和下载结果；包含扩展设置的临时 Chromium Profile 会在 smoke 结束后删除，且不会进入 artifact
-- push `v*` 标签：在通过检查和打包后创建 GitHub Release，并上传 `dist/*.zip` 与 `dist/*.sha256`
+- push `v*` 标签：必须通过确定性门禁和 DeepSeek 实模烟测，且标签与 `package.json` 版本完全一致；发布作业复核 SHA256 后创建 GitHub Release
 
 发布步骤：
 

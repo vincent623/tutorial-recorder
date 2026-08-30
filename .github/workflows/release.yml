@@ -10,20 +10,26 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: tutorial-recorder-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
-  build:
-    name: Check and Package
+  quality:
+    name: Deterministic Quality Gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -40,58 +46,127 @@ jobs:
       - name: Run browser E2E
         run: npm run validate:e2e
 
-      - name: Detect DeepSeek smoke secret
-        id: deepseek-secret
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: |
-          if [ -n "$DEEPSEEK_API_KEY" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Require DeepSeek secret for trusted CI
-        if: steps.deepseek-secret.outputs.available != 'true' && github.event_name != 'pull_request'
-        run: |
-          echo "::error::Trusted CI requires the DEEPSEEK_API_KEY repository secret."
-          exit 1
-
-      - name: Run DeepSeek vision smoke
-        if: steps.deepseek-secret.outputs.available == 'true'
-        env:
-          PW_PROVIDER_PRESET: deepseekOfficial
-          PW_API_STYLE: chatCompletions
-          PW_API_BASE_URL: https://api.deepseek.com
-          PW_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          PW_MODEL_ID: deepseek-v4-flash-vision-exp
-        run: npm run smoke:ai
-
       - name: Upload browser E2E evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tutorial-recorder-browser-e2e
           path: |
-            output/playwright/*.json
+            output/playwright/report.json
             output/playwright/*.png
             output/playwright/downloads/
           if-no-files-found: warn
+          retention-days: 30
 
       - name: Package extension
         run: npm run package
 
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tutorial-recorder-extension
           path: |
             dist/*.zip
             dist/*.sha256
           if-no-files-found: error
+          retention-days: 30
+
+  provider-smoke:
+    name: DeepSeek Vision Provider Smoke
+    if: github.event_name != 'pull_request'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Require DeepSeek repository secret
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "::error::Provider smoke requires the DEEPSEEK_API_KEY repository secret."
+            exit 1
+          fi
+
+      - name: Install dependencies and Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run DeepSeek vision smoke with one retry
+        env:
+          PW_PROVIDER_PRESET: deepseekOfficial
+          PW_API_STYLE: chatCompletions
+          PW_API_BASE_URL: https://api.deepseek.com
+          PW_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PW_MODEL_ID: deepseek-v4-flash-vision-exp
+        run: |
+          for attempt in 1 2; do
+            if npm run smoke:ai; then
+              exit 0
+            fi
+            echo "Provider smoke attempt ${attempt}/2 failed."
+          done
+          exit 1
+
+      - name: Upload provider evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tutorial-recorder-deepseek-smoke
+          path: |
+            output/playwright/ai-smoke-report.json
+            output/playwright/ai-*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+  release:
+    name: Publish Signed-off Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - quality
+      - provider-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Verify tag matches package version
+        run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
+
+      - name: Download verified package artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: tutorial-recorder-extension
+          path: dist
+
+      - name: Verify package checksum
+        working-directory: dist
+        run: sha256sum --check *.sha256
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
@@ -101,6 +176,6 @@ jobs:
           else
             gh release create "$TAG_NAME" dist/*.zip dist/*.sha256 \
               --title "$TAG_NAME" \
-              --notes "Automated Tutorial Recorder extension package for $TAG_NAME." \
+              --generate-notes \
               --verify-tag
           fi
