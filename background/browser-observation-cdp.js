@@ -1,5 +1,6 @@
 import { inspectVisibleInteractivePage } from './browser-observation-probe.js';
 import { installBrowserObservationProbeHelpers } from './browser-observation-probe-helpers.js';
+import { performObservedPageAction } from './browser-observation-action.js';
 
 const CDP_CAPABILITIES = Object.freeze({
   mainDocument: true,
@@ -16,8 +17,28 @@ export function createCdpObservationAdapter() {
     kind: 'cdp',
     capabilities: CDP_CAPABILITIES,
     capture,
-    inspect
+    inspect,
+    dispatch
   });
+}
+
+async function dispatch(tabId, request) {
+  const evaluation = await chrome.debugger.sendCommand(
+    { tabId },
+    'Runtime.evaluate',
+    {
+      expression: `(() => {
+        const helpers = (${installBrowserObservationProbeHelpers.toString()})(false);
+        return (${performObservedPageAction.toString()})(${JSON.stringify(request.action)}, ${JSON.stringify(request.fingerprint)}, ${JSON.stringify(request.documentToken)}, helpers);
+      })()`,
+      returnByValue: true,
+      awaitPromise: true
+    }
+  );
+  if (evaluation?.exceptionDetails || !evaluation?.result?.value) {
+    return { ok: false, reasonCode: 'observation-verification-failed' };
+  }
+  return evaluation.result.value;
 }
 
 async function capture(tab) {

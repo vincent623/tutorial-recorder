@@ -59,6 +59,37 @@ export async function performCaptureScreenshot({ trigger = 'manual', allowWhenPa
   S.currentRuntime.windowId = tab.windowId;
   const dataUrl = await captureScreenshotDataUrl(tab);
 
+  return persistCapturedScreenshot({ dataUrl, tab, trigger, operationId });
+}
+
+export async function recordScreenshotDataUrl({
+  dataUrl,
+  tab,
+  trigger = 'agent',
+  allowWhenPaused = true,
+  operationId = ''
+} = {}) {
+  const recordingId = S.currentRuntime.recordingId || S.currentRecording?.id || 'idle';
+  const queueKey = `captureScreenshot:${recordingId}`;
+  return runSerializedOperation(queueKey, () =>
+    runIdempotentOperation(queueKey, operationId, async () => {
+      if (!S.currentRuntime.isRecording || !S.currentRecording || !S.currentRuntime.tabId) {
+        return { ok: false, captured: false };
+      }
+      if (S.currentRuntime.isPaused && !allowWhenPaused) {
+        return { ok: false, captured: false };
+      }
+      if (!dataUrl || tab?.id !== S.currentRuntime.tabId) {
+        throw new Error('浏览器观察截图与录制目标不一致');
+      }
+      S.currentRuntime.windowId = tab.windowId;
+      return persistCapturedScreenshot({ dataUrl, tab, trigger, operationId });
+    })
+  );
+}
+
+async function persistCapturedScreenshot({ dataUrl, tab, trigger, operationId }) {
+
   const timestamp = Date.now();
   const sequence = getNextScreenshotSequence();
   const resolvedOperationId = sanitizeOperationId(operationId) || createOperationId(`capture-${trigger}`);
@@ -102,7 +133,7 @@ export async function performCaptureScreenshot({ trigger = 'manual', allowWhenPa
     });
   }
 
-  return { ok: true, captured: true, count: S.currentRuntime.count };
+  return { ok: true, captured: true, count: S.currentRuntime.count, screenshot };
 }
 
 export function getNextScreenshotSequence() {

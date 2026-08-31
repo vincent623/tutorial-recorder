@@ -154,8 +154,9 @@ settings.screenshotEngine === 'cdp' && recording.isCdpAvailable
 - VisionApiGateway：统一的 AI 调用入口，支持 16 个 Provider 预设、3 种 API 风格
 - PromptRenderer：渲染提示词模板（内置 4 版 + 自定义），注入页面上下文变量
 - AnalysisRunner：录制停止后以 3 个并发 worker 调用 VisionApiGateway，同时保持步骤顺序
-- AgentLoop：多轮浏览器操控循环（Phase 3 新增）
-- ToolExecutor：将 AI 决策转化为 CDP 操作（click_at_xy / type_text / scroll / finish）（Phase 3 新增）
+- BrowserObservation：通过 CDP / Scripting adapter 同步产生干净截图、短期元素引用、能力声明和脱敏远程投影
+- AgentActionTransaction：复验元素引用，以本地完整语义执行风险判断，签发单次内存票据并在派发瞬间再次复验
+- ToolExecutor：执行已授权的引用动作或经过确认的视觉降级动作
 
 **VisionApiGateway 调用流程：**
 ```
@@ -168,12 +169,14 @@ resolveVisionUrl(apiBaseUrl, apiStyle)
 **AgentLoop 循环流程（Phase 3）：**
 ```
 while (!done && stepCount < maxSteps && !timeout) {
-  screenshot = CdpCapture.capture(tabId)
-  decision = VisionApiGateway.chat(screenshot, context, toolDefinitions) // 失败自动重试 1 次
-  if (decision.tool === 'finish') break
-  ToolExecutor.execute(decision)
+  observation = BrowserObservation.observe(tabId)
+  projection = BrowserObservation.project(observation) // 授权、脱敏、临时编号图
+  decision = VisionApiGateway.chat(projection, elementReferenceTools) // 同一投影失败重试 1 次
+  ticket = AgentActionTransaction.authorize(decision) // 复验、风控、必要时单次确认
+  if (ticket.action === 'finish') break
+  AgentActionTransaction.execute(ticket) // 单次票据 + 派发瞬间复验
   PageStabilityGuard.waitForStableTab(tabId)
-  recordStep(screenshot, decision.description)
+  recordStep(observation.cleanScreenshot, decision.description)
   notifyPopup('agentStep', { step: stepCount, description })
 }
 ```
@@ -183,7 +186,7 @@ while (!done && stepCount < maxSteps && !timeout) {
 - 输入（Agent 模式）：startAgentLoop(targetDescription, settings, tabId)（Phase 3）
 - 输出：步骤说明文本 / Agent 执行步骤列表
 
-**约束：** 单步超时 45 秒；Agent 循环默认最大 50 步 / 10 分钟，Settings 页可配置为 1-500 步、1-120 分钟；单轮决策失败重试 1 次，动作后检测页面关闭、内部页面和跨域导航提示。
+**约束：** 单步超时 45 秒；Agent 循环默认最大 50 步 / 10 分钟，Settings 页可配置为 1-500 步、1-120 分钟；单轮决策失败只对同一脱敏观察重试 1 次。模型不能执行任意 JavaScript，元素动作必须使用当前观察引用，坐标降级必须给出原因并由用户确认；未知直达 URL 只在与用户目标中的完整 URL token 严格一致时自动执行，观察不可用时暂停而不是继续盲试。
 
 ### 3.4 Export Pipeline（导出管道）
 
@@ -508,7 +511,7 @@ create-plasmo → 迁移 assets/icon.svg → 配置 permissions → 验证空壳
 │  • 步数和超时可配置                              │
 │  • 达到限制后优雅停止                            │
 │  • 用户可随时接管                                │
-│  • 高影响动作、坐标兜底和跨站导航单次确认        │
+│  • 高影响动作、非 GET 提交、坐标兜底、未知/高风险导航确认 │
 └─────────────────────────────────────────────────┘
 ```
 

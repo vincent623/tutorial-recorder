@@ -17,7 +17,7 @@
 - 自定义下载子目录，或为 ZIP 弹出一次保存位置选择
 - 可选 CDP 精确截图模式，支持目标标签页非前台时继续截图，并可设置像素裁切区域
 - 可选实时 AI 建议，录制中异步生成最新步骤文案并允许立即覆盖
-- AI 自动录制：优先通过 CDP 执行单步浏览器动作；若目标页调试器被 DevTools、自动化或其他扩展占用，会自动切换到标准截图 + Scripting 兼容模式。搜索框聚焦/输入、GET 搜索、分页、站内外普通导航等可撤销动作自动执行；删除、支付、发布、授权、POST 提交、高风险 URL 和无法判断影响的业务按钮仍需单次确认，支持暂停、接管和停止导出
+- AI 自动录制：通过同步 Browser Observation 读取普通 DOM、开放 Shadow DOM 和同源 iframe 的可交互元素，模型使用短期元素引用而不是猜文字或坐标；动作固定在获授权的标签页和 document，并在执行瞬间原子复验目标。CDP 被占用时自动切换到同协议的 Scripting 兼容模式。明确的 GET 搜索目标会一次完成输入、提交，并在观察到页面效果后本地结束；删除、支付、发布、授权、POST 提交、高风险 URL、模型给出的未知直达地址、未知影响按钮和视觉坐标降级仍需单次确认
 
 ## 项目结构
 
@@ -55,7 +55,7 @@ tutorial-recorder/
 - 是否自动截图
 - 是否显示实时 AI 建议
 - `AI 录制`：填写教程目标后启动自动录制，执行中可暂停 AI、接管操作或停止导出；多窗口场景只会选择启动面板所在窗口的目标网页，不会跨窗口猜测
-- 正式 AI Agent 当前仍兼容 `click_at_xy / type_text / scroll / press_key / navigate / hover / wait / finish` 八种工具；新观察模式已支持短期元素引用、执行前复验和带审计原因的坐标降级，待完成 Action Transaction 切流后替换旧文字/坐标定位路径
+- 正式 AI Agent 以 `click_element / type_text / hover_element` 的观察引用动作为主，并支持 `scroll / press_key / navigate / wait / finish`；只有无法建立页面语义时才允许带审计原因的 `click_at_xy` 视觉降级。生产包不再包含旧的同名文字定位器
 
 点击 `完整设置` 后，可以在独立设置页继续配置：
 
@@ -82,7 +82,7 @@ tutorial-recorder/
 - 开启 `实时 AI 建议` 后，每次截图保存完成会异步排队生成当前步骤建议；录制不会等待模型返回，连续快速截图时只保留最新待分析截图
 - popup 里的实时建议文本框可直接编辑，保存后的文案会优先用于最终 Markdown、PDF 和 ZIP 导出
 - `AI 录制` 默认使用 CDP 模式并显示调试提示；CDP 被占用时会自动进入兼容模式而不是启动失败。默认最多执行 50 步或 10 分钟，到达限制后会保留已完成步骤并导出
-- AI Agent 失败时不会丢失已录制截图，可接管为人工录制或直接停止生成教程
+- AI Agent 失败或无法形成自洽页面观察时不会丢失已录制截图，也不会盲目循环；可重试、接管为人工录制或直接停止生成教程
 - 单张截图的 AI 识别默认带超时保护；如果模型响应过慢，会自动回退到默认说明并继续导出
 - AI 提示词支持 4 个内置版本和 1 个自定义版本；自定义模板可使用 `{{stepIndex}}`、`{{totalSteps}}`、`{{pageTitle}}`、`{{pageUrl}}`、`{{pageUrlLine}}`、`{{interactionSummary}}`、`{{previousDescription}}`
 - `API Base URL` 只需要填到版本根路径，例如 `https://ark.cn-beijing.volces.com/api/v3` 或 `https://api.openai.com/v1`，插件会按 `Chat Completions / Responses` 自动补齐路径

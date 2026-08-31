@@ -7,6 +7,7 @@ import {
 import { buildAgentToolSchema, extractAgentAction } from '../../background/agent-tools.js';
 import { createBrowserObservationModule } from '../../background/browser-observation.js';
 import { createScriptingObservationAdapter } from '../../background/browser-observation-scripting.js';
+import { installBrowserObservationProbeHelpers } from '../../background/browser-observation-probe-helpers.js';
 
 const adapter = {
   kind: 'scripting',
@@ -108,6 +109,45 @@ assert.deepEqual(result.observation.receipt.capabilities, adapter.capabilities);
 assert.deepEqual(result.observation.receipt.degradedReasons, []);
 
 console.log('ok - a stable ordinary page produces a ready Browser Observation');
+
+const probeHelpers = installBrowserObservationProbeHelpers(false);
+const overriddenSubmitter = {
+  matches: (selector) => selector.includes('input[type="submit"]'),
+  formAction: 'https://example.test/delete',
+  formMethod: 'post',
+  form: { action: 'https://example.test/search', method: 'get' }
+};
+assert.deepEqual(probeHelpers.readEffectiveFormDestination(overriddenSubmitter), {
+  action: 'https://example.test/delete',
+  method: 'post'
+});
+
+console.log('ok - submitter form overrides define the effective destination and method');
+
+const legacyDecision = extractObservationAgentAction({
+  choices: [{ message: { content: JSON.stringify({
+    action: 'type_text',
+    targetText: '搜索',
+    text: '教程自动录制器',
+    submit: true,
+    description: '输入并搜索'
+  }) } }]
+}, 'chatCompletions', {
+  projection: {
+    observationId: 'legacy-observation',
+    elements: [{
+      ref: 'legacy-observation:element:1',
+      name: '搜索',
+      targetType: 'search',
+      role: 'searchbox'
+    }]
+  }
+});
+assert.equal(legacyDecision.action, 'type_text');
+assert.equal(legacyDecision.observationId, 'legacy-observation');
+assert.equal(legacyDecision.elementRef, 'legacy-observation:element:1');
+
+console.log('ok - legacy model output is safely rebound to one current observation reference');
 
 let decisionRenderCount = 0;
 let trustedProjectionConsent = false;
@@ -244,6 +284,25 @@ console.log('ok - remote observation projection requires consent and excludes fo
 let verificationState = 'same';
 const verificationAdapter = {
   ...adapter,
+  async dispatch() {
+    return {
+      ok: true,
+      documentToken: 'verify-document-1',
+      url: 'https://example.test/verify',
+      resultUrl: 'https://example.test/verify?opened=1',
+      target: {
+        role: 'button',
+        name: '打开报告',
+        context: '项目 Alpha',
+        rect: { x: 30, y: 50, width: 120, height: 36 },
+        fingerprint: 'verify-target',
+        targetType: 'button',
+        targetRole: 'button',
+        targetHref: '',
+        targetFormMethod: ''
+      }
+    };
+  },
   async inspect() {
     const pageChanged = verificationState === 'page-changed';
     const targetChanged = verificationState === 'target-changed';
@@ -308,6 +367,17 @@ const movedTarget = await verificationObservation.verify({
 });
 assert.equal(movedTarget.status, 'moved');
 assert.deepEqual(movedTarget.target.center, { x: 300, y: 198 });
+
+verificationState = 'same';
+const dispatchedNavigation = await verificationObservation.dispatch({
+  tabId: 61,
+  observationId: verificationSource.observation.id,
+  elementRef: verificationRef,
+  action: { action: 'click_at_xy' }
+});
+assert.equal(dispatchedNavigation.status, 'executed');
+
+console.log('ok - atomic dispatch verifies the source page even when the action changes the result URL');
 
 verificationState = 'target-changed';
 const changedTarget = await verificationObservation.verify({

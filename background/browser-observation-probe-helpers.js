@@ -35,7 +35,15 @@ export function installBrowserObservationProbeHelpers(persist = true) {
     }
     return (result >>> 0).toString(16);
   }
-
+  function readEffectiveFormDestination(element) {
+    const form = element?.form || null;
+    if (!form) return { action: '', method: '' };
+    const isSubmitter = Boolean(element.matches?.('button[type="submit"], button:not([type]), input[type="submit"], input[type="image"]'));
+    const canReadAttributes = typeof element.hasAttribute === 'function';
+    const hasActionOverride = isSubmitter && (canReadAttributes ? element.hasAttribute('formaction') : Boolean(element.formAction));
+    const hasMethodOverride = isSubmitter && (canReadAttributes ? element.hasAttribute('formmethod') : Boolean(element.formMethod));
+    return { action: String(hasActionOverride ? element.formAction : form.action || ''), method: String(hasMethodOverride ? element.formMethod : form.method || '').toLowerCase() };
+  }
   function describeNode(element) {
     return [
       element.tagName.toLowerCase(),
@@ -398,6 +406,7 @@ export function installBrowserObservationProbeHelpers(persist = true) {
   }
 
   function fingerprintElement(element, semantics, context) {
+    const formDestination = readEffectiveFormDestination(element);
     const path = [];
     let node = element;
     for (let depth = 0; node && depth < 8; depth += 1) {
@@ -417,7 +426,7 @@ export function installBrowserObservationProbeHelpers(persist = true) {
     return hash([
       context.framePath.join('>'), context.shadowPath.join('>'), path.join('>'),
       semantics.role, semantics.targetType, readAccessibleName(element),
-      element.getAttribute('href') || '', element.form?.action || '', element.form?.method || ''
+      element.getAttribute('href') || '', formDestination.action, formDestination.method
     ].join('|'));
   }
 
@@ -433,6 +442,7 @@ export function installBrowserObservationProbeHelpers(persist = true) {
       !isVisibleAndActionable(element, localRect, rect, context) ||
       (filters.requestedRegion && !rectsIntersect(rect, filters.requestedRegion))
     ) return null;
+    const formDestination = readEffectiveFormDestination(element);
     return {
       role: semantics.role,
       name: readAccessibleName(element),
@@ -445,8 +455,8 @@ export function installBrowserObservationProbeHelpers(persist = true) {
       targetType: semantics.targetType,
       targetRole: semantics.role,
       targetHref: element.tagName.toLowerCase() === 'a' ? element.href : '',
-      targetFormAction: element.form?.action || '',
-      targetFormMethod: String(element.form?.method || '').toLowerCase(),
+      targetFormAction: formDestination.action,
+      targetFormMethod: formDestination.method,
       framePath: [...context.framePath],
       shadowPath: [...context.shadowPath],
       node: element,
@@ -481,7 +491,8 @@ export function installBrowserObservationProbeHelpers(persist = true) {
     inspectElement,
     isVisibleSurface,
     normalizeRegion,
-    normalizeText
+    normalizeText,
+    readEffectiveFormDestination
   });
   if (persist) globalThis[key] = helpers;
   return helpers;

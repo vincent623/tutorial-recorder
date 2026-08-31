@@ -1,5 +1,6 @@
 import { inspectVisibleInteractivePage } from './browser-observation-probe.js';
 import { installBrowserObservationProbeHelpers } from './browser-observation-probe-helpers.js';
+import { performObservedPageAction } from './browser-observation-action.js';
 
 const SCRIPTING_CAPABILITIES = Object.freeze({
   mainDocument: true,
@@ -16,8 +17,27 @@ export function createScriptingObservationAdapter(chromeApi = globalThis.chrome)
     kind: 'scripting',
     capabilities: SCRIPTING_CAPABILITIES,
     capture: (tab) => capture(chromeApi, tab),
-    inspect: (tabId, options) => inspect(chromeApi, tabId, options)
+    inspect: (tabId, options) => inspect(chromeApi, tabId, options),
+    dispatch: (tabId, request) => dispatch(chromeApi, tabId, request)
   });
+}
+
+async function dispatch(chromeApi, tabId, request) {
+  await chromeApi.scripting.executeScript({
+    target: { tabId, documentIds: [request.documentToken] },
+    world: 'ISOLATED',
+    func: installBrowserObservationProbeHelpers
+  });
+  const results = await chromeApi.scripting.executeScript({
+    target: { tabId, documentIds: [request.documentToken] },
+    world: 'ISOLATED',
+    func: performObservedPageAction,
+    args: [request.action, request.fingerprint, '']
+  });
+  const result = results?.[0]?.result;
+  return result
+    ? { ...result, documentToken: request.documentToken }
+    : { ok: false, reasonCode: 'observation-verification-failed' };
 }
 
 async function capture(chromeApi, tab) {

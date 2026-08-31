@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const policy = await readFile(path.join(repoRoot, 'background/agent-policy.js'), 'utf8');
 const guard = await readFile(path.join(repoRoot, 'background/agent-action-guard.js'), 'utf8');
-const targeting = await readFile(path.join(repoRoot, 'background/agent-targeting.js'), 'utf8');
+const observationProbe = await readFile(path.join(repoRoot, 'background/browser-observation-probe-helpers.js'), 'utf8');
 const pageAutomation = await readFile(path.join(repoRoot, 'background/page-automation.js'), 'utf8');
 const e2e = await readFile(path.join(repoRoot, 'scripts/e2e/debugger-conflict-smoke.mjs'), 'utf8');
 const packageJson = JSON.parse(await readFile(path.join(repoRoot, 'package.json'), 'utf8'));
@@ -17,7 +17,7 @@ const checks = [
   {
     name: 'release version remains aligned after 2.8.7',
     pass:
-      /^2\.8\.(?:7|8)$/.test(packageJson.version) &&
+      /^2\.(?:8\.(?:7|8)|9\.\d+)$/.test(packageJson.version) &&
       packageLock.version === packageJson.version &&
       packageLock.packages?.['']?.version === packageJson.version &&
       manifest.version === packageJson.version
@@ -28,7 +28,8 @@ const checks = [
       /get-search-submit/.test(policy) &&
       /focus-editable-field/.test(policy) &&
       /get-search-enter/.test(policy) &&
-      /reversible-navigation/.test(policy)
+      /explicit-user-navigation/.test(policy) &&
+      /unknown-destination-navigation/.test(policy)
   },
   {
     name: 'only the exact GET search Enter policy bypasses approval freshness',
@@ -37,11 +38,11 @@ const checks = [
       /policyAuthorization/.test(guard)
   },
   {
-    name: 'search fields are calibrated in CDP and scripting modes',
+    name: 'search fields are observed through the shared browser probe',
     pass:
-      targeting.includes('input[type="search"]') &&
-      pageAutomation.includes('input[type="search"]') &&
-      /aria-label/.test(targeting) &&
+      /inputType/.test(observationProbe) &&
+      /searchbox/.test(observationProbe) &&
+      /aria-label/.test(observationProbe) &&
       /placeholder/.test(pageAutomation)
   },
   {

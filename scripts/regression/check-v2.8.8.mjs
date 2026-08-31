@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const readSource = (relativePath) => readFile(path.join(repoRoot, relativePath), 'utf8');
-const [tools, executor, policy, targeting, pageAutomation, deterministicSmoke, realSmoke] = await Promise.all([
+const [tools, executor, policy, repeatPolicy, pageAutomation, deterministicSmoke, realSmoke] = await Promise.all([
   readSource('background/agent-tools.js'),
   readSource('background/agent-action-executor.js'),
   readSource('background/agent-policy.js'),
-  readSource('background/agent-targeting.js'),
+  readSource('background/agent-repeat-policy.js'),
   readSource('background/page-automation.js'),
   readSource('scripts/e2e/debugger-conflict-smoke.mjs'),
   readSource('scripts/e2e/ai-recording-smoke.mjs')
@@ -20,9 +20,9 @@ const manifest = JSON.parse(await readSource('manifest.json'));
 
 const checks = [
   {
-    name: 'release version is 2.8.8',
+    name: 'release version remains at or above 2.8.8',
     pass:
-      packageJson.version === '2.8.8' &&
+      /^2\.(?:8\.[89]|9\.\d+)$/.test(packageJson.version) &&
       packageLock.version === packageJson.version &&
       packageLock.packages?.['']?.version === packageJson.version &&
       manifest.version === packageJson.version
@@ -41,7 +41,7 @@ const checks = [
   {
     name: 'repeated targeted text actions are blocked and targeted fills replace old text',
     pass:
-      /action\.action === 'type_text'/.test(targeting) &&
+      /action\.action === 'type_text'/.test(repeatPolicy) &&
       /selectFocusedEditableContents/.test(executor) &&
       /element\.select\(\)/.test(pageAutomation)
   },

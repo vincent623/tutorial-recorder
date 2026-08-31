@@ -1,4 +1,5 @@
 import {
+  dispatchBrowserObservationAction,
   observeBrowserPage,
   projectBrowserObservation,
   refineBrowserObservation,
@@ -7,8 +8,6 @@ import {
 import {
   requestObservationAgentDecision
 } from '../../background/agent-observation-decision.js';
-import { resolveAgentTargetCenter } from '../../background/agent-targeting.js';
-import { resolveCompatibleTextTarget } from '../../background/page-automation.js';
 import { S } from '../../background/runtime-state.js';
 import { saveSettings } from '../../background/settings-service.js';
 
@@ -19,6 +18,35 @@ globalThis.configureBrowserObservationSettings = async function configureBrowser
     apiKeyConfigured: Boolean(saved.apiKey),
     modelId: saved.modelId || ''
   };
+};
+
+globalThis.runBrowserObservationAction = async function runBrowserObservationAction(
+  tabId,
+  useCdp,
+  observationId,
+  elementRef,
+  action
+) {
+  let attachedHere = false;
+  try {
+    S.currentRuntime.tabId = tabId;
+    S.currentRuntime.cdpAttached = false;
+    if (useCdp) {
+      await chrome.debugger.attach({ tabId }, '1.3');
+      attachedHere = true;
+      S.currentRuntime.cdpAttached = true;
+      await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable');
+    }
+    return await dispatchBrowserObservationAction({
+      tabId,
+      observationId,
+      elementRef,
+      action
+    });
+  } finally {
+    if (attachedHere) await chrome.debugger.detach({ tabId }).catch(() => {});
+    S.currentRuntime.cdpAttached = false;
+  }
 };
 
 globalThis.runBrowserObservation = async function runBrowserObservation(tabId, useCdp) {
@@ -34,9 +62,7 @@ globalThis.runBrowserObservation = async function runBrowserObservation(tabId, u
       await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable');
     }
 
-    const legacyTarget = useCdp
-      ? await resolveAgentTargetCenter('搜索教程')
-      : await resolveCompatibleTextTarget('搜索教程', tabId);
+    const legacyTarget = await resolveHistoricalTextFixture(tabId, '搜索教程');
     const result = await observeBrowserPage({ tabId, maxElements: 60 });
     const observation = result.observation || null;
     const observedTarget = observation?.elements?.find((element) => element.name === '搜索教程');
@@ -199,3 +225,27 @@ globalThis.runBrowserObservationModelDecision = async function runBrowserObserva
 };
 
 document.documentElement.dataset.ready = 'true';
+
+async function resolveHistoricalTextFixture(tabId, requestedText) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (text) => {
+      const target = [...document.querySelectorAll('button, a, input, textarea, [role="button"]')]
+        .find((element) => {
+          const label = String(
+            element.innerText || element.getAttribute('aria-label') || element.getAttribute('placeholder') || ''
+          ).replace(/\s+/g, ' ').trim();
+          return label === text && element.getClientRects().length > 0;
+        });
+      if (!target) return null;
+      const rect = target.getBoundingClientRect();
+      return {
+        x: Math.round(rect.left + rect.width / 2),
+        y: Math.round(rect.top + rect.height / 2),
+        matchedText: text
+      };
+    },
+    args: [requestedText]
+  });
+  return results?.[0]?.result || null;
+}

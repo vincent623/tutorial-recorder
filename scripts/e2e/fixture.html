@@ -336,6 +336,9 @@
 
     tutorialSearch.addEventListener('submit', (event) => {
       event.preventDefault();
+      const resultUrl = new URL(location.href);
+      resultUrl.searchParams.set('q', tutorialQuery.value);
+      history.pushState({ tutorialQuery: tutorialQuery.value }, '', resultUrl);
       searchStatus.textContent = `已搜索：${tutorialQuery.value}`;
       pushStep('执行教程搜索', `搜索关键词：${tutorialQuery.value}`);
     });

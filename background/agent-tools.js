@@ -1,8 +1,6 @@
 import { extractVisionText } from './ai-vision.js';
 import { AGENT_KEY_EVENT_DEFS, performExecuteAiAgentAction } from './agent-action-executor.js';
 import { buildObservationAgentBaseTools, sanitizeObservationAgentAction } from './agent-observation-tools.js';
-import { runExclusiveOperation } from './op-safety.js';
-import { S } from './runtime-state.js';
 import { clampNumber, sanitizeCoordinate, sanitizeEditableText } from './text-utils.js';
 
 export { AGENT_KEY_EVENT_DEFS, performExecuteAiAgentAction };
@@ -399,9 +397,4 @@ export function describeAgentAction(action = {}) {
   }
 
   return '完成当前教程目标';
-}
-
-export async function executeAiAgentAction(action) {
-  const lockKey = `agentAction:${S.currentRuntime.recordingId || 'idle'}:${S.currentRuntime.aiAgent?.iteration || 0}`;
-  return runExclusiveOperation(lockKey, () => performExecuteAiAgentAction(action));
 }

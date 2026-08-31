@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAgentActionText } from '../../background/agent-tools.js';
-import { isRepeatedAgentAction } from '../../background/agent-targeting.js';
+import { isRepeatedAgentAction } from '../../background/agent-repeat-policy.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (relativePath) => readFile(path.join(repoRoot, relativePath), 'utf8');
@@ -19,8 +19,9 @@ const backgroundMain = await read('background/background.js');
 const assetStore = await read('background/asset-store.js');
 const historyService = await read('background/history-service.js');
 const agentTools = await read('background/agent-tools.js');
-const agentTargeting = await read('background/agent-targeting.js');
+const actionTransaction = await read('background/agent-action-transaction.js');
 const agentState = await read('background/agent-state.js');
+const observationDecision = await read('background/agent-observation-decision.js');
 const e2e = await read('scripts/e2e/validate-extension.mjs');
 const aiSmoke = await read('scripts/e2e/ai-recording-smoke.mjs');
 const packageScript = await read('scripts/package-extension.mjs');
@@ -126,8 +127,8 @@ const checks = [
     pass:
       /targetText/.test(agentTools) &&
       !/inferAgentFinishFromText/.test(agentTools) &&
-      /thinking: \{ type: 'disabled' \}/.test(backgroundSources['agent-loop.js']) &&
-      /settings\.providerPreset === 'deepseekOfficial' \? 'required' : 'auto'/.test(backgroundSources['agent-loop.js']) &&
+      /thinking: \{ type: 'disabled' \}/.test(observationDecision) &&
+      /tool_choice: 'required'/.test(observationDecision) &&
       parseAgentActionText('{"action":"finish","description":"目标已完成"}').action === 'finish' &&
       rejectsNaturalAgentText('已经确认当前模式切换成功，目标达成。') &&
       rejectsNaturalAgentText('已完成对任务完成情况的分析，下一步点击提交。') &&
@@ -147,8 +148,8 @@ const checks = [
         { action: 'click_at_xy', targetText: '提交订单', allowRepeat: true, repeatReason: '再次提交' },
         [{ action: 'click_at_xy', targetText: '提交订单' }]
       ) &&
-      /resolveAgentTargetCenter/.test(agentTargeting) &&
-      /Runtime\.evaluate/.test(agentTargeting) &&
+      /verifyObservation/.test(actionTransaction) &&
+      /observation-reference/.test(actionTransaction) &&
       /action\.targetText/.test(agentState) &&
       /recentSteps/.test(aiSmoke) &&
       /partialReport/.test(aiSmoke) &&

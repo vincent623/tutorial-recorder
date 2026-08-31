@@ -11,6 +11,7 @@ const workflow = await read('.github/workflows/release.yml');
 const agentLoop = await read('background/agent-loop.js');
 const agentApproval = await read('background/agent-approval.js');
 const agentPolicy = await read('background/agent-policy.js');
+const actionTransaction = await read('background/agent-action-transaction.js');
 const historyService = await read('background/history-service.js');
 const settingsSchema = await read('background/settings-schema.js');
 const settingsHtml = await read('settings/settings.html');
@@ -49,7 +50,9 @@ const checks = [
     name: 'AI high-impact actions cross a one-time approval seam',
     pass:
       /evaluateAgentActionPolicy/.test(agentPolicy) &&
-      /approveAndRevalidateAgentAction/.test(agentLoop) &&
+      /authorizeAgentAction/.test(agentLoop) &&
+      /requestApproval/.test(actionTransaction) &&
+      /prepareObservedAction/.test(actionTransaction) &&
       /requestAiAgentApproval/.test(agentApproval) &&
       /resolveAiAgentApproval/.test(agentApproval) &&
       /pendingApproval/.test(agentApproval) &&
