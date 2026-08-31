@@ -1,11 +1,13 @@
 import { inspectVisibleInteractivePage } from './browser-observation-probe.js';
+import { installBrowserObservationProbeHelpers } from './browser-observation-probe-helpers.js';
 
 const CDP_CAPABILITIES = Object.freeze({
   mainDocument: true,
-  openShadowDom: false,
-  sameOriginFrames: false,
+  openShadowDom: true,
+  sameOriginFrames: true,
   crossOriginFrames: false,
   closedShadowDom: false,
+  transformedFrames: false,
   selfDrawnSurfaces: false
 });
 
@@ -36,7 +38,10 @@ async function inspect(tabId, options) {
       { tabId },
       'Runtime.evaluate',
       {
-        expression: `(${inspectVisibleInteractivePage.toString()})(${JSON.stringify(options || {})})`,
+        expression: `(() => {
+          const helpers = (${installBrowserObservationProbeHelpers.toString()})(false);
+          return (${inspectVisibleInteractivePage.toString()})(${JSON.stringify(options || {})}, helpers);
+        })()`,
         returnByValue: true,
         awaitPromise: true
       }

@@ -1,6 +1,6 @@
 # Browser Observation 设计规格
 
-状态：设计已接受；Slice 1 已实现并通过测试环境影子比对，尚未接入正式 Agent 动作链
+状态：设计已接受；Slice 1-2 已实现并通过测试环境能力矩阵，尚未接入正式 Agent 动作链
 目标版本建议：2.9.0
 相关决定：[ADR-0001](./adr/0001-browser-observation-seam.md)
 领域语言：[CONTEXT.md](../CONTEXT.md)
@@ -37,7 +37,7 @@ Browser Observation 的目标 interface 对调用者提供三个行为：
 
 调用者无需知道 DOM selector、iframe 注入、Shadow DOM 遍历、元素去重、指纹、截图标注或 adapter 差异。module 不返回 DOM 节点、CDP node id、selector 或可跨观察复用的定位器。
 
-当前 Slice 1 只开放第一个行为 `observe`。观察细化与执行前复验将在后续 slice 通过同一 module seam 开放；当前元素指纹、完整目标地址和短命元素映射已经保留在 module 内部，不属于外部观察结果。
+当前 Slice 1-2 已开放 `observe` 与有限 `refine`。执行前复验将在后续 slice 通过同一 module seam 开放；元素指纹、frame/Shadow 路径、完整目标地址和短命元素映射保留在 module 内部，不属于外部观察结果。
 
 建议的内部文件形状：
 
@@ -225,13 +225,15 @@ background/browser-observation/
 - 开发/测试环境运行影子观察；
 - 不改变模型请求或正式动作执行。
 
-实现状态：完成。测试专用 extension harness 会在同一普通 DOM 夹具上分别并行运行旧 scripting/CDP 文字定位与新观察，比较目标中心点；该 harness 不进入正式打包产物。当前两个 adapter 只声明并实现主文档共同基线，遇到已检测到的 iframe、开放 Shadow DOM 或 Canvas 自绘区域会显式返回 `degraded`，对应能力在 Slice 2 完成前保持为 `false`。
+实现状态：完成。测试专用 extension harness 会在同一普通 DOM 夹具上分别并行运行旧 scripting/CDP 文字定位与新观察，比较目标中心点；该 harness 不进入正式打包产物。Slice 1 检查点只声明并实现主文档共同基线，后续能力由 Slice 2 独立扩展。
 
 ### Slice 2：页面结构共同基线
 
 - 开放 Shadow DOM、同源嵌套 iframe、活动弹窗、重复文字、元素位移；
 - 统一元素排序、去重、指纹和能力声明；
 - 建立观察细化。
+
+实现状态：完成。两个 adapter 现在共享开放 Shadow DOM 与同源嵌套 iframe 的只读遍历、顶层视口坐标换算、活动模态范围、重复目标语义上下文和按角色/区域的有限细化。跨域 iframe、Canvas 自绘区域和封闭 Shadow DOM 仍保持显式能力缺失；跨域 iframe 与 Canvas 在真实 Chromium 夹具中返回 `degraded`。元素位移后的新观察会生成全新引用，旧观察引用不会跨观察复用。
 
 ### Slice 3：远程投影与元素动作
 

@@ -5,6 +5,8 @@ import { S } from './runtime-state.js';
 const DEFAULT_MAX_OBSERVED_ELEMENTS = 80;
 const DEFAULT_OBSERVATION_ATTEMPTS = 2;
 const INTERNAL_RECORD_TTL_MS = 60_000;
+const MAX_REFINEMENTS_PER_LINEAGE = 2;
+const MAX_REFINEMENT_LINEAGE_MS = 3_000;
 
 const cdpAdapter = createCdpObservationAdapter();
 const scriptingAdapter = createScriptingObservationAdapter();
@@ -19,6 +21,10 @@ const defaultBrowserObservation = createBrowserObservationModule({
 
 export function observeBrowserPage(options) {
   return defaultBrowserObservation.observe(options);
+}
+
+export function refineBrowserObservation(options) {
+  return defaultBrowserObservation.refine(options);
 }
 
 export function createBrowserObservationModule({
@@ -37,15 +43,37 @@ export function createBrowserObservationModule({
 
   const internalRecordsByTab = new Map();
 
-  return Object.freeze({ observe });
+  return Object.freeze({ observe, refine });
 
-  async function observe({ tabId, maxElements = DEFAULT_MAX_OBSERVED_ELEMENTS } = {}) {
+  function observe({
+    tabId,
+    maxElements = DEFAULT_MAX_OBSERVED_ELEMENTS,
+    region = null,
+    role = ''
+  } = {}) {
+    return observeInternal({ tabId, maxElements, region, role });
+  }
+
+  async function observeInternal({
+    tabId,
+    maxElements,
+    region,
+    role,
+    refinementContext = null
+  }) {
     const startedAt = now();
+    const lineageStartedAt = refinementContext?.lineageStartedAt ?? startedAt;
+    const refinementDepth = refinementContext?.depth ?? 0;
+    const expectedDocumentToken = refinementContext?.expectedDocumentToken || '';
+    const refinementDeadlineAt = refinementContext?.deadlineAt ?? null;
     let lastAdapterKind = '';
     let lastCapabilities = {};
     internalRecordsByTab.delete(tabId);
 
     for (let attempt = 0; attempt < DEFAULT_OBSERVATION_ATTEMPTS; attempt += 1) {
+      if (refinementDeadlineAt !== null && now() >= refinementDeadlineAt) {
+        return refinementLimitOutcome(lastAdapterKind, lastCapabilities);
+      }
       const tab = await getTab(tabId);
       if (!isRecordableTab(tab)) {
         return unavailableOutcome({
@@ -61,10 +89,22 @@ export function createBrowserObservationModule({
       let inspection;
       let capturedAt;
       try {
-        inspectionBefore = await adapter.inspect(tab.id, { maxElements });
+        const probeOptions = { maxElements, region, role };
+        inspectionBefore = await adapter.inspect(tab.id, probeOptions);
+        if (
+          expectedDocumentToken &&
+          inspectionBefore.documentToken !== expectedDocumentToken
+        ) {
+          return unavailableOutcome({
+            adapter: adapter.kind,
+            capabilities: adapter.capabilities,
+            reasonCode: 'observation-page-changed',
+            durationMs: Math.max(0, now() - startedAt)
+          });
+        }
         screenshotData = await adapter.capture(tab);
         capturedAt = now();
-        inspection = await adapter.inspect(tab.id, { maxElements });
+        inspection = await adapter.inspect(tab.id, probeOptions);
       } catch (error) {
         return unavailableOutcome({
           adapter: adapter.kind,
@@ -72,6 +112,10 @@ export function createBrowserObservationModule({
           reasonCode: 'capture-or-inspection-failed',
           durationMs: Math.max(0, now() - startedAt)
         });
+      }
+
+      if (refinementDeadlineAt !== null && now() >= refinementDeadlineAt) {
+        return refinementLimitOutcome(adapter.kind, adapter.capabilities);
       }
 
       const currentTab = await getTab(tabId);
@@ -84,7 +128,12 @@ export function createBrowserObservationModule({
 
 
       const observationId = createObservationId();
-      const internalRecord = createInternalRecord(observationId, inspection);
+      const internalRecord = createInternalRecord(
+        observationId,
+        inspection,
+        refinementDepth,
+        lineageStartedAt
+      );
       internalRecordsByTab.set(tab.id, internalRecord);
       const expiryHandle = setTimeout(() => {
         if (internalRecordsByTab.get(tab.id)?.observationId === observationId) {
@@ -112,6 +161,35 @@ export function createBrowserObservationModule({
       capabilities: lastCapabilities,
       reasonCode: 'page-changed-during-observation',
       durationMs: Math.max(0, now() - startedAt)
+    });
+  }
+
+  async function refine({ tabId, observationId, region = null, role = '', maxElements = 120 } = {}) {
+    const currentRecord = internalRecordsByTab.get(tabId);
+    if (!currentRecord || currentRecord.observationId !== observationId) {
+      return unavailableOutcome({
+        reasonCode: 'observation-expired',
+        durationMs: 0
+      });
+    }
+    const deadlineAt = currentRecord.lineageStartedAt + MAX_REFINEMENT_LINEAGE_MS;
+    if (
+      currentRecord.refinementDepth >= MAX_REFINEMENTS_PER_LINEAGE ||
+      now() >= deadlineAt
+    ) {
+      return refinementLimitOutcome();
+    }
+    return observeInternal({
+      tabId,
+      maxElements,
+      region,
+      role,
+      refinementContext: {
+        depth: currentRecord.refinementDepth + 1,
+        lineageStartedAt: currentRecord.lineageStartedAt,
+        deadlineAt,
+        expectedDocumentToken: currentRecord.documentToken
+      }
     });
   }
 }
@@ -207,6 +285,7 @@ function normalizeObservedElement(element = {}, ref) {
     ref,
     role: cleanText(element.role, 80),
     name: cleanText(element.name, 240),
+    context: cleanText(element.context, 160),
     rect: normalizeRect(element.rect),
     targetType: cleanText(element.targetType, 80).toLowerCase(),
     targetRole: cleanText(element.targetRole, 80).toLowerCase(),
@@ -249,6 +328,15 @@ function unavailableOutcome({ adapter = '', capabilities = {}, reasonCode, durat
   };
 }
 
+function refinementLimitOutcome(adapter = '', capabilities = {}) {
+  return unavailableOutcome({
+    adapter,
+    capabilities,
+    reasonCode: 'refinement-limit-reached',
+    durationMs: 0
+  });
+}
+
 function capabilityDegradedReasons(capabilities = {}, observedRegions = {}) {
   const reasons = [];
   if (observedRegions.openShadowDom > 0 && capabilities.openShadowDom !== true) {
@@ -266,13 +354,18 @@ function capabilityDegradedReasons(capabilities = {}, observedRegions = {}) {
   if (observedRegions.selfDrawnSurfaces > 0 && capabilities.selfDrawnSurfaces !== true) {
     reasons.push('self-drawn-surface-unavailable');
   }
+  if (observedRegions.transformedFrames > 0 && capabilities.transformedFrames !== true) {
+    reasons.push('transformed-frame-coordinate-unavailable');
+  }
   return reasons;
 }
 
-function createInternalRecord(observationId, inspection) {
+function createInternalRecord(observationId, inspection, refinementDepth, lineageStartedAt) {
   return {
     observationId,
     documentToken: inspection.documentToken || '',
+    refinementDepth,
+    lineageStartedAt,
     elementsByRef: new Map((inspection.elements || []).map((element, index) => [
       `${observationId}:element:${index + 1}`,
       { ...element }
