@@ -1,6 +1,6 @@
 # Browser Observation 设计规格
 
-状态：设计已接受；Slice 1-2 已实现并通过测试环境能力矩阵，尚未接入正式 Agent 动作链
+状态：设计已接受；Slice 1-3 已实现并通过测试环境能力矩阵，尚未接入正式 Agent 动作链
 目标版本建议：2.9.0
 相关决定：[ADR-0001](./adr/0001-browser-observation-seam.md)
 领域语言：[CONTEXT.md](../CONTEXT.md)
@@ -241,6 +241,8 @@ background/browser-observation/
 - 更新授权文案、隐私政策和商店数据使用声明；
 - 更新模型工具 schema，以元素引用为主；
 - 扩展 DeepSeek provider smoke。
+
+实现状态：完成。Browser Observation 现在只在显式 AI 数据共享授权下生成带编号的临时决策截图和脱敏远程投影；实际模型请求会重新读取持久化授权并受配置 epoch 与可撤回请求控制器约束。观察模式工具 schema 以短期元素引用为主，坐标点击必须声明视觉降级原因；同一 module seam 已提供执行前复验并区分原位可用、仅位移、页面变化与目标语义变化。DeepSeek 隔离 smoke 会逐一验证搜索、普通站内导航、同源 iframe 和开放 Shadow DOM 都命中指定动作类型与指定元素引用。正式 Agent loop 仍保持旧协议，切流与旧实现删除属于 Slice 4。
 
 ### Slice 4：正式切流和删除旧实现
 

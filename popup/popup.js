@@ -343,7 +343,7 @@ async function startAiRecording() {
 
   if (!hasAiSettingsConfigured()) {
     elements.aiStatus.textContent = '需配置 AI';
-    alert('请先在完整设置中配置 AI Provider、API Key 和模型，并明确允许截图发送到所选服务商，然后再启动 AI 录制。');
+    alert('请先在完整设置中配置 AI Provider、API Key 和模型，并明确允许页面截图和脱敏控件摘要发送到所选服务商，然后再启动 AI 录制。');
     return;
   }
 
@@ -1102,7 +1102,7 @@ function renderAiPanel() {
   elements.btnAiStart.disabled = state.isRecording || state.isGenerating;
   elements.btnAiStart.title = aiConfigured
     ? ''
-    : '请先配置 AI 并明确允许截图发送到所选服务商。';
+    : '请先配置 AI 并明确允许页面截图和脱敏控件摘要发送到所选服务商。';
   elements.btnAiTakeover.disabled =
     !isAiRecording || state.isGenerating || (!aiAgent.awaitingTakeover && aiAgent.status !== 'running' && aiAgent.status !== 'paused');
   const pendingApproval = aiAgent.pendingApproval?.decision === 'pending' ? aiAgent.pendingApproval : null;

@@ -1,5 +1,6 @@
 import { extractVisionText } from './ai-vision.js';
 import { AGENT_KEY_EVENT_DEFS, performExecuteAiAgentAction } from './agent-action-executor.js';
+import { buildObservationAgentBaseTools, sanitizeObservationAgentAction } from './agent-observation-tools.js';
 import { runExclusiveOperation } from './op-safety.js';
 import { S } from './runtime-state.js';
 import { clampNumber, sanitizeCoordinate, sanitizeEditableText } from './text-utils.js';
@@ -17,8 +18,8 @@ export const AGENT_TOOL_NAMES = Object.freeze([
   'finish'
 ]);
 
-export function buildAgentToolSchema(apiStyle) {
-  const baseTools = [
+export function buildAgentToolSchema(apiStyle, { observationMode = false } = {}) {
+  const baseTools = observationMode ? buildObservationAgentBaseTools() : [
     {
       name: 'click_at_xy',
       description: 'Click a visible page coordinate in the current viewport.',
@@ -167,17 +168,20 @@ export function buildAgentToolSchema(apiStyle) {
   }));
 }
 
-export function extractAgentAction(data, apiStyle) {
+export function extractAgentAction(data, apiStyle, { observationMode = false } = {}) {
   const toolCall = extractAgentToolCall(data, apiStyle);
   if (toolCall) {
-    return sanitizeAgentAction({
+    const action = {
       action: toolCall.name,
       ...toolCall.arguments
-    });
+    };
+    return observationMode
+      ? sanitizeObservationAgentAction(action, { sanitizeLegacyAction: sanitizeAgentAction, describeAgentAction })
+      : sanitizeAgentAction(action);
   }
 
   const text = extractVisionText(data, apiStyle);
-  return parseAgentActionText(text);
+  return parseAgentActionText(text, { observationMode });
 }
 
 export function extractAgentToolCall(data, apiStyle) {
@@ -235,12 +239,15 @@ export function parseToolArguments(value) {
   }
 }
 
-export function parseAgentActionText(text) {
+export function parseAgentActionText(text, { observationMode = false } = {}) {
   const raw = String(text || '').trim();
   const jsonText = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] || raw.match(/\{[\s\S]*\}/)?.[0] || raw;
 
   try {
-    return sanitizeAgentAction(JSON.parse(jsonText));
+    const action = JSON.parse(jsonText);
+    return observationMode
+      ? sanitizeObservationAgentAction(action, { sanitizeLegacyAction: sanitizeAgentAction, describeAgentAction })
+      : sanitizeAgentAction(action);
   } catch (error) {
     throw new Error(`AI 未返回可执行动作：${sanitizeEditableText(raw, 160) || '空响应'}`);
   }
@@ -356,6 +363,13 @@ export function sanitizeAgentAction(action = {}) {
 
 
 export function describeAgentAction(action = {}) {
+  if (action.action === 'click_element') {
+    return '点击观察中的目标元素';
+  }
+
+  if (action.action === 'hover_element') {
+    return '悬停在观察中的目标元素';
+  }
   if (action.action === 'click_at_xy') {
     return '点击页面中的目标位置';
   }

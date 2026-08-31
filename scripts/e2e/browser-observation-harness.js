@@ -1,7 +1,25 @@
-import { observeBrowserPage, refineBrowserObservation } from '../../background/browser-observation.js';
+import {
+  observeBrowserPage,
+  projectBrowserObservation,
+  refineBrowserObservation,
+  verifyBrowserObservation
+} from '../../background/browser-observation.js';
+import {
+  requestObservationAgentDecision
+} from '../../background/agent-observation-decision.js';
 import { resolveAgentTargetCenter } from '../../background/agent-targeting.js';
 import { resolveCompatibleTextTarget } from '../../background/page-automation.js';
 import { S } from '../../background/runtime-state.js';
+import { saveSettings } from '../../background/settings-service.js';
+
+globalThis.configureBrowserObservationSettings = async function configureBrowserObservationSettings(settings) {
+  const saved = await saveSettings(settings || {});
+  return {
+    aiDataSharingConsent: saved.aiDataSharingConsent === true,
+    apiKeyConfigured: Boolean(saved.apiKey),
+    modelId: saved.modelId || ''
+  };
+};
 
 globalThis.runBrowserObservation = async function runBrowserObservation(tabId, useCdp) {
   let attachedHere = false;
@@ -44,7 +62,7 @@ globalThis.runBrowserObservation = async function runBrowserObservation(tabId, u
         rect: element.rect
       })),
       hasForbiddenElementField: (observation?.elements || []).some((element) =>
-        ['value', 'fingerprint', 'targetHref'].some((field) => field in element)
+        ['value', 'fingerprint', 'targetHref', 'targetFormAction'].some((field) => field in element)
       ),
       shadowComparison: {
         legacyMatchedText: legacyTarget?.matchedText || '',
@@ -102,6 +120,82 @@ globalThis.runBrowserObservationRefinement = async function runBrowserObservatio
     if (attachedHere) await chrome.debugger.detach({ tabId }).catch(() => {});
     S.currentRuntime.cdpAttached = false;
   }
+};
+
+globalThis.runBrowserObservationProjection = async function runBrowserObservationProjection(
+  tabId,
+  observationId,
+  aiDataSharingConsent
+) {
+  const result = await projectBrowserObservation({
+    tabId,
+    observationId,
+    aiDataSharingConsent
+  });
+  const decisionScreenshot = result.decisionScreenshot?.data || '';
+  return {
+    status: result.status,
+    reasonCode: result.reasonCode || '',
+    projection: result.projection || null,
+    decisionScreenshot: {
+      isPng: /^data:image\/png;base64,/.test(decisionScreenshot),
+      length: decisionScreenshot.length
+    },
+    receipt: result.receipt || null
+  };
+};
+
+globalThis.runBrowserObservationVerification = async function runBrowserObservationVerification(
+  tabId,
+  observationId,
+  elementRef
+) {
+  const result = await verifyBrowserObservation({ tabId, observationId, elementRef });
+  return {
+    status: result.status,
+    reasonCode: result.reasonCode || '',
+    target: result.target ? {
+      ref: result.target.ref,
+      role: result.target.role,
+      name: result.target.name,
+      rect: result.target.rect,
+      center: result.target.center
+    } : null,
+    receipt: result.receipt || null
+  };
+};
+
+globalThis.runBrowserObservationModelDecision = async function runBrowserObservationModelDecision(
+  tabId,
+  observationId,
+  settings
+) {
+  const remoteObservation = await projectBrowserObservation({
+    tabId,
+    observationId,
+    aiDataSharingConsent: settings?.aiDataSharingConsent === true
+  });
+  if (remoteObservation.status !== 'ready') {
+    throw new Error(`Remote observation unavailable: ${remoteObservation.reasonCode || 'unknown'}`);
+  }
+  const action = await requestObservationAgentDecision(remoteObservation, {
+    targetDescription: settings?.targetDescription || ''
+  });
+  const validElementRefs = new Set(remoteObservation.projection.elements.map((element) => element.ref));
+  return {
+    status: 'ready',
+    modelId: settings.modelId,
+    action: {
+      action: action.action,
+      observationId: action.observationId || '',
+      elementRef: action.elementRef || '',
+      targetText: action.targetText || '',
+      description: action.description || '',
+      fallbackReason: action.fallbackReason || ''
+    },
+    observationIdMatches: action.observationId === remoteObservation.projection.observationId,
+    elementRefMatches: action.elementRef ? validElementRefs.has(action.elementRef) : false
+  };
 };
 
 document.documentElement.dataset.ready = 'true';

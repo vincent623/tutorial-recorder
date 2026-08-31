@@ -59,7 +59,7 @@ const checks = [
   {
     name: 'AI start click shows explicit missing-configuration feedback',
     pass:
-      /if \(!hasAiSettingsConfigured\(\)\) \{[\s\S]*?elements\.aiStatus\.textContent = '需配置 AI';[\s\S]*?alert\('请先在完整设置中配置 AI Provider、API Key 和模型，并明确允许截图发送到所选服务商，然后再启动 AI 录制。'\);[\s\S]*?return;[\s\S]*?\}/.test(
+      /if \(!hasAiSettingsConfigured\(\)\) \{[\s\S]*?elements\.aiStatus\.textContent = '需配置 AI';[\s\S]*?alert\('请先在完整设置中配置 AI Provider、API Key 和模型，并明确允许页面截图和脱敏控件摘要发送到所选服务商，然后再启动 AI 录制。'\);[\s\S]*?return;[\s\S]*?\}/.test(
         source.popup
       ) &&
       /elements\.btnAiStart\.title = aiConfigured/.test(source.popup)

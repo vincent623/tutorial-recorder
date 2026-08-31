@@ -1,4 +1,10 @@
 import assert from 'node:assert/strict';
+import {
+  buildObservationDecisionRequest,
+  createObservationDecisionRequester,
+  extractObservationAgentAction
+} from '../../background/agent-observation-decision.js';
+import { buildAgentToolSchema, extractAgentAction } from '../../background/agent-tools.js';
 import { createBrowserObservationModule } from '../../background/browser-observation.js';
 import { createScriptingObservationAdapter } from '../../background/browser-observation-scripting.js';
 
@@ -102,6 +108,237 @@ assert.deepEqual(result.observation.receipt.capabilities, adapter.capabilities);
 assert.deepEqual(result.observation.receipt.degradedReasons, []);
 
 console.log('ok - a stable ordinary page produces a ready Browser Observation');
+
+let decisionRenderCount = 0;
+let trustedProjectionConsent = false;
+const projectionObservation = createBrowserObservationModule({
+  getTab: async () => ({
+    id: 51,
+    url: 'https://app.example.test/tutorial?private=page-secret#section',
+    title: 'Projection Fixture',
+    status: 'complete',
+    active: true,
+    windowId: 8
+  }),
+  selectAdapter: () => ({
+    ...adapter,
+    async inspect() {
+      return {
+        documentToken: 'projection-document',
+        revision: 'projection-revision',
+        url: 'https://app.example.test/tutorial?private=page-secret#section',
+        title: 'Projection Fixture',
+        viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0 },
+        observedRegions: {},
+        elements: [
+          {
+            role: 'link',
+            name: '打开报告 13800138000',
+            context: '客户 11010519491231002X 卡号 6222021234567890123',
+            value: 'PRIVATE_INPUT_VALUE',
+            rect: { x: 30, y: 50, width: 120, height: 36 },
+            fingerprint: 'private-link-fingerprint',
+            targetType: 'a',
+            targetRole: 'link',
+            targetHref: 'https://user:pass@reports.example.test/view?token=PRIVATE_QUERY#PRIVATE_HASH',
+            targetFormMethod: ''
+          },
+          {
+            role: 'searchbox',
+            name: '搜索报告',
+            context: '',
+            value: 'PRIVATE_SEARCH_VALUE',
+            rect: { x: 30, y: 100, width: 220, height: 36 },
+            fingerprint: 'private-form-fingerprint',
+            targetType: 'search',
+            targetRole: 'searchbox',
+            targetHref: '',
+            targetFormAction: 'https://search.example.test/find?token=FORM_PRIVATE_QUERY#FORM_PRIVATE_HASH',
+            targetFormMethod: 'get'
+          }
+        ],
+        truncated: false,
+        inspectedNodeCount: 8
+      };
+    }
+  }),
+  createObservationId: () => 'projection-observation-1',
+  renderDecisionScreenshot: async ({ cleanScreenshot, elements, viewport }) => {
+    decisionRenderCount += 1;
+    assert.equal(cleanScreenshot, 'data:image/png;base64,AA==');
+    assert.equal(elements.length, 2);
+    assert.equal(viewport.width, 1280);
+    return 'data:image/png;base64,REVDISION';
+  },
+  readSettings: async () => ({ aiDataSharingConsent: trustedProjectionConsent }),
+  now: () => 1_500
+});
+const projectionSource = await projectionObservation.observe({ tabId: 51 });
+assert.equal('targetFormAction' in projectionSource.observation.elements[1], false);
+const deniedProjection = await projectionObservation.project({
+  tabId: 51,
+  observationId: projectionSource.observation.id,
+  aiDataSharingConsent: false
+});
+assert.equal(deniedProjection.status, 'unavailable');
+assert.equal(deniedProjection.reasonCode, 'ai-data-sharing-consent-required');
+assert.equal(decisionRenderCount, 0);
+const untrustedProjection = await projectionObservation.project({
+  tabId: 51,
+  observationId: projectionSource.observation.id,
+  aiDataSharingConsent: true
+});
+assert.equal(untrustedProjection.status, 'unavailable');
+assert.equal(untrustedProjection.reasonCode, 'ai-data-sharing-consent-required');
+trustedProjectionConsent = true;
+const projected = await projectionObservation.project({
+  tabId: 51,
+  observationId: projectionSource.observation.id,
+  aiDataSharingConsent: true
+});
+assert.equal(projected.status, 'ready');
+assert.equal(projected.projection.elements[0].name, '打开报告 138****00');
+assert.equal(projected.projection.elements[0].context, '客户 1101**********2X 卡号 6222 **** **** 0123');
+assert.equal(projected.decisionScreenshot.data, 'data:image/png;base64,REVDISION');
+assert.notEqual(projected.decisionScreenshot.data, projectionSource.observation.cleanScreenshot.data);
+assert.deepEqual(projected.projection.page, {
+  host: 'app.example.test',
+  path: '/tutorial'
+});
+assert.deepEqual(projected.projection.elements[0].destination, {
+  relation: 'cross-site',
+  host: 'reports.example.test',
+  path: '/view',
+  method: 'GET'
+});
+assert.deepEqual(projected.projection.elements[1].destination, {
+  relation: 'cross-site',
+  host: 'search.example.test',
+  path: '/find',
+  method: 'GET'
+});
+const serializedProjection = JSON.stringify(projected.projection);
+for (const forbidden of [
+  'PRIVATE_INPUT_VALUE',
+  'private-link-fingerprint',
+  'PRIVATE_QUERY',
+  'PRIVATE_HASH',
+  'user:pass',
+  'targetHref',
+  'documentToken',
+  'PRIVATE_SEARCH_VALUE',
+  'private-form-fingerprint',
+  'FORM_PRIVATE_QUERY',
+  'FORM_PRIVATE_HASH',
+  'targetFormAction',
+  '13800138000',
+  '11010519491231002X',
+  '6222021234567890123'
+]) {
+  assert.equal(serializedProjection.includes(forbidden), false, `projection leaked ${forbidden}`);
+}
+assert.equal(decisionRenderCount, 1);
+
+console.log('ok - remote observation projection requires consent and excludes forbidden fields');
+
+let verificationState = 'same';
+const verificationAdapter = {
+  ...adapter,
+  async inspect() {
+    const pageChanged = verificationState === 'page-changed';
+    const targetChanged = verificationState === 'target-changed';
+    const missing = verificationState === 'missing';
+    return {
+      documentToken: pageChanged ? 'verify-document-2' : 'verify-document-1',
+      revision: `verify-${verificationState}`,
+      url: 'https://example.test/verify',
+      title: 'Verify Fixture',
+      viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0 },
+      observedRegions: {},
+      elements: missing ? [] : [
+        {
+          role: targetChanged ? 'link' : 'button',
+          name: targetChanged ? '删除报告' : '打开报告',
+          context: '项目 Alpha',
+          rect: verificationState === 'moved'
+            ? { x: 240, y: 180, width: 120, height: 36 }
+            : { x: 30, y: 50, width: 120, height: 36 },
+          fingerprint: 'verify-target',
+          targetType: targetChanged ? 'a' : 'button',
+          targetRole: targetChanged ? 'link' : 'button',
+          targetHref: targetChanged ? 'https://example.test/delete' : '',
+          targetFormMethod: ''
+        }
+      ],
+      truncated: false
+    };
+  }
+};
+const verificationObservation = createBrowserObservationModule({
+  getTab: async () => ({
+    id: 61,
+    url: 'https://example.test/verify',
+    title: 'Verify Fixture',
+    status: 'complete',
+    active: true,
+    windowId: 9
+  }),
+  selectAdapter: () => verificationAdapter,
+  createObservationId: (() => {
+    let id = 0;
+    return () => `verify-observation-${++id}`;
+  })(),
+  now: () => 2_000
+});
+const verificationSource = await verificationObservation.observe({ tabId: 61 });
+const verificationRef = verificationSource.observation.elements[0].ref;
+const verifiedTarget = await verificationObservation.verify({
+  tabId: 61,
+  observationId: verificationSource.observation.id,
+  elementRef: verificationRef
+});
+assert.equal(verifiedTarget.status, 'verified');
+assert.deepEqual(verifiedTarget.target.center, { x: 90, y: 68 });
+
+verificationState = 'moved';
+const movedTarget = await verificationObservation.verify({
+  tabId: 61,
+  observationId: verificationSource.observation.id,
+  elementRef: verificationRef
+});
+assert.equal(movedTarget.status, 'moved');
+assert.deepEqual(movedTarget.target.center, { x: 300, y: 198 });
+
+verificationState = 'target-changed';
+const changedTarget = await verificationObservation.verify({
+  tabId: 61,
+  observationId: verificationSource.observation.id,
+  elementRef: verificationRef
+});
+assert.equal(changedTarget.status, 'invalid');
+assert.equal(changedTarget.reasonCode, 'observation-target-changed');
+
+verificationState = 'page-changed';
+const changedPage = await verificationObservation.verify({
+  tabId: 61,
+  observationId: verificationSource.observation.id,
+  elementRef: verificationRef
+});
+assert.equal(changedPage.status, 'invalid');
+assert.equal(changedPage.reasonCode, 'observation-page-changed');
+
+verificationState = 'same';
+const replacementObservation = await verificationObservation.observe({ tabId: 61 });
+const expiredTarget = await verificationObservation.verify({
+  tabId: 61,
+  observationId: verificationSource.observation.id,
+  elementRef: verificationRef
+});
+assert.equal(expiredTarget.status, 'unavailable');
+assert.equal(expiredTarget.reasonCode, 'observation-expired');
+assert.notEqual(replacementObservation.observation.id, verificationSource.observation.id);
+
+console.log('ok - element references are reverified and movement never changes target identity');
 
 const unavailableObservation = createBrowserObservationModule({
   getTab: async () => ({
@@ -574,3 +811,199 @@ await assert.rejects(
 assert.equal(activationListener, null);
 
 console.log('ok - tab switches during window-scoped screenshot capture invalidate the observation');
+
+const legacyTools = buildAgentToolSchema('chatCompletions');
+assert.equal(legacyTools.some((tool) => tool.function.name === 'click_element'), false);
+assert.deepEqual(
+  legacyTools.find((tool) => tool.function.name === 'click_at_xy').function.parameters.required,
+  ['x', 'y', 'description']
+);
+
+for (const apiStyle of ['chatCompletions', 'responses', 'anthropicMessages']) {
+  const tools = buildAgentToolSchema(apiStyle, { observationMode: true });
+  const normalizedTools = tools.map((tool) => tool.function || tool);
+  const clickElement = normalizedTools.find((tool) => tool.name === 'click_element');
+  const typeText = normalizedTools.find((tool) => tool.name === 'type_text');
+  const hoverElement = normalizedTools.find((tool) => tool.name === 'hover_element');
+  const visualFallback = normalizedTools.find((tool) => tool.name === 'click_at_xy');
+  assert.deepEqual(clickElement.parameters?.required || clickElement.input_schema.required, [
+    'observationId',
+    'elementRef',
+    'description'
+  ]);
+  assert.deepEqual(typeText.parameters?.required || typeText.input_schema.required, [
+    'observationId',
+    'elementRef',
+    'text',
+    'description'
+  ]);
+  assert.deepEqual(hoverElement.parameters?.required || hoverElement.input_schema.required, [
+    'observationId',
+    'elementRef',
+    'description'
+  ]);
+  assert.equal(
+    (visualFallback.parameters?.required || visualFallback.input_schema.required).includes('fallbackReason'),
+    true
+  );
+}
+
+const referencedAction = extractAgentAction(
+  {
+    choices: [
+      {
+        message: {
+          tool_calls: [
+            {
+              function: {
+                name: 'click_element',
+                arguments: JSON.stringify({
+                  observationId: ' observation-123 ',
+                  elementRef: ' observation-123:element:2 ',
+                  targetText: '打开报告',
+                  description: '打开选中的报告',
+                  unexpected: 'must-not-survive'
+                })
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  'chatCompletions',
+  { observationMode: true }
+);
+assert.deepEqual(referencedAction, {
+  action: 'click_element',
+  observationId: 'observation-123',
+  elementRef: 'observation-123:element:2',
+  targetText: '打开报告',
+  description: '打开选中的报告'
+});
+
+assert.throws(
+  () => extractAgentAction({ choices: [{ message: { tool_calls: [{ function: {
+    name: 'click_at_xy',
+    arguments: JSON.stringify({ x: 100, y: 200, description: '视觉点击' })
+  } }] } }] }, 'chatCompletions', { observationMode: true }),
+  /视觉降级原因/
+);
+
+console.log('ok - observation-mode tools prefer element references and audit visual fallback');
+
+const remotePackage = {
+  projection: {
+    observationId: 'observation-remote-1',
+    page: { host: 'example.test', path: '/tutorial' },
+    viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0 },
+    truncated: false,
+    capabilities: { mainDocument: true },
+    elements: [{
+      ref: 'observation-remote-1:element:1',
+      label: 1,
+      role: 'button',
+      name: '开始录制',
+      context: '',
+      rect: { x: 24, y: 40, width: 120, height: 36 },
+      targetType: 'button',
+      targetRole: 'button',
+      destination: null
+    }]
+  },
+  decisionScreenshot: { data: 'data:image/png;base64,AA==' }
+};
+const decisionRequest = buildObservationDecisionRequest(remotePackage, {
+  aiDataSharingConsent: true,
+  providerPreset: 'deepseekOfficial',
+  apiStyle: 'chatCompletions',
+  apiBaseUrl: 'https://api.deepseek.com',
+  apiKey: 'TEST_ONLY_KEY',
+  modelId: 'deepseek-v4-flash-vision-exp',
+  targetDescription: '演示开始录制'
+});
+assert.equal(decisionRequest.url, 'https://api.deepseek.com/chat/completions');
+assert.equal(decisionRequest.body.tool_choice, 'required');
+assert.deepEqual(decisionRequest.body.thinking, { type: 'disabled' });
+assert.equal(decisionRequest.body.tools.some((tool) => tool.function.name === 'click_element'), true);
+assert.equal(
+  decisionRequest.body.messages[1].content[0].text.includes('observation-remote-1:element:1'),
+  true
+);
+assert.equal(decisionRequest.body.messages[1].content[1].image_url.url, remotePackage.decisionScreenshot.data);
+assert.throws(
+  () => buildObservationDecisionRequest(remotePackage, {
+    aiDataSharingConsent: false,
+    apiStyle: 'chatCompletions',
+    apiBaseUrl: 'https://api.deepseek.com'
+  }),
+  /授权未开启/
+);
+const parsedObservationAction = extractObservationAgentAction({
+  choices: [{ message: { tool_calls: [{ function: {
+    name: 'click_element',
+    arguments: JSON.stringify({
+      observationId: 'observation-remote-1',
+      elementRef: 'observation-remote-1:element:1',
+      description: '开始录制'
+    })
+  } }] } }]
+}, 'chatCompletions');
+assert.equal(parsedObservationAction.elementRef, 'observation-remote-1:element:1');
+
+let requesterSettings = {
+  aiDataSharingConsent: false,
+  providerPreset: 'deepseekOfficial',
+  apiStyle: 'chatCompletions',
+  apiBaseUrl: 'https://api.deepseek.com',
+  apiKey: 'TEST_ONLY_KEY',
+  modelId: 'deepseek-v4-flash-vision-exp'
+};
+let controllerCreateCount = 0;
+let releasedController = null;
+let fetchSignal = null;
+const observationRequester = createObservationDecisionRequester({
+  readSettings: async () => ({ ...requesterSettings }),
+  getRequestEpoch: () => 17,
+  createRequestController(expectedEpoch) {
+    assert.equal(expectedEpoch, 17);
+    controllerCreateCount += 1;
+    return new AbortController();
+  },
+  releaseRequestController(controller) {
+    releasedController = controller;
+  },
+  async fetchImpl(url, options) {
+    assert.equal(url, 'https://api.deepseek.com/chat/completions');
+    fetchSignal = options.signal;
+    return {
+      ok: true,
+      async json() {
+        return {
+          choices: [{ message: { tool_calls: [{ function: {
+            name: 'click_element',
+            arguments: JSON.stringify({
+              observationId: 'observation-remote-1',
+              elementRef: 'observation-remote-1:element:1',
+              description: '开始录制'
+            })
+          } }] } }]
+        };
+      }
+    };
+  }
+});
+await assert.rejects(
+  observationRequester.request(remotePackage),
+  { name: 'AISharingRevokedError' }
+);
+assert.equal(controllerCreateCount, 0);
+requesterSettings = { ...requesterSettings, aiDataSharingConsent: true };
+const requestedAction = await observationRequester.request(remotePackage, {
+  targetDescription: '演示开始录制'
+});
+assert.equal(requestedAction.elementRef, 'observation-remote-1:element:1');
+assert.equal(fetchSignal, releasedController.signal);
+assert.equal(controllerCreateCount, 1);
+
+console.log('ok - remote observation builds a consent-bound element-reference model request');

@@ -417,7 +417,7 @@ export function installBrowserObservationProbeHelpers(persist = true) {
     return hash([
       context.framePath.join('>'), context.shadowPath.join('>'), path.join('>'),
       semantics.role, semantics.targetType, readAccessibleName(element),
-      element.getAttribute('href') || '', element.form?.method || ''
+      element.getAttribute('href') || '', element.form?.action || '', element.form?.method || ''
     ].join('|'));
   }
 
@@ -445,6 +445,7 @@ export function installBrowserObservationProbeHelpers(persist = true) {
       targetType: semantics.targetType,
       targetRole: semantics.role,
       targetHref: element.tagName.toLowerCase() === 'a' ? element.href : '',
+      targetFormAction: element.form?.action || '',
       targetFormMethod: String(element.form?.method || '').toLowerCase(),
       framePath: [...context.framePath],
       shadowPath: [...context.shadowPath],

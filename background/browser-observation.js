@@ -1,6 +1,12 @@
 import { createCdpObservationAdapter } from './browser-observation-cdp.js';
+import {
+  createRemoteObservationProjection,
+  renderBrowserObservationDecisionScreenshot
+} from './browser-observation-projection.js';
 import { createScriptingObservationAdapter } from './browser-observation-scripting.js';
+import { verifyObservedElement } from './browser-observation-verification.js';
 import { S } from './runtime-state.js';
+import { getSettings } from './settings-store.js';
 
 const DEFAULT_MAX_OBSERVED_ELEMENTS = 80;
 const DEFAULT_OBSERVATION_ATTEMPTS = 2;
@@ -27,10 +33,20 @@ export function refineBrowserObservation(options) {
   return defaultBrowserObservation.refine(options);
 }
 
+export function projectBrowserObservation(options) {
+  return defaultBrowserObservation.project(options);
+}
+
+export function verifyBrowserObservation(options) {
+  return defaultBrowserObservation.verify(options);
+}
+
 export function createBrowserObservationModule({
   getTab,
   selectAdapter,
   createObservationId,
+  renderDecisionScreenshot = renderBrowserObservationDecisionScreenshot,
+  readSettings = getSettings,
   now = Date.now
 }) {
   if (typeof getTab !== 'function' || typeof selectAdapter !== 'function') {
@@ -43,7 +59,7 @@ export function createBrowserObservationModule({
 
   const internalRecordsByTab = new Map();
 
-  return Object.freeze({ observe, refine });
+  return Object.freeze({ observe, refine, project, verify });
 
   function observe({
     tabId,
@@ -131,6 +147,8 @@ export function createBrowserObservationModule({
       const internalRecord = createInternalRecord(
         observationId,
         inspection,
+        screenshotData,
+        adapter,
         refinementDepth,
         lineageStartedAt
       );
@@ -191,6 +209,89 @@ export function createBrowserObservationModule({
         expectedDocumentToken: currentRecord.documentToken
       }
     });
+  }
+
+  async function project({
+    tabId,
+    observationId,
+    aiDataSharingConsent = false
+  } = {}) {
+    if (aiDataSharingConsent !== true) {
+      return unavailableOutcome({
+        reasonCode: 'ai-data-sharing-consent-required',
+        durationMs: 0
+      });
+    }
+    const currentSettings = await readSettings();
+    if (currentSettings?.aiDataSharingConsent !== true) {
+      return unavailableOutcome({
+        reasonCode: 'ai-data-sharing-consent-required',
+        durationMs: 0
+      });
+    }
+    const currentRecord = internalRecordsByTab.get(tabId);
+    if (!currentRecord || currentRecord.observationId !== observationId) {
+      return unavailableOutcome({
+        reasonCode: 'observation-expired',
+        durationMs: 0
+      });
+    }
+    const projection = createRemoteObservationProjection(currentRecord);
+    try {
+      const data = await renderDecisionScreenshot({
+        cleanScreenshot: currentRecord.cleanScreenshotData,
+        elements: projection.elements,
+        viewport: projection.viewport
+      });
+      return {
+        status: 'ready',
+        projection,
+        decisionScreenshot: { data },
+        receipt: {
+          status: 'ready',
+          adapter: currentRecord.adapter,
+          capabilities: { ...currentRecord.capabilities },
+          elementCount: projection.elements.length,
+          truncated: projection.truncated,
+          degradedReasons: [],
+          durationMs: 0
+        }
+      };
+    } catch (error) {
+      console.warn('[Browser Observation] Decision screenshot failed:', error);
+      return unavailableOutcome({
+        adapter: currentRecord.adapter,
+        capabilities: currentRecord.capabilities,
+        reasonCode: 'decision-screenshot-failed',
+        durationMs: 0
+      });
+    }
+  }
+
+  async function verify({ tabId, observationId, elementRef } = {}) {
+    const currentRecord = internalRecordsByTab.get(tabId);
+    if (!currentRecord || currentRecord.observationId !== observationId) {
+      return unavailableOutcome({ reasonCode: 'observation-expired', durationMs: 0 });
+    }
+    const tab = await getTab(tabId);
+    if (!isRecordableTab(tab) || (currentRecord.pageUrl && tab.url !== currentRecord.pageUrl)) {
+      return {
+        status: 'invalid',
+        reasonCode: 'observation-page-changed',
+        receipt: { verification: 'invalid', reasonCode: 'observation-page-changed' }
+      };
+    }
+    try {
+      const inspection = await currentRecord.adapterImpl.inspect(tabId, { maxElements: 250 });
+      return verifyObservedElement({ record: currentRecord, inspection, elementRef });
+    } catch (error) {
+      return unavailableOutcome({
+        adapter: currentRecord.adapter,
+        capabilities: currentRecord.capabilities,
+        reasonCode: 'verification-failed',
+        durationMs: 0
+      });
+    }
   }
 }
 
@@ -360,10 +461,24 @@ function capabilityDegradedReasons(capabilities = {}, observedRegions = {}) {
   return reasons;
 }
 
-function createInternalRecord(observationId, inspection, refinementDepth, lineageStartedAt) {
+function createInternalRecord(
+  observationId,
+  inspection,
+  cleanScreenshotData,
+  adapter,
+  refinementDepth,
+  lineageStartedAt
+) {
   return {
     observationId,
     documentToken: inspection.documentToken || '',
+    pageUrl: inspection.url || '',
+    viewport: inspection.viewport || null,
+    truncated: inspection.truncated === true,
+    cleanScreenshotData,
+    adapter: adapter.kind,
+    adapterImpl: adapter,
+    capabilities: { ...adapter.capabilities },
     refinementDepth,
     lineageStartedAt,
     elementsByRef: new Map((inspection.elements || []).map((element, index) => [
