@@ -1,7 +1,7 @@
 # Browser Observation 设计规格
 
-状态：设计已接受；Slice 1-3 已实现并通过测试环境能力矩阵，尚未接入正式 Agent 动作链
-目标版本建议：2.9.0
+状态：Slice 1-4 已实现；Browser Observation 已成为正式 Agent 页面事实 seam
+目标版本：2.9.0
 相关决定：[ADR-0001](./adr/0001-browser-observation-seam.md)
 领域语言：[CONTEXT.md](../CONTEXT.md)
 
@@ -29,30 +29,30 @@
 
 ## 3. Module seam
 
-Browser Observation 的目标 interface 对调用者提供三个行为：
+Browser Observation 的目标 interface 对调用者提供四个行为：
 
 1. 产生一次浏览器观察；
 2. 对被截断的观察窗口进行有限细化；
 3. 在动作执行前复验观察元素引用。
+4. 在同一 tab/document/元素身份约束内原子派发已授权动作。
 
 调用者无需知道 DOM selector、iframe 注入、Shadow DOM 遍历、元素去重、指纹、截图标注或 adapter 差异。module 不返回 DOM 节点、CDP node id、selector 或可跨观察复用的定位器。
 
-当前 Slice 1-2 已开放 `observe` 与有限 `refine`。执行前复验将在后续 slice 通过同一 module seam 开放；元素指纹、frame/Shadow 路径、完整目标地址和短命元素映射保留在 module 内部，不属于外部观察结果。
+当前 Slice 1-4 已开放 `observe`、有限 `refine`、执行前 `verify` 和原子 `dispatch`，正式 Agent 循环已通过同一 module seam 消费它们；元素指纹、frame/Shadow 路径、完整目标地址和短命元素映射保留在 module 内部，不属于外部观察结果。
 
-建议的内部文件形状：
+当前内部文件形状：
 
 ```text
-background/browser-observation/
-├── index.js                 # 唯一外部 interface
-├── observation-cycle.js     # 同步截图、页面结构与重试
-├── page-probe.js            # 只读、可注入的页面语义提取
-├── element-ranking.js       # 可见性、去重、排序、截断
-├── projection.js            # 远程脱敏投影
-├── decision-annotation.js   # 临时决策截图
-├── receipt.js               # 最小观察收据
-└── adapters/
-    ├── cdp-observation.js
-    └── scripting-observation.js
+background/
+├── browser-observation.js               # 唯一外部 interface 和短命映射
+├── browser-observation-probe.js         # 页面语义提取
+├── browser-observation-probe-helpers.js # 可见性、frame/Shadow 遍历和排序
+├── browser-observation-projection.js    # 远程脱敏投影和决策标注
+├── browser-observation-verification.js  # 执行前复验
+├── browser-observation-action.js        # 同文档、同指纹的原子动作派发
+├── browser-observation-outcomes.js      # 外部结果与收据归一化
+├── browser-observation-cdp.js           # CDP adapter
+└── browser-observation-scripting.js     # chrome.scripting adapter
 ```
 
 这些是 implementation 内部 seam，不应被 Agent loop 或测试逐个调用。
@@ -139,7 +139,7 @@ background/browser-observation/
 - 可见性、遮挡、命中结果；
 - 当前矩形与视口。
 
-仅发生位移时返回新的矩形，Action Transaction 可以继续。身份、语义、风险、来源、可见性或 document 发生变化时，引用失效并重新观察。纯视觉坐标确认在视口或页面明显变化后直接失效。
+仅发生位移时返回新的矩形，Action Transaction 可以继续。身份、语义、风险、来源、可见性或 document 发生变化时，引用失效并重新观察。派发固定在获授权的 tab/document，并在查找同一指纹后立即执行，避免复验与执行之间切页或换目标。纯视觉坐标确认在视口或页面明显变化后直接失效。
 
 ## 8. 远程观察投影
 
@@ -200,9 +200,10 @@ background/browser-observation/
 - `click`、`type_text`、`hover` 引用观察 ID和元素引用；
 - `targetText` 仅用于教程说明和审计；
 - `type_text + submit` 保留，但由本地元素语义和风险策略授权；
+- email、number 等合法输入类型使用页面所属 realm 的原生 value setter；file/select 等不能安全模拟打字的控件明确返回 unsupported；
 - 坐标动作必须携带视觉降级原因。
 
-迁移期保留旧模型输出解析 adapter，把 `targetText/x/y` 归一化为旧式视觉候选，但不允许其绕过新复验和确认规则。
+迁移期保留旧模型输出解析 adapter：按动作能力把唯一同名可编辑目标绑定为当前观察引用；不能唯一绑定的点击才进入带原因的视觉降级，不能唯一绑定的输入/悬停直接拒绝。旧输出不允许绕过新复验和确认规则。
 
 ## 12. 观察收据与用户提示
 
@@ -242,7 +243,7 @@ background/browser-observation/
 - 更新模型工具 schema，以元素引用为主；
 - 扩展 DeepSeek provider smoke。
 
-实现状态：完成。Browser Observation 现在只在显式 AI 数据共享授权下生成带编号的临时决策截图和脱敏远程投影；实际模型请求会重新读取持久化授权并受配置 epoch 与可撤回请求控制器约束。观察模式工具 schema 以短期元素引用为主，坐标点击必须声明视觉降级原因；同一 module seam 已提供执行前复验并区分原位可用、仅位移、页面变化与目标语义变化。DeepSeek 隔离 smoke 会逐一验证搜索、普通站内导航、同源 iframe 和开放 Shadow DOM 都命中指定动作类型与指定元素引用。正式 Agent loop 仍保持旧协议，切流与旧实现删除属于 Slice 4。
+实现状态：完成。Browser Observation 只在显式 AI 数据共享授权下生成带编号的临时决策截图和脱敏远程投影；实际模型请求会重新读取持久化授权并受配置 epoch 与可撤回请求控制器约束。观察模式工具 schema 以短期元素引用为主，坐标点击必须声明视觉降级原因；同一 module seam 已提供执行前复验并区分原位可用、仅位移、页面变化与目标语义变化。DeepSeek 隔离 smoke 会逐一验证搜索、普通站内导航、同源 iframe 和开放 Shadow DOM 都命中指定动作类型与指定元素引用。
 
 ### Slice 4：正式切流和删除旧实现
 
@@ -250,6 +251,8 @@ background/browser-observation/
 - CDP 与兼容路径通过相同能力矩阵；
 - 删除重复 DOM 指纹、文字定位和源码字符串测试；
 - 正式构建不包含影子比较路径。
+
+实现状态：完成。正式 `AgentLoop` 通过 `ObservationAgentCycle` 取得同步干净截图、脱敏投影和元素引用决策，再由 `AgentActionTransaction` 在风险判断前、确认后和派发瞬间复验引用。低风险元素动作持有不可伪造、单次使用的内存票据自动执行；高风险元素动作、非 GET 提交、未知直达 URL 和视觉坐标降级保留单次确认。派发固定在获授权的 tab/document 并原子核对元素指纹；高风险重复动作不能被模型的重复理由放行。旧 `agent-targeting.js` 及 `page-automation.js` 中重复的文字定位/指纹实现已经从生产包删除，历史等价比较只存在于不会打包的 E2E harness。明确且无后续步骤的 GET 搜索目标由本地约束补全安全提交，只有完成态观察证明 URL 效果后才本地结束；观察不可用时暂停并提供重试、接管和停止，而不是静默循环。
 
 每个 slice 独立通过门禁后才能进入下一个，不以保留两套永久实现换取兼容。
 
@@ -260,6 +263,7 @@ background/browser-observation/
 - 确定性能力矩阵在 CDP 和 scripting adapter 的共同基线上全部通过；
 - 错误目标执行为 0；
 - 高风险动作确认绕过为 0；
+- 未授权非 GET 提交副作用为 0，高风险重复动作自动执行为 0；
 - 禁止字段进入远程观察投影为 0；
 - 固定 CI 夹具中完整本地观察 p95 不超过 500ms；超预算返回显式截断或降级；
 - DeepSeek smoke 至少覆盖搜索、普通站内导航、Shadow DOM/iframe 三类任务；

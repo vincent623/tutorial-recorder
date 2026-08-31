@@ -76,7 +76,7 @@ const checks = [
       )
   },
   {
-    name: 'AI Agent loop uses configured limits in state, prompt, and history slicing',
+    name: 'AI Agent loop uses configured limits in state and observation progress',
     pass:
       /const agentMaxSteps = normalizeAiAgentMaxSteps\(settings\.aiAgentMaxSteps\)/.test(source.background) &&
       /const agentMaxDurationMs = normalizeAiAgentMaxDurationMs\(settings\.aiAgentMaxDurationMinutes\)/.test(
@@ -85,19 +85,17 @@ const checks = [
       /maxSteps: agentMaxSteps/.test(source.background) &&
       /maxDurationMs: agentMaxDurationMs/.test(source.background) &&
       /deadlineAt: startedAt \+ agentMaxDurationMs/.test(source.background) &&
-      /`当前步数：\$\{stepIndex\}\/\$\{maxSteps\}`/.test(source.background) &&
-      /steps: \[\.\.\.steps, step\]\.slice\(-\((S\.)?currentRuntime\.aiAgent\.maxSteps \|\| AI_AGENT_MAX_STEPS\)\)/.test(
-        source.background
-      )
+      /`当前步数：\$\{Number\(progress\.stepIndex\) \|\| 1\}\/\$\{Number\(progress\.maxSteps\) \|\| 1\}`/.test(source.background) &&
+      /completedSteps: (S\.)?currentRuntime\.aiAgent\.steps\.slice\(-8\)/.test(source.background) &&
+      /maxSteps: (S\.)?currentRuntime\.aiAgent\.maxSteps \|\| AI_AGENT_MAX_STEPS/.test(source.background)
   },
   {
-    name: 'AI Agent decision failures retry once before failure branch',
+    name: 'Browser Observation decisions retry once against the same projection',
     pass:
-      /const AI_AGENT_DECISION_RETRY_LIMIT = 1/.test(source.background) &&
-      /async function decideNextAgentActionWithRetry\(screenshot, settings\)/.test(source.background) &&
-      /attempt <= AI_AGENT_DECISION_RETRY_LIMIT/.test(source.background) &&
-      /status: 'retrying'/.test(source.background) &&
-      /const (?:action|decision) = await decideNextAgentActionWithRetry\(screenshot, settings\)/.test(source.background)
+      /const OBSERVATION_DECISION_RETRY_LIMIT = 1/.test(source.background) &&
+      /async function requestDecisionWithRetry\(remoteObservation, options\)/.test(source.background) &&
+      /attempt <= OBSERVATION_DECISION_RETRY_LIMIT/.test(source.background) &&
+      /requestDecision\(remoteObservation, options\)/.test(source.background)
   },
   {
     name: 'AI Agent action execution waits for page stability and detects anomalies',

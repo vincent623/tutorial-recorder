@@ -131,13 +131,12 @@ const checks = [
       /Page\.navigate/.test(source.background)
   },
   {
-    name: 'agent decisions are viewport-aware and normalized to CSS pixels',
+    name: 'agent decisions use a synchronized viewport observation',
     pass:
-      /readAgentViewport/.test(source.background) &&
-      /normalizeAgentScreenshot/.test(source.background) &&
-      /Page\.getLayoutMetrics/.test(source.background) &&
-      /resizeDataUrlToSize/.test(source.background) &&
-      /浏览器视口/.test(source.background)
+      /observeBrowserPage/.test(source.background) &&
+      /cleanScreenshot/.test(source.background) &&
+      /viewport/.test(source.background) &&
+      /decisionScreenshot/.test(source.background)
   },
   {
     name: 'zip export includes a standalone tutorial.html entry',

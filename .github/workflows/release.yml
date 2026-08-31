@@ -125,6 +125,7 @@ jobs:
           PW_API_BASE_URL: https://api.deepseek.com
           PW_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PW_MODEL_ID: deepseek-v4-flash-vision-exp
+          PW_AI_SMOKE_SCENARIO: search
         run: |
           for attempt in 1 2; do
             if npm run smoke:ai; then

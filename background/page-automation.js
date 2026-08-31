@@ -4,91 +4,6 @@ export async function readCompatibleViewport(tabId = S.currentRuntime.tabId) {
   return runPageProbe(tabId, () => ({ width: innerWidth, height: innerHeight }));
 }
 
-export async function resolveCompatibleTextTarget(targetText, tabId = S.currentRuntime.tabId) {
-  return runPageProbe(tabId, (requestedText) => {
-    const hash = (value) => {
-      let result = 2166136261;
-      for (let index = 0; index < value.length; index += 1) {
-        result ^= value.charCodeAt(index);
-        result = Math.imul(result, 16777619);
-      }
-      return (result >>> 0).toString(16);
-    };
-    const fingerprint = (element) => {
-      const path = [];
-      let node = element;
-      for (let depth = 0; node && node.nodeType === 1 && depth < 5; depth += 1) {
-        const parent = node.parentElement;
-        const siblingIndex = parent ? Array.from(parent.children).indexOf(node) : 0;
-        const stableId = node.id || node.getAttribute('data-testid') || node.getAttribute('data-id') || node.getAttribute('name') || '';
-        path.unshift(`${node.tagName.toLowerCase()}:${siblingIndex}:${stableId}`);
-        node = parent;
-      }
-      const context = element.closest('[data-id], [data-testid], tr, li, article, [role="row"]') || element.parentElement;
-      const contextText = String(context?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 500);
-      return hash(`${path.join('>')}|${contextText}|${element.outerHTML.slice(0, 500)}`);
-    };
-    const target = String(requestedText || '').replace(/\s+/g, ' ').trim();
-    const selectors = 'button, a, [role="button"], input[type="button"], input[type="submit"], input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="email"], input[type="tel"], textarea, [contenteditable="true"], summary';
-    const match = [...document.querySelectorAll(selectors)].map((element) => {
-      const rect = element.getBoundingClientRect();
-      const style = getComputedStyle(element);
-      const text = String(element.innerText || element.getAttribute('aria-label') || element.getAttribute('placeholder') || element.value || '').replace(/\s+/g, ' ').trim();
-      const x = Math.round(rect.left + rect.width / 2);
-      const y = Math.round(rect.top + rect.height / 2);
-      const hit = document.elementFromPoint(x, y);
-      const visible = rect.width > 2 && rect.height > 2 && rect.bottom > 0 && rect.right > 0 &&
-        rect.top < innerHeight && rect.left < innerWidth && style.visibility !== 'hidden' &&
-        style.display !== 'none' && Number(style.opacity || 1) > 0 &&
-        Boolean(hit && (element === hit || element.contains(hit)));
-      return { element, rect, text, visible };
-    }).find((item) => item.visible && item.text === target);
-    if (!match) return null;
-    return {
-      x: Math.round(match.rect.left + match.rect.width / 2),
-      y: Math.round(match.rect.top + match.rect.height / 2),
-      matchedText: match.text.slice(0, 160),
-      targetType: String(match.element.getAttribute('type') || (match.element instanceof HTMLTextAreaElement ? 'textarea' : match.element.isContentEditable ? 'contenteditable' : '')).toLowerCase(),
-      targetRole: String(match.element.getAttribute('role') || '').toLowerCase(),
-      targetHref: match.element instanceof HTMLAnchorElement ? match.element.href : '',
-      targetFormMethod: String(match.element.form?.method || '').toLowerCase(),
-      targetFingerprint: fingerprint(match.element)
-    };
-  }, [targetText]);
-}
-
-export async function readCompatibleClickTarget(x, y, tabId = S.currentRuntime.tabId) {
-  return runPageProbe(tabId, (pointX, pointY) => {
-    const hash = (value) => {
-      let result = 2166136261;
-      for (let index = 0; index < value.length; index += 1) {
-        result ^= value.charCodeAt(index);
-        result = Math.imul(result, 16777619);
-      }
-      return (result >>> 0).toString(16);
-    };
-    const elementAtPoint = document.elementFromPoint(Number(pointX), Number(pointY));
-    const element = elementAtPoint?.closest('button, a, [role="button"], input[type="button"], input[type="submit"], input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="email"], input[type="tel"], textarea, [contenteditable="true"], summary');
-    if (!element) return null;
-    const path = [];
-    let node = element;
-    for (let depth = 0; node && node.nodeType === 1 && depth < 5; depth += 1) {
-      const parent = node.parentElement;
-      const siblingIndex = parent ? Array.from(parent.children).indexOf(node) : 0;
-      const stableId = node.id || node.getAttribute('data-testid') || node.getAttribute('data-id') || node.getAttribute('name') || '';
-      path.unshift(`${node.tagName.toLowerCase()}:${siblingIndex}:${stableId}`);
-      node = parent;
-    }
-    const context = element.closest('[data-id], [data-testid], tr, li, article, [role="row"]') || element.parentElement;
-    const contextText = String(context?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 500);
-    const text = String(element.innerText || element.getAttribute('aria-label') || element.getAttribute('placeholder') || element.value || '').replace(/\s+/g, ' ').trim();
-    return {
-      text: text.slice(0, 160),
-      fingerprint: hash(`${path.join('>')}|${contextText}|${element.outerHTML.slice(0, 500)}`)
-    };
-  }, [x, y]);
-}
-
 export async function readCompatibleFocusContext(tabId = S.currentRuntime.tabId) {
   return runPageProbe(tabId, inspectCompatiblePageContext, ['focus', 0, 0]);
 }
@@ -177,7 +92,9 @@ export function toCompatibleActionPayload(action = {}) {
     text: String(action.text || ''),
     key: String(action.key || ''),
     targetText: String(action.targetText || ''),
-    targetLocated: action.coordinateSource === 'visible-text',
+    targetLocated:
+      action.coordinateSource === 'visible-text' ||
+      action.coordinateSource === 'observation-reference',
     submit: action.submit === true
   };
 }

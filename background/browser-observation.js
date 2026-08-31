@@ -5,6 +5,12 @@ import {
 } from './browser-observation-projection.js';
 import { createScriptingObservationAdapter } from './browser-observation-scripting.js';
 import { verifyObservedElement } from './browser-observation-verification.js';
+import {
+  capabilityDegradedReasons,
+  normalizeObservedElement,
+  refinementLimitOutcome,
+  unavailableOutcome
+} from './browser-observation-outcomes.js';
 import { S } from './runtime-state.js';
 import { getSettings } from './settings-store.js';
 
@@ -41,6 +47,10 @@ export function verifyBrowserObservation(options) {
   return defaultBrowserObservation.verify(options);
 }
 
+export function dispatchBrowserObservationAction(options) {
+  return defaultBrowserObservation.dispatch(options);
+}
+
 export function createBrowserObservationModule({
   getTab,
   selectAdapter,
@@ -59,7 +69,7 @@ export function createBrowserObservationModule({
 
   const internalRecordsByTab = new Map();
 
-  return Object.freeze({ observe, refine, project, verify });
+  return Object.freeze({ observe, refine, project, verify, dispatch });
 
   function observe({
     tabId,
@@ -293,6 +303,46 @@ export function createBrowserObservationModule({
       });
     }
   }
+
+  async function dispatch({ tabId, observationId, elementRef, action } = {}) {
+    const currentRecord = internalRecordsByTab.get(tabId);
+    const source = currentRecord?.elementsByRef.get(elementRef);
+    if (!currentRecord || currentRecord.observationId !== observationId) {
+      return unavailableOutcome({ reasonCode: 'observation-expired', durationMs: 0 });
+    }
+    if (!source || typeof currentRecord.adapterImpl.dispatch !== 'function') {
+      return { status: 'invalid', reasonCode: 'observation-target-changed' };
+    }
+    const tab = await getTab(tabId);
+    if (!isRecordableTab(tab) || (currentRecord.pageUrl && tab.url !== currentRecord.pageUrl)) {
+      return { status: 'invalid', reasonCode: 'observation-page-changed' };
+    }
+    try {
+      const result = await currentRecord.adapterImpl.dispatch(tabId, {
+        action,
+        fingerprint: source.fingerprint,
+        documentToken: currentRecord.documentToken
+      });
+      if (result?.ok !== true) {
+        return { status: 'invalid', reasonCode: result?.reasonCode || 'observation-verification-failed' };
+      }
+      const verification = verifyObservedElement({
+        record: currentRecord,
+        elementRef,
+        inspection: {
+          documentToken: result.documentToken,
+          url: result.url,
+          elements: [result.target]
+        }
+      });
+      return verification.status === 'verified' || verification.status === 'moved'
+        ? { status: 'executed', target: verification.target, receipt: verification.receipt }
+        : verification;
+    } catch (error) {
+      console.warn('[Browser Observation] Atomic action dispatch failed:', error);
+      return { status: 'invalid', reasonCode: 'observation-verification-failed' };
+    }
+  }
 }
 
 function isRecordableTab(tab) {
@@ -379,86 +429,6 @@ function isSameInspectionRevision(before, after) {
     before?.revision &&
     before.revision === after?.revision
   );
-}
-
-function normalizeObservedElement(element = {}, ref) {
-  return {
-    ref,
-    role: cleanText(element.role, 80),
-    name: cleanText(element.name, 240),
-    context: cleanText(element.context, 160),
-    rect: normalizeRect(element.rect),
-    targetType: cleanText(element.targetType, 80).toLowerCase(),
-    targetRole: cleanText(element.targetRole, 80).toLowerCase(),
-    targetFormMethod: cleanText(element.targetFormMethod, 16).toLowerCase()
-  };
-}
-
-function normalizeRect(rect = {}) {
-  return {
-    x: finiteNumber(rect.x),
-    y: finiteNumber(rect.y),
-    width: Math.max(0, finiteNumber(rect.width)),
-    height: Math.max(0, finiteNumber(rect.height))
-  };
-}
-
-function finiteNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function cleanText(value, maxLength) {
-  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
-}
-
-function unavailableOutcome({ adapter = '', capabilities = {}, reasonCode, durationMs }) {
-  return {
-    status: 'unavailable',
-    reasonCode,
-    receipt: {
-      status: 'unavailable',
-      adapter,
-      capabilities: { ...capabilities },
-      elementCount: 0,
-      truncated: false,
-      degradedReasons: [],
-      reasonCode,
-      durationMs
-    }
-  };
-}
-
-function refinementLimitOutcome(adapter = '', capabilities = {}) {
-  return unavailableOutcome({
-    adapter,
-    capabilities,
-    reasonCode: 'refinement-limit-reached',
-    durationMs: 0
-  });
-}
-
-function capabilityDegradedReasons(capabilities = {}, observedRegions = {}) {
-  const reasons = [];
-  if (observedRegions.openShadowDom > 0 && capabilities.openShadowDom !== true) {
-    reasons.push('open-shadow-dom-unavailable');
-  }
-  if (observedRegions.sameOriginFrames > 0 && capabilities.sameOriginFrames !== true) {
-    reasons.push('same-origin-frame-content-unavailable');
-  }
-  if (
-    (observedRegions.crossOriginFrames > 0 || observedRegions.inaccessibleFrames > 0) &&
-    capabilities.crossOriginFrames !== true
-  ) {
-    reasons.push('cross-origin-frame-content-unavailable');
-  }
-  if (observedRegions.selfDrawnSurfaces > 0 && capabilities.selfDrawnSurfaces !== true) {
-    reasons.push('self-drawn-surface-unavailable');
-  }
-  if (observedRegions.transformedFrames > 0 && capabilities.transformedFrames !== true) {
-    reasons.push('transformed-frame-coordinate-unavailable');
-  }
-  return reasons;
 }
 
 function createInternalRecord(

@@ -73,14 +73,24 @@ const cases = [
     expected: 'confirm'
   },
   {
-    name: 'same-origin reversible navigation remains automatic',
+    name: 'unknown same-origin direct navigation requires confirmation',
     action: { action: 'navigate', url: 'https://example.com/next' },
     context: { currentUrl: 'https://example.com/start' },
-    expected: 'allow'
+    expected: 'confirm'
   },
   {
-    name: 'cross-origin reversible navigation remains automatic',
+    name: 'unknown cross-origin direct navigation requires confirmation',
     action: { action: 'navigate', url: 'https://accounts.example.net/login' },
+    context: { currentUrl: 'https://example.com/start' },
+    expected: 'confirm'
+  },
+  {
+    name: 'an exact user-authorized URL remains automatic',
+    action: {
+      action: 'navigate',
+      url: 'https://accounts.example.net/login',
+      intentAuthorization: 'explicit-user-navigation'
+    },
     context: { currentUrl: 'https://example.com/start' },
     expected: 'allow'
   },
@@ -233,12 +243,13 @@ assert.equal(
 );
 console.log('ok - one-time approvals expire when the page or approved target changes');
 
-const targetingSource = await readFile(new URL('../../background/agent-targeting.js', import.meta.url), 'utf8');
+const transactionSource = await readFile(new URL('../../background/agent-action-transaction.js', import.meta.url), 'utf8');
+const verificationSource = await readFile(new URL('../../background/browser-observation-verification.js', import.meta.url), 'utf8');
 const executorSource = await readFile(new URL('../../background/agent-action-executor.js', import.meta.url), 'utf8');
 const actionGuardSource = await readFile(new URL('../../background/agent-action-guard.js', import.meta.url), 'utf8');
-assert.match(targetingSource, /targetFingerprint/, 'calibrated targets must carry a stable opaque fingerprint');
-assert.match(targetingSource, /elementFromPoint/, 'target calibration and dispatch validation must use hit testing');
-assert.match(executorSource, /assertAgentClickTargetFresh\(action\)/, 'click dispatch must revalidate the target immediately before execution');
+assert.match(verificationSource, /hasSameTargetIdentity/, 'observation targets must preserve semantic identity');
+assert.match(transactionSource, /prepareObservedAction/, 'element actions must cross the observation transaction');
+assert.match(transactionSource, /issuedTickets\.delete\(ticket\)/, 'action authorization tickets must be single use');
 assert.match(actionGuardSource, /approvalPageDigest/, 'coordinate and Enter approvals must seal the approved page state');
 assert.match(actionGuardSource, /approvalFocusFingerprint/, 'Enter approvals must seal the approved focus target');
 assert.match(actionGuardSource, /approvalPointFingerprint/, 'coordinate approvals must seal the elementFromPoint target');
@@ -254,4 +265,4 @@ assert.match(
   /if \(action\.action === 'press_key'\)[\s\S]*assertApprovedSensitiveActionFresh\(action\)[\s\S]*dispatchCdpKey/,
   'Enter must verify page and focus approval seals immediately before dispatch'
 );
-console.log('ok - approved visible-text clicks preserve target identity through dispatch');
+console.log('ok - approved observation references and visual fallback preserve dispatch freshness');

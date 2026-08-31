@@ -14,8 +14,11 @@ const HIGH_RISK_NAVIGATION_URL_PATTERN =
 export function evaluateAgentActionPolicy(action = {}, context = {}) {
   if (action.action === 'click_at_xy') {
     const targetText = sanitizeEditableText(action.targetText, 160);
+    const exactTargetSource =
+      action.coordinateSource === 'visible-text' ||
+      action.coordinateSource === 'observation-reference';
 
-    if (!targetText || action.coordinateSource !== 'visible-text') {
+    if (!targetText || !exactTargetSource) {
       return confirmation('coordinate-click', '无法精确确认点击目标，需要您允许这一次坐标点击。');
     }
 
@@ -25,6 +28,10 @@ export function evaluateAgentActionPolicy(action = {}, context = {}) {
 
     const targetType = String(action.targetType || '').toLowerCase();
     const formMethod = String(action.targetFormMethod || '').toLowerCase();
+    const destination = `${action.targetHref || ''} ${action.targetFormAction || ''}`;
+    if (HIGH_RISK_NAVIGATION_URL_PATTERN.test(destination)) {
+      return confirmation('high-risk-destination', `“${targetText}”指向高风险操作地址，需要您允许这一次点击。`);
+    }
     if (SAFE_FOCUS_TARGET_TYPES.has(targetType)) {
       return allowed('focus-editable-field', '已精确匹配可编辑字段，聚焦操作不会提交页面。');
     }
@@ -75,7 +82,7 @@ export function evaluateAgentActionPolicy(action = {}, context = {}) {
     const targetType = String(action.targetType || '').toLowerCase();
     const formMethod = String(action.targetFormMethod || '').toLowerCase();
     if (
-      action.coordinateSource === 'visible-text' &&
+      (action.coordinateSource === 'visible-text' || action.coordinateSource === 'observation-reference') &&
       SEARCH_INPUT_TYPES.has(targetType) &&
       formMethod === 'get' &&
       SEARCH_TARGET_PATTERN.test(targetText)
@@ -97,8 +104,11 @@ export function evaluateAgentActionPolicy(action = {}, context = {}) {
       return confirmation('high-risk-navigation-url', '目标地址看起来可能直接触发账户或发布类操作，需要您允许这一次跳转。');
     }
 
-    const scope = !currentOrigin || currentOrigin !== targetOrigin ? `打开 ${targetOrigin}` : '打开当前站点内的新地址';
-    return allowed('reversible-navigation', `${scope}属于可撤销的页面导航。`);
+    if (action.intentAuthorization === 'explicit-user-navigation') {
+      const scope = !currentOrigin || currentOrigin !== targetOrigin ? `打开 ${targetOrigin}` : '打开当前站点内的新地址';
+      return allowed('explicit-user-navigation', `${scope}已由用户目标明确授权。`);
+    }
+    return confirmation('unknown-destination-navigation', '该地址不来自已验证的页面元素或用户明确 URL，需要您允许这一次跳转。');
   }
 
   return allowed('low-impact-action', '该动作不会直接提交、删除或离开当前站点。');
@@ -116,7 +126,11 @@ export function buildAgentApprovalRequest({ action = {}, screenshotId = '', desc
     ...(action.targetType ? { targetType: sanitizeOperationId(action.targetType) } : {}),
     ...(action.targetRole ? { targetRole: sanitizeOperationId(action.targetRole) } : {}),
     ...(action.targetHref ? { targetHref: sanitizeEditableText(action.targetHref, 500) } : {}),
+    ...(action.targetFormAction ? { targetFormAction: sanitizeEditableText(action.targetFormAction, 500) } : {}),
     ...(action.targetFormMethod ? { targetFormMethod: sanitizeOperationId(action.targetFormMethod) } : {}),
+    ...(action.observationId ? { observationId: sanitizeOperationId(action.observationId) } : {}),
+    ...(action.elementRef ? { elementRef: sanitizeOperationId(action.elementRef) } : {}),
+    ...(action.fallbackReason ? { fallbackReason: sanitizeEditableText(action.fallbackReason, 300) } : {}),
     ...(action.key ? { key: sanitizeOperationId(action.key) } : {}),
     ...(action.submit === true ? { submit: true } : {}),
     ...(action.focusLabel ? { focusLabel: sanitizeEditableText(action.focusLabel, 120) } : {}),

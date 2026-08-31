@@ -40,7 +40,7 @@ console.log('ok - AI credentials and screenshots only use HTTPS or explicit loop
 
 const tutorialGeneratorSource = await readFile(new URL('../../background/tutorial-generator.js', import.meta.url), 'utf8');
 const aiVisionSource = await readFile(new URL('../../background/ai-vision.js', import.meta.url), 'utf8');
-const agentLoopSource = await readFile(new URL('../../background/agent-loop.js', import.meta.url), 'utf8');
+const observationDecisionSource = await readFile(new URL('../../background/agent-observation-decision.js', import.meta.url), 'utf8');
 const settingsServiceSource = await readFile(new URL('../../background/settings-service.js', import.meta.url), 'utf8');
 const requestControlSource = await readFile(new URL('../../background/ai-request-control.js', import.meta.url), 'utf8');
 const settingsHtml = await readFile(new URL('../../settings/settings.html', import.meta.url), 'utf8');
@@ -60,7 +60,7 @@ assert.match(workerSource, /hasVisionAnalysisConfig\(settings\)/, 'each queue it
 console.log('ok - batch workers recheck AI sharing consent before every queued screenshot');
 
 assert.match(aiVisionSource, /for \(let attempt[\s\S]*await getSettings\(\)[\s\S]*fetch\(request\.url/, 'vision retries must reload consent before fetch');
-assert.match(agentLoopSource, /decideNextAgentAction[\s\S]*await getSettings\(\)[\s\S]*fetch\(request\.url/, 'agent retries must reload consent before fetch');
+assert.match(observationDecisionSource, /async function request[\s\S]*await readSettings\(\)[\s\S]*fetchImpl\(requestData\.url/, 'agent retries must reload consent before fetch');
 const originalEpoch = getAiRequestConfigurationEpoch();
 const activeController = createTrackedAiRequestController(originalEpoch);
 beginAiRequestConfigurationChange();

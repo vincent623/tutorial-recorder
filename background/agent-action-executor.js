@@ -1,5 +1,4 @@
 import { assertApprovedActionSourceFresh, assertApprovedSensitiveActionFresh } from './agent-action-guard.js';
-import { assertAgentClickTargetFresh } from './agent-targeting.js';
 import { executeCompatibleAgentAction } from './page-automation.js';
 import { S } from './runtime-state.js';
 import { delay } from './text-utils.js';
@@ -15,34 +14,34 @@ export const AGENT_KEY_EVENT_DEFS = Object.freeze({
   arrowright: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 }
 });
 
-export async function performExecuteAiAgentAction(action) {
-  if (!S.currentRuntime.tabId) {
+export async function performExecuteAiAgentAction(
+  action,
+  { observationVerified = false, tabId = S.currentRuntime.tabId } = {}
+) {
+  if (!Number.isInteger(tabId) || tabId < 0 || S.currentRuntime.tabId !== tabId) {
     throw new Error('AI 操作目标标签页不可用');
   }
 
-  await assertApprovedActionSourceFresh(action);
-  if (action.action === 'click_at_xy' || (action.action === 'type_text' && action.targetText)) {
-    await assertAgentClickTargetFresh(action);
-  }
+  if (!observationVerified) await assertApprovedActionSourceFresh(action);
   if (action.action === 'type_text' && action.submit) {
     assertCompositeSubmitAuthorized(action);
   }
 
   if (!S.currentRuntime.cdpAttached) {
-    if (action.action === 'click_at_xy' || action.action === 'press_key') {
+    if (!observationVerified && (action.action === 'click_at_xy' || action.action === 'press_key')) {
       await assertApprovedSensitiveActionFresh(action);
     }
     if (action.action === 'wait') {
       await delay(action.ms || 800);
       return;
     }
-    await executeCompatibleAgentAction(action);
+    await executeCompatibleAgentAction(action, tabId);
     return;
   }
 
-  const target = { tabId: S.currentRuntime.tabId };
+  const target = { tabId };
   if (action.action === 'click_at_xy') {
-    await assertApprovedSensitiveActionFresh(action);
+    if (!observationVerified) await assertApprovedSensitiveActionFresh(action);
     await dispatchCdpClick(target, action.x, action.y);
     return;
   }

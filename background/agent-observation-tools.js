@@ -1,4 +1,4 @@
-import { sanitizeCoordinate, sanitizeEditableText } from './text-utils.js';
+import { clampNumber, sanitizeCoordinate, sanitizeEditableText } from './text-utils.js';
 
 const observationReference = {
   type: 'string',
@@ -7,10 +7,13 @@ const observationReference = {
 
 export function buildObservationAgentBaseTools() {
   return [
-    referencedTool('click_element', 'Click a visible element from the current browser observation.'),
+    referencedTool(
+      'click_element',
+      'Click a visible element from the current browser observation. Do not click an editable field merely to focus it before type_text.'
+    ),
     {
       name: 'type_text',
-      description: 'Type text into an editable element from the current browser observation.',
+      description: 'Focus the referenced editable element, replace its current content, type text, and optionally submit. No prior click is needed.',
       parameters: {
         type: 'object',
         properties: {
@@ -18,13 +21,38 @@ export function buildObservationAgentBaseTools() {
           elementRef: observationReference,
           text: { type: 'string' },
           targetText: { type: 'string', description: 'Short human-readable target label for the tutorial.' },
-          submit: { type: 'boolean' },
+          submit: {
+            type: 'boolean',
+            description: 'Must be true when the user goal asks to execute a search/query now; false when the goal only asks to fill the field.'
+          },
+          allowRepeat: { type: 'boolean', description: 'True only when the goal explicitly requires repeating this same semantic action.' },
+          repeatReason: { type: 'string', description: 'Required audit reason when allowRepeat is true.' },
           description: { type: 'string' }
         },
         required: ['observationId', 'elementRef', 'text', 'description']
       }
     },
     referencedTool('hover_element', 'Hover over a visible element from the current browser observation.'),
+    {
+      name: 'refine_observation',
+      description: 'Refine a truncated observation before using visual coordinates for an omitted semantic target.',
+      parameters: {
+        type: 'object',
+        properties: {
+          role: { type: 'string', description: 'Optional semantic role to focus, such as button, link, or textbox.' },
+          region: {
+            type: 'object',
+            properties: {
+              x: { type: 'number' }, y: { type: 'number' },
+              width: { type: 'number' }, height: { type: 'number' }
+            },
+            required: ['x', 'y', 'width', 'height']
+          },
+          description: { type: 'string' }
+        },
+        required: ['description']
+      }
+    },
     {
       name: 'click_at_xy',
       description: 'Visual fallback only: click a viewport coordinate when no semantic element reference exists.',
@@ -59,6 +87,22 @@ export function buildObservationAgentBaseTools() {
 
 export function sanitizeObservationAgentAction(action = {}, { sanitizeLegacyAction, describeAgentAction }) {
   const normalizedAction = sanitizeEditableText(action.action || action.type || action.name || action.tool, 40);
+  if (normalizedAction === 'refine_observation') {
+    const region = action.region && typeof action.region === 'object'
+      ? {
+          x: sanitizeCoordinate(action.region.x, 0),
+          y: sanitizeCoordinate(action.region.y, 0),
+          width: clampNumber(action.region.width, 1, 10_000, 1),
+          height: clampNumber(action.region.height, 1, 10_000, 1)
+        }
+      : null;
+    return {
+      action: normalizedAction,
+      role: sanitizeEditableText(action.role, 80).toLowerCase(),
+      ...(region ? { region } : {}),
+      description: sanitizeEditableText(action.description, 400) || '细化当前页面观察'
+    };
+  }
   if (['scroll', 'press_key', 'navigate', 'wait', 'finish'].includes(normalizedAction)) {
     return sanitizeLegacyAction({ ...action, action: normalizedAction });
   }
@@ -81,11 +125,14 @@ export function sanitizeObservationAgentAction(action = {}, { sanitizeLegacyActi
   const elementRef = sanitizeOpaqueReference(action.elementRef);
   if (!observationId || !elementRef) throw new Error('AI 元素动作缺少有效观察引用');
   const targetText = sanitizeEditableText(action.targetText, 160);
+  const repeatReason = sanitizeEditableText(action.repeatReason, 240);
+  const allowRepeat = action.allowRepeat === true && Boolean(repeatReason);
   const base = {
     action: normalizedAction,
     observationId,
     elementRef,
     ...(targetText ? { targetText } : {}),
+    ...(allowRepeat ? { allowRepeat: true, repeatReason } : {}),
     description
   };
   if (normalizedAction !== 'type_text') return base;
@@ -105,6 +152,8 @@ function referencedTool(name, description) {
         observationId: observationReference,
         elementRef: observationReference,
         targetText: { type: 'string', description: 'Short human-readable target label for the tutorial.' },
+        allowRepeat: { type: 'boolean', description: 'True only when the goal explicitly requires repeating this same semantic action.' },
+        repeatReason: { type: 'string', description: 'Required audit reason when allowRepeat is true.' },
         description: { type: 'string' }
       },
       required: ['observationId', 'elementRef', 'description']

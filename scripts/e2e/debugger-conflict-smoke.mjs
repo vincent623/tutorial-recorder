@@ -38,6 +38,11 @@ async function main() {
     if (!recorderWorker || !ownerWorker) {
       throw new Error(`Expected two extension workers, got: ${workers.map((worker) => worker.url()).join(', ')}`);
     }
+    recorderWorker.on('console', (message) => {
+      if (message.type() === 'warning' || message.type() === 'error') {
+        console.error(`[recorder ${message.type()}] ${message.text()}`);
+      }
+    });
     const extensionId = new URL(recorderWorker.url()).host;
     const targetUrl = `http://127.0.0.1:${port}/target.html`;
     const targetPage = context.pages()[0] || (await context.newPage());

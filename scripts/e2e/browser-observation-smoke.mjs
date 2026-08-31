@@ -57,6 +57,27 @@ try {
     editable.textContent = 'PRIVATE_BROWSER_OBSERVATION_NOTE';
     editable.style.cssText = 'width:240px;height:32px;margin:8px 0;border:1px solid #ccc';
     document.querySelector('main')?.append(editable);
+    for (const [type, label] of [['email', '登录邮箱'], ['number', '购买数量'], ['file', '上传文件']]) {
+      const input = document.createElement('input');
+      input.type = type;
+      input.setAttribute('aria-label', label);
+      input.style.cssText = 'display:block;width:240px;height:32px;margin:8px 0';
+      document.querySelector('main')?.prepend(input);
+    }
+    const postForm = document.createElement('form');
+    postForm.method = 'post';
+    postForm.action = '/session';
+    postForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      document.body.dataset.approvedPostValue = postForm.secret.value;
+    });
+    const password = document.createElement('input');
+    password.type = 'password';
+    password.name = 'secret';
+    password.setAttribute('aria-label', '登录口令');
+    password.style.cssText = 'display:block;width:240px;height:32px;margin:8px 0';
+    postForm.append(password);
+    document.querySelector('main')?.prepend(postForm);
   });
 
   const tabId = await serviceWorker.evaluate(async (url) => {
@@ -186,6 +207,55 @@ try {
   assert.equal(refinedSearch.status, 'ready');
   assert.equal(refinedSearch.observationId === scripting.observationId, false);
   assert.deepEqual(refinedSearch.elementSummaries.map((element) => element.name), ['搜索教程']);
+  const formScripting = await observeFromHarness(harness, tabId, false);
+  const scriptingEmail = formScripting.elementSummaries.find((element) => element.name === '登录邮箱');
+  const scriptingFile = formScripting.elementSummaries.find((element) => element.name === '上传文件');
+  const scriptingPassword = formScripting.elementSummaries.find((element) => element.name === '登录口令');
+  const emailDispatch = await dispatchFromHarness(
+    harness,
+    tabId,
+    false,
+    formScripting.observationId,
+    scriptingEmail.ref,
+    { action: 'type_text', text: 'agent@example.test', submit: false }
+  );
+  assert.equal(emailDispatch.status, 'executed');
+  assert.equal(await page.locator('[aria-label="登录邮箱"]').inputValue(), 'agent@example.test');
+  const fileDispatch = await dispatchFromHarness(
+    harness,
+    tabId,
+    false,
+    formScripting.observationId,
+    scriptingFile.ref,
+    { action: 'type_text', text: '/private/path', submit: false }
+  );
+  assert.equal(fileDispatch.reasonCode, 'unsupported-observation-action');
+  const unapprovedPostDispatch = await dispatchFromHarness(
+    harness,
+    tabId,
+    false,
+    formScripting.observationId,
+    scriptingPassword.ref,
+    { action: 'type_text', text: 'approved-secret', submit: true }
+  );
+  assert.equal(unapprovedPostDispatch.reasonCode, 'unsafe-form');
+  assert.equal(await page.locator('[aria-label="登录口令"]').inputValue(), '');
+  const approvedPostDispatch = await dispatchFromHarness(
+    harness,
+    tabId,
+    false,
+    formScripting.observationId,
+    scriptingPassword.ref,
+    {
+      action: 'type_text',
+      text: 'approved-secret',
+      submit: true,
+      approvalAuthorization: 'submit-capable-input',
+      approvalSourceUrl: fixtureUrl
+    }
+  );
+  assert.equal(approvedPostDispatch.status, 'executed');
+  assert.equal(await page.evaluate(() => document.body.dataset.approvedPostValue), 'approved-secret');
 
   assert.equal(cdp.status, 'ready');
   assert.equal(cdp.adapter, 'cdp');
@@ -197,6 +267,24 @@ try {
   assert.equal(cdp.elementNames.includes('PRIVATE_BROWSER_OBSERVATION_NOTE'), false);
   assert.equal(cdp.shadowComparison.equivalentTarget, true);
   assert.deepEqual(refinedCdpSearch.elementSummaries.map((element) => element.name), ['搜索教程']);
+  const formCdp = await observeFromHarness(harness, tabId, true);
+  const cdpNumber = formCdp.elementSummaries.find((element) => element.name === '购买数量');
+  const numberDispatch = await dispatchFromHarness(
+    harness,
+    tabId,
+    true,
+    formCdp.observationId,
+    cdpNumber.ref,
+    { action: 'type_text', text: '42', submit: false }
+  );
+  assert.equal(numberDispatch.status, 'executed');
+  assert.equal(await page.locator('[aria-label="购买数量"]').inputValue(), '42');
+  await page.evaluate(() => {
+    for (const label of ['登录邮箱', '购买数量', '上传文件']) {
+      document.querySelector(`[aria-label="${label}"]`)?.remove();
+    }
+    document.querySelector('[aria-label="登录口令"]')?.form?.remove();
+  });
   assert.equal(
     await page.evaluate(() => globalThis.__tutorialRecorderBrowserObservationProbeHelpersV1.pageOwnedPoison),
     true,
@@ -205,7 +293,7 @@ try {
 
   await page.evaluate(() => {
     const frame = document.createElement('iframe');
-    frame.srcdoc = '<button>Frame action</button><iframe srcdoc="<button>Nested frame action</button>"></iframe>';
+    frame.srcdoc = '<button onclick="parent.document.body.dataset.frameAction=\'clicked\'">Frame action</button><input aria-label="Frame input"><iframe srcdoc="<button>Nested frame action</button>"></iframe>';
     frame.style.cssText = 'position:fixed;right:20px;top:320px;width:340px;height:220px;border:1px solid #ccc;z-index:10;background:white;transform:scale(.75);transform-origin:top right';
     document.querySelector('main')?.append(frame);
   });
@@ -220,6 +308,26 @@ try {
   if (observationModelSmokeEnabled) {
     assertModelDecisionTargets(modelFrameDecision, framedScripting, 'Frame action', 'click_element');
   }
+  const scriptingFrameAction = framedScripting.elementSummaries.find((element) => element.name === 'Frame action');
+  const scriptingFrameInput = framedScripting.elementSummaries.find((element) => element.name === 'Frame input');
+  assert.equal((await dispatchFromHarness(
+    harness,
+    tabId,
+    false,
+    framedScripting.observationId,
+    scriptingFrameAction.ref,
+    { action: 'click_at_xy' }
+  )).status, 'executed');
+  assert.equal(await page.evaluate(() => document.body.dataset.frameAction), 'clicked');
+  assert.equal((await dispatchFromHarness(
+    harness,
+    tabId,
+    false,
+    framedScripting.observationId,
+    scriptingFrameInput.ref,
+    { action: 'type_text', text: 'iframe value', submit: false }
+  )).status, 'executed');
+  assert.equal(await page.locator('iframe').first().contentFrame().locator('[aria-label="Frame input"]').inputValue(), 'iframe value');
   const framedCdp = await observeFromHarness(harness, tabId, true);
   assert.equal(framedScripting.status, 'ready');
   assert.equal(framedScripting.capabilities.sameOriginFrames, true);
@@ -322,7 +430,7 @@ try {
     const shadowHost = document.createElement('div');
     shadowHost.id = 'observation-shadow-host';
     shadowHost.style.cssText = 'position:fixed;right:20px;top:320px;width:200px;height:60px;z-index:10;background:white';
-    shadowHost.attachShadow({ mode: 'open' }).innerHTML = '<button>Shadow action</button>';
+    shadowHost.attachShadow({ mode: 'open' }).innerHTML = '<button onclick="this.getRootNode().host.dataset.clicked=\'yes\'">Shadow action</button>';
     const canvas = document.createElement('canvas');
     canvas.width = 120;
     canvas.height = 40;
@@ -339,7 +447,28 @@ try {
   if (observationModelSmokeEnabled) {
     assertModelDecisionTargets(modelShadowDecision, complexScripting, 'Shadow action', 'click_element');
   }
+  const scriptingShadowAction = complexScripting.elementSummaries.find((element) => element.name === 'Shadow action');
+  assert.equal((await dispatchFromHarness(
+    harness,
+    tabId,
+    false,
+    complexScripting.observationId,
+    scriptingShadowAction.ref,
+    { action: 'click_at_xy' }
+  )).status, 'executed');
+  assert.equal(await page.locator('#observation-shadow-host').getAttribute('data-clicked'), 'yes');
   const complexCdp = await observeFromHarness(harness, tabId, true);
+  const cdpShadowAction = complexCdp.elementSummaries.find((element) => element.name === 'Shadow action');
+  await page.locator('#observation-shadow-host').evaluate((element) => { delete element.dataset.clicked; });
+  assert.equal((await dispatchFromHarness(
+    harness,
+    tabId,
+    true,
+    complexCdp.observationId,
+    cdpShadowAction.ref,
+    { action: 'click_at_xy' }
+  )).status, 'executed');
+  assert.equal(await page.locator('#observation-shadow-host').getAttribute('data-clicked'), 'yes');
   for (const observation of [complexScripting, complexCdp]) {
     assert.equal(observation.status, 'degraded');
     assert.equal(observation.capabilities.openShadowDom, true);
@@ -542,6 +671,12 @@ try {
         ),
       elementReferencesAreReverifiedBeforeAction:
         verifiedSearch.status === 'verified' && movedVerifiedSearch.status === 'moved',
+      commonFormInputsExecuteSafely:
+        emailDispatch.status === 'executed' &&
+        numberDispatch.status === 'executed' &&
+        fileDispatch.reasonCode === 'unsupported-observation-action',
+      nonGetSubmitRequiresOneTimeAuthorization:
+        unapprovedPostDispatch.reasonCode === 'unsafe-form' && approvedPostDispatch.status === 'executed',
       refinementCreatesFocusedObservation:
         refinedSearch.elementSummaries.length === 1 &&
         refinedSearch.elementSummaries[0].name === '搜索教程' &&
@@ -645,6 +780,20 @@ async function verifyFromHarness(harness, tabId, observationId, elementRef) {
       sourceObservationId: observationId,
       sourceElementRef: elementRef
     }
+  );
+}
+
+async function dispatchFromHarness(harness, tabId, useCdp, observationId, elementRef, action) {
+  return harness.evaluate(
+    ({ tabId: targetTabId, useCdp: withCdp, observationId: targetObservationId, elementRef: targetElementRef, action: targetAction }) =>
+      globalThis.runBrowserObservationAction(
+        targetTabId,
+        withCdp,
+        targetObservationId,
+        targetElementRef,
+        targetAction
+      ),
+    { tabId, useCdp, observationId, elementRef, action }
   );
 }
 

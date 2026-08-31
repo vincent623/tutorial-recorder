@@ -53,6 +53,11 @@ async function main() {
       (await context.waitForEvent('serviceworker', {
         timeout: 20000
       }));
+    serviceWorker.on('console', (message) => {
+      if (message.type() === 'warning' || message.type() === 'error') {
+        console.log(`[service worker ${message.type()}] ${message.text()}`);
+      }
+    });
     const extensionId = new URL(serviceWorker.url()).host;
     report.extensionId = extensionId;
 
@@ -89,7 +94,7 @@ async function main() {
             captureMode: 'displayMedia',
             screenshotInterval: 5,
             autoScreenshot: false,
-            aiAgentMaxSteps: 3,
+            aiAgentMaxSteps: 5,
             aiAgentMaxDurationMinutes: 2
           }
         }),
@@ -182,6 +187,10 @@ async function main() {
         report.runtimeSamples.some((item) => item?.aiAgent?.status === 'running') ||
         report.runtimeSamples.some((item) => item?.aiAgent?.status === 'finishing'),
       finishedWithoutFailure: finalState.runtime?.aiAgent?.status !== 'failed',
+      agentDeclaredFinish: report.runtimeSamples.some((item) =>
+        item?.aiAgent?.status === 'finishing' ||
+        item?.aiAgent?.recentSteps?.some((step) => step.action === 'finish')
+      ),
       debuggerDetached:
         finalState.runtime?.cdpAttached !== true &&
         report.extensionDebuggerProbe.attached === false,
@@ -266,6 +275,19 @@ async function loadAiConfig() {
 
   const providerComment = lines.find((line) => line.startsWith('##')) || '';
   const legacyValues = lines.filter((line) => !line.startsWith('#') && !line.includes('='));
+  const deepSeekApiKey = process.env.DEEPSEEK_API_KEY?.trim() || envConfig.apiKey ||
+    keyValuePairs.get('DEEPSEEK_API_KEY') ||
+    (legacyValues.length === 1 ? legacyValues[0] : '');
+  if (deepSeekApiKey) {
+    return {
+      providerPreset: 'deepseekOfficial',
+      apiStyle: 'chatCompletions',
+      apiBaseUrl: 'https://api.deepseek.com',
+      apiKey: deepSeekApiKey,
+      modelId: 'deepseek-v4-flash-vision-exp',
+      extraHeadersJson: ''
+    };
+  }
   const [apiBaseUrl = '', apiKey = '', modelId = ''] = legacyValues;
 
   if (!apiBaseUrl || !apiKey || !modelId) {

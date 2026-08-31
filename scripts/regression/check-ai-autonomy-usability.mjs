@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { evaluateAgentActionPolicy } from '../../background/agent-policy.js';
-import { isRepeatedAgentAction } from '../../background/agent-targeting.js';
+import { isRepeatedAgentAction } from '../../background/agent-repeat-policy.js';
 
 const cases = [
   {
@@ -56,8 +56,12 @@ const cases = [
     expected: 'allow'
   },
   {
-    name: 'cross-origin explicit navigation runs without takeover confirmation',
-    action: { action: 'navigate', url: 'https://www.google.com/' },
+    name: 'an exact user-authorized URL runs without takeover confirmation',
+    action: {
+      action: 'navigate',
+      url: 'https://www.google.com/',
+      intentAuthorization: 'explicit-user-navigation'
+    },
     context: { currentUrl: 'https://example.com/' },
     expected: 'allow'
   },
@@ -163,4 +167,15 @@ assert.equal(
   ),
   true,
   'repeated composite field submit must be blocked'
+);
+assert.equal(
+  isRepeatedAgentAction(
+    { action: 'click_at_xy', targetText: '搜索教程' },
+    [
+      { action: 'click_at_xy', targetText: '搜索教程' },
+      { action: 'type_text', targetText: '搜索教程' }
+    ]
+  ),
+  true,
+  'a non-consecutive repeated target action must still be blocked'
 );

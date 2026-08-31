@@ -47,12 +47,12 @@ const checks = [
       /case 'takeoverRecording':/.test(source.background)
   },
   {
-    name: 'AI agent loop captures, decides, executes, and finishes through existing export',
+    name: 'AI agent loop observes, authorizes, executes, and finishes through existing export',
     pass:
       /function runAiAgentLoop/.test(source.background) &&
-      /captureScreenshot\(\{ trigger: 'agent'/.test(source.background) &&
-      /decideNextAgentAction/.test(source.background) &&
-      /executeAiAgentAction/.test(source.background) &&
+      /runObservationAgentCycle/.test(source.background) &&
+      /authorizeAgentAction/.test(source.background) &&
+      /executeAuthorizedAgentAction/.test(source.background) &&
       (/await stopRecording\(\);/.test(source.background) || /await requestStop\?\.\(\);/.test(source.background))
   },
   {

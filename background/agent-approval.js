@@ -1,7 +1,6 @@
 import { buildAgentApprovalRequest, evaluateApprovedActionFreshness } from './agent-policy.js';
 import { readSensitiveActionContext, sealApprovedAgentAction } from './agent-action-guard.js';
 import { isAiAgentLoopActive, updateAiAgentState } from './agent-state.js';
-import { calibrateAgentAction } from './agent-targeting.js';
 import { notifyContent, notifyPopup } from './notify.js';
 import { S, updateBadge } from './runtime-state.js';
 import { delay } from './text-utils.js';
@@ -97,17 +96,9 @@ export async function revalidateApprovedAgentAction(action, screenshot) {
   let currentImage = '';
   let currentFocusFingerprint = '';
   let sensitiveContext = {};
-  if (
-    (action.action === 'click_at_xy' || action.action === 'type_text') &&
-    action.targetText &&
-    action.coordinateSource === 'visible-text'
-  ) {
-    freshAction = await calibrateAgentAction(action);
-  } else {
-    sensitiveContext = await readSensitiveActionContext(action, tab);
-    currentImage = sensitiveContext.image || '';
-    currentFocusFingerprint = sensitiveContext.focusFingerprint || '';
-  }
+  sensitiveContext = await readSensitiveActionContext(action, tab);
+  currentImage = sensitiveContext.image || '';
+  currentFocusFingerprint = sensitiveContext.focusFingerprint || '';
 
   const result = evaluateApprovedActionFreshness({
     action,

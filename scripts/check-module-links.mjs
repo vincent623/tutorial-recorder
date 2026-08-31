@@ -33,6 +33,8 @@ async function resolveModule(specifier, referencingModule) {
 
 for (const entry of entries) {
   const module = await getModule(path.join(repoRoot, entry));
-  await module.link(resolveModule);
+  if (module.status === 'unlinked') {
+    await module.link(resolveModule);
+  }
   console.log(`ok - module links ${entry}`);
 }
