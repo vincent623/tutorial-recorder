@@ -97,7 +97,11 @@ export async function revalidateApprovedAgentAction(action, screenshot) {
   let currentImage = '';
   let currentFocusFingerprint = '';
   let sensitiveContext = {};
-  if (action.action === 'click_at_xy' && action.coordinateSource === 'visible-text') {
+  if (
+    (action.action === 'click_at_xy' || action.action === 'type_text') &&
+    action.targetText &&
+    action.coordinateSource === 'visible-text'
+  ) {
     freshAction = await calibrateAgentAction(action);
   } else {
     sensitiveContext = await readSensitiveActionContext(action, tab);

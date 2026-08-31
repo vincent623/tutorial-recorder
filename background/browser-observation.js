@@ -1,0 +1,281 @@
+import { createCdpObservationAdapter } from './browser-observation-cdp.js';
+import { createScriptingObservationAdapter } from './browser-observation-scripting.js';
+import { S } from './runtime-state.js';
+
+const DEFAULT_MAX_OBSERVED_ELEMENTS = 80;
+const DEFAULT_OBSERVATION_ATTEMPTS = 2;
+const INTERNAL_RECORD_TTL_MS = 60_000;
+
+const cdpAdapter = createCdpObservationAdapter();
+const scriptingAdapter = createScriptingObservationAdapter();
+const defaultBrowserObservation = createBrowserObservationModule({
+  getTab: async (tabId) => chrome.tabs.get(tabId).catch(() => null),
+  selectAdapter: () => S.currentRuntime.cdpAttached ? cdpAdapter : scriptingAdapter,
+  createObservationId: () => {
+    const suffix = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `browser-observation-${suffix}`;
+  }
+});
+
+export function observeBrowserPage(options) {
+  return defaultBrowserObservation.observe(options);
+}
+
+export function createBrowserObservationModule({
+  getTab,
+  selectAdapter,
+  createObservationId,
+  now = Date.now
+}) {
+  if (typeof getTab !== 'function' || typeof selectAdapter !== 'function') {
+    throw new TypeError('Browser Observation requires tab and adapter dependencies');
+  }
+
+  if (typeof createObservationId !== 'function') {
+    throw new TypeError('Browser Observation requires an observation ID factory');
+  }
+
+  const internalRecordsByTab = new Map();
+
+  return Object.freeze({ observe });
+
+  async function observe({ tabId, maxElements = DEFAULT_MAX_OBSERVED_ELEMENTS } = {}) {
+    const startedAt = now();
+    let lastAdapterKind = '';
+    let lastCapabilities = {};
+    internalRecordsByTab.delete(tabId);
+
+    for (let attempt = 0; attempt < DEFAULT_OBSERVATION_ATTEMPTS; attempt += 1) {
+      const tab = await getTab(tabId);
+      if (!isRecordableTab(tab)) {
+        return unavailableOutcome({
+          reasonCode: 'target-tab-unavailable',
+          durationMs: Math.max(0, now() - startedAt)
+        });
+      }
+      const adapter = selectAdapter(tab);
+      lastAdapterKind = adapter.kind;
+      lastCapabilities = adapter.capabilities;
+      let screenshotData;
+      let inspectionBefore;
+      let inspection;
+      let capturedAt;
+      try {
+        inspectionBefore = await adapter.inspect(tab.id, { maxElements });
+        screenshotData = await adapter.capture(tab);
+        capturedAt = now();
+        inspection = await adapter.inspect(tab.id, { maxElements });
+      } catch (error) {
+        return unavailableOutcome({
+          adapter: adapter.kind,
+          capabilities: adapter.capabilities,
+          reasonCode: 'capture-or-inspection-failed',
+          durationMs: Math.max(0, now() - startedAt)
+        });
+      }
+
+      const currentTab = await getTab(tabId);
+      if (
+        !isSamePageRevision(tab, currentTab, inspectionBefore, inspection) ||
+        !isSameInspectionRevision(inspectionBefore, inspection)
+      ) {
+        continue;
+      }
+
+
+      const observationId = createObservationId();
+      const internalRecord = createInternalRecord(observationId, inspection);
+      internalRecordsByTab.set(tab.id, internalRecord);
+      const expiryHandle = setTimeout(() => {
+        if (internalRecordsByTab.get(tab.id)?.observationId === observationId) {
+          internalRecordsByTab.delete(tab.id);
+        }
+      }, INTERNAL_RECORD_TTL_MS);
+      expiryHandle?.unref?.();
+      while (internalRecordsByTab.size > 16) {
+        internalRecordsByTab.delete(internalRecordsByTab.keys().next().value);
+      }
+
+      return readyOrDegradedOutcome({
+        adapter,
+        tab: currentTab,
+        inspection,
+        screenshotData,
+        observationId,
+        capturedAt,
+        durationMs: Math.max(0, now() - startedAt)
+      });
+    }
+
+    return unavailableOutcome({
+      adapter: lastAdapterKind,
+      capabilities: lastCapabilities,
+      reasonCode: 'page-changed-during-observation',
+      durationMs: Math.max(0, now() - startedAt)
+    });
+  }
+}
+
+function isRecordableTab(tab) {
+  return Boolean(
+    Number.isInteger(tab?.id) &&
+    /^https?:|^file:/i.test(String(tab.url || ''))
+  );
+}
+
+function readyOrDegradedOutcome({
+  adapter,
+  tab,
+  inspection,
+  screenshotData,
+  observationId,
+  capturedAt,
+  durationMs
+}) {
+  const elements = (inspection.elements || []).map((element, index) =>
+    normalizeObservedElement(element, `${observationId}:element:${index + 1}`)
+  );
+  const degradedReasons = [
+    ...(Array.isArray(inspection.degradedReasons) ? inspection.degradedReasons : []),
+    ...(inspection.truncated === true ? ['element-list-truncated'] : []),
+    ...capabilityDegradedReasons(adapter.capabilities, inspection.observedRegions)
+  ].filter((reason, index, reasons) => reasons.indexOf(reason) === index);
+  const status = degradedReasons.length ? 'degraded' : 'ready';
+  const receipt = {
+    status,
+    adapter: adapter.kind,
+    capabilities: { ...adapter.capabilities },
+    elementCount: elements.length,
+    truncated: inspection.truncated === true,
+    degradedReasons: [...degradedReasons],
+    durationMs
+  };
+
+  return {
+    status,
+    observation: {
+      id: observationId,
+      capturedAt,
+      adapter: adapter.kind,
+      target: {
+        tabId: tab.id,
+        windowId: tab.windowId
+      },
+      capabilities: { ...adapter.capabilities },
+      page: {
+        documentToken: inspection.documentToken || '',
+        url: inspection.url || tab.url || '',
+        title: inspection.title || tab.title || ''
+      },
+      viewport: inspection.viewport || null,
+      cleanScreenshot: { data: screenshotData },
+      elements,
+      truncated: inspection.truncated === true,
+      degradedReasons,
+      receipt
+    }
+  };
+}
+
+function isSamePageRevision(beforeTab, afterTab, inspectionBefore, inspectionAfter) {
+  return Boolean(
+    beforeTab &&
+    afterTab &&
+    beforeTab.id === afterTab.id &&
+    beforeTab.active === true &&
+    afterTab.active === true &&
+    beforeTab.url === afterTab.url &&
+    beforeTab.title === afterTab.title &&
+    (!inspectionBefore?.url || inspectionBefore.url === beforeTab.url) &&
+    (!inspectionBefore?.title || inspectionBefore.title === beforeTab.title) &&
+    (!inspectionAfter?.url || inspectionAfter.url === afterTab.url) &&
+    (!inspectionAfter?.title || inspectionAfter.title === afterTab.title)
+  );
+}
+
+function isSameInspectionRevision(before, after) {
+  return Boolean(
+    before?.documentToken &&
+    before.documentToken === after?.documentToken &&
+    before?.revision &&
+    before.revision === after?.revision
+  );
+}
+
+function normalizeObservedElement(element = {}, ref) {
+  return {
+    ref,
+    role: cleanText(element.role, 80),
+    name: cleanText(element.name, 240),
+    rect: normalizeRect(element.rect),
+    targetType: cleanText(element.targetType, 80).toLowerCase(),
+    targetRole: cleanText(element.targetRole, 80).toLowerCase(),
+    targetFormMethod: cleanText(element.targetFormMethod, 16).toLowerCase()
+  };
+}
+
+function normalizeRect(rect = {}) {
+  return {
+    x: finiteNumber(rect.x),
+    y: finiteNumber(rect.y),
+    width: Math.max(0, finiteNumber(rect.width)),
+    height: Math.max(0, finiteNumber(rect.height))
+  };
+}
+
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function cleanText(value, maxLength) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function unavailableOutcome({ adapter = '', capabilities = {}, reasonCode, durationMs }) {
+  return {
+    status: 'unavailable',
+    reasonCode,
+    receipt: {
+      status: 'unavailable',
+      adapter,
+      capabilities: { ...capabilities },
+      elementCount: 0,
+      truncated: false,
+      degradedReasons: [],
+      reasonCode,
+      durationMs
+    }
+  };
+}
+
+function capabilityDegradedReasons(capabilities = {}, observedRegions = {}) {
+  const reasons = [];
+  if (observedRegions.openShadowDom > 0 && capabilities.openShadowDom !== true) {
+    reasons.push('open-shadow-dom-unavailable');
+  }
+  if (observedRegions.sameOriginFrames > 0 && capabilities.sameOriginFrames !== true) {
+    reasons.push('same-origin-frame-content-unavailable');
+  }
+  if (
+    (observedRegions.crossOriginFrames > 0 || observedRegions.inaccessibleFrames > 0) &&
+    capabilities.crossOriginFrames !== true
+  ) {
+    reasons.push('cross-origin-frame-content-unavailable');
+  }
+  if (observedRegions.selfDrawnSurfaces > 0 && capabilities.selfDrawnSurfaces !== true) {
+    reasons.push('self-drawn-surface-unavailable');
+  }
+  return reasons;
+}
+
+function createInternalRecord(observationId, inspection) {
+  return {
+    observationId,
+    documentToken: inspection.documentToken || '',
+    elementsByRef: new Map((inspection.elements || []).map((element, index) => [
+      `${observationId}:element:${index + 1}`,
+      { ...element }
+    ]))
+  };
+}

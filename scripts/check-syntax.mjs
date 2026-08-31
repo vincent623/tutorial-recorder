@@ -6,7 +6,14 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const SCAN_DIRS = ['background', 'content', 'offscreen', 'popup', 'settings'];
-const SCAN_FILES = ['scripts/e2e/validate-extension.mjs', 'scripts/e2e/ai-recording-smoke.mjs', 'scripts/stress/recording-scale.mjs', 'scripts/package-extension.mjs'];
+const SCAN_FILES = [
+  'scripts/e2e/validate-extension.mjs',
+  'scripts/e2e/ai-recording-smoke.mjs',
+  'scripts/e2e/browser-observation-smoke.mjs',
+  'scripts/e2e/browser-observation-harness.js',
+  'scripts/stress/recording-scale.mjs',
+  'scripts/package-extension.mjs'
+];
 const REGRESSION_DIR = 'scripts/regression';
 
 async function listJsFiles(dir) {

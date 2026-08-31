@@ -1,6 +1,9 @@
 import { S } from './runtime-state.js';
 import { captureScreenshotDataUrl } from './screenshot-engine.js';
+import { readCompatibleFocusContext, readCompatiblePointContext } from './page-automation.js';
 import { sanitizeEditableText } from './text-utils.js';
+
+const AUTO_AUTHORIZED_SENSITIVE_POLICY_CODES = new Set(['get-search-enter']);
 
 export async function enrichAgentActionGuard(action) {
   if (isCoordinateAction(action)) {
@@ -17,7 +20,10 @@ export async function enrichAgentActionGuard(action) {
     return {
       ...action,
       focusFingerprint: focus.fingerprint,
-      focusLabel: focus.label
+      focusLabel: focus.label,
+      focusInputType: focus.inputType,
+      focusFormMethod: focus.formMethod,
+      focusPlaceholder: focus.placeholder
     };
   }
 
@@ -39,6 +45,9 @@ export async function readSensitiveActionContext(action, tab) {
     const focus = await readAgentFocusContext();
     context.focusFingerprint = focus.fingerprint;
     context.focusLabel = focus.label;
+    context.focusInputType = focus.inputType;
+    context.focusFormMethod = focus.formMethod;
+    context.focusPlaceholder = focus.placeholder;
   }
   if (isCoordinateAction(action)) {
     const point = await readAgentPointContext(action.x, action.y);
@@ -89,6 +98,10 @@ export async function assertApprovedSensitiveActionFresh(action) {
     return;
   }
 
+  if (AUTO_AUTHORIZED_SENSITIVE_POLICY_CODES.has(action.policyAuthorization)) {
+    return;
+  }
+
   const tab = await chrome.tabs.get(S.currentRuntime.tabId).catch(() => null);
   if (!tab) {
     throw new Error('执行前目标页面已关闭，已阻止原批准动作');
@@ -118,7 +131,7 @@ export async function assertApprovedSensitiveActionFresh(action) {
 }
 
 export async function readAgentFocusContext() {
-  if (!S.currentRuntime.cdpAttached || !S.currentRuntime.tabId) {
+  if (!S.currentRuntime.tabId) {
     return { fingerprint: '', label: '' };
   }
 
@@ -153,24 +166,31 @@ export async function readAgentFocusContext() {
       element.id || element.getAttribute('type') || element.tagName.toLowerCase();
     return {
       fingerprint: hash(path.join('>') + '|' + semantics),
-      label: String(label || '').slice(0, 120)
+      label: String(label || '').slice(0, 120),
+      inputType: String(element.getAttribute('type') || '').toLowerCase(),
+      formMethod: String(element.form?.method || '').toLowerCase(),
+      placeholder: String(element.getAttribute('placeholder') || '').slice(0, 160)
     };
   })()`;
 
-  const result = await chrome.debugger.sendCommand(
-    { tabId: S.currentRuntime.tabId },
-    'Runtime.evaluate',
-    { expression, returnByValue: true }
-  );
-  const value = result?.result?.value || {};
+  const value = S.currentRuntime.cdpAttached
+    ? (await chrome.debugger.sendCommand(
+        { tabId: S.currentRuntime.tabId },
+        'Runtime.evaluate',
+        { expression, returnByValue: true }
+      ))?.result?.value || {}
+    : await readCompatibleFocusContext() || {};
   return {
     fingerprint: sanitizeEditableText(value.fingerprint, 80),
-    label: sanitizeEditableText(value.label, 120)
+    label: sanitizeEditableText(value.label, 120),
+    inputType: sanitizeEditableText(value.inputType, 32).toLowerCase(),
+    formMethod: sanitizeEditableText(value.formMethod, 16).toLowerCase(),
+    placeholder: sanitizeEditableText(value.placeholder, 160)
   };
 }
 
 export async function readAgentPointContext(x, y) {
-  if (!S.currentRuntime.cdpAttached || !S.currentRuntime.tabId) {
+  if (!S.currentRuntime.tabId) {
     return { fingerprint: '', label: '' };
   }
 
@@ -212,12 +232,13 @@ export async function readAgentPointContext(x, y) {
     };
   })()`;
 
-  const result = await chrome.debugger.sendCommand(
-    { tabId: S.currentRuntime.tabId },
-    'Runtime.evaluate',
-    { expression, returnByValue: true }
-  );
-  const value = result?.result?.value || {};
+  const value = S.currentRuntime.cdpAttached
+    ? (await chrome.debugger.sendCommand(
+        { tabId: S.currentRuntime.tabId },
+        'Runtime.evaluate',
+        { expression, returnByValue: true }
+      ))?.result?.value || {}
+    : await readCompatiblePointContext(x, y) || {};
   return {
     fingerprint: sanitizeEditableText(value.fingerprint, 80),
     label: sanitizeEditableText(value.label, 120)

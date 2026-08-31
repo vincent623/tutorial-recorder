@@ -82,10 +82,7 @@ export async function findBestRecordingStartTargetTab(excludedTabId, options = {
     const targetMatch = candidates
       .filter((tab) => tabMatchesTargetUrl(tab, options.targetUrl))
       .sort(compareRecordingStartTargetTabs)[0];
-
-    if (targetMatch) {
-      return targetMatch;
-    }
+    return targetMatch || null;
   }
 
   return candidates.sort(compareRecordingStartTargetTabs)[0] || null;
@@ -94,13 +91,18 @@ export async function findBestRecordingStartTargetTab(excludedTabId, options = {
 export async function activateRecordingTargetTab(tab, modeLabel, options = {}) {
   assertRecordingTargetTab(tab, modeLabel, options);
 
-  if (typeof tab.windowId === 'number' && chrome.windows?.update) {
-    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  if (!tab.active && typeof tab.windowId === 'number' && chrome.windows?.get && chrome.windows?.update) {
+    const targetWindow = await chrome.windows.get(tab.windowId).catch(() => null);
+    if (targetWindow && targetWindow.focused !== true) {
+      await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    }
   }
 
-  const activatedTab = await chrome.tabs.update(tab.id, { active: true }).catch((error) => {
-    throw normalizeRecordingTargetError(error, modeLabel);
-  });
+  const activatedTab = tab.active
+    ? tab
+    : await chrome.tabs.update(tab.id, { active: true }).catch((error) => {
+        throw normalizeRecordingTargetError(error, modeLabel);
+      });
   const latestTab = (await getSettledRecordingTargetTab(tab.id, options)) || activatedTab || tab;
   assertRecordingTargetTab(latestTab, modeLabel, options);
   return latestTab;
@@ -168,6 +170,28 @@ export function normalizeRecordingTargetError(error, modeLabel) {
   }
 
   return error instanceof Error ? error : new Error(message || '目标标签页不可访问');
+}
+
+export function normalizeCdpDebuggerAttachError(error, modeLabel, tab, options = {}) {
+  const message = String(error?.message || error || '');
+
+  if (isRecordingTargetTab(tab, options) && isCdpDebuggerConflictMessage(message)) {
+    console.warn('[Background] CDP debugger attach rejected:', sanitizeEditableText(message, 240));
+    const normalizedError = new Error(
+      '当前标签页正在被其他扩展或开发者工具控制，无法启动 AI 录制。请关闭正在控制该标签页的浏览器自动化或开发者工具后重试。'
+    );
+    normalizedError.code = 'CDP_DEBUGGER_UNAVAILABLE';
+    normalizedError.diagnosticMessage = sanitizeEditableText(message, 240);
+    return normalizedError;
+  }
+
+  return normalizeRecordingTargetError(error, modeLabel);
+}
+
+export function isCdpDebuggerConflictMessage(message) {
+  return /Cannot access a chrome-extension:\/\/ URL of different extension|Another debugger is already attached|Cannot attach to this target/i.test(
+    String(message || '')
+  );
 }
 
 export function isRecordingTargetError(error) {

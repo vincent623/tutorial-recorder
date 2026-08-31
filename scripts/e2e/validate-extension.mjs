@@ -20,6 +20,7 @@ const detailReplaceImagePath = path.join(repoRoot, 'icons', 'icon48.png');
 const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48123', 10);
 const headless = process.env.PW_HEADLESS !== '0';
 const browserChannel = process.env.PW_BROWSER_CHANNEL?.trim() || 'chromium';
+const browserExecutablePath = process.env.PW_EXECUTABLE_PATH?.trim() || '';
 const customOutputDir = process.env.PW_OUTPUT_SUBDIR || 'codex-e2e/tutorial-recorder';
 const customAiAgentMaxSteps = 75;
 const customAiAgentMaxDurationMinutes = 15;
@@ -42,7 +43,7 @@ async function main() {
     context = await chromium.launchPersistentContext(profileDir, {
       headless,
       downloadsPath: downloadsDir,
-      channel: browserChannel,
+      ...(browserExecutablePath ? { executablePath: browserExecutablePath } : { channel: browserChannel }),
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,

@@ -46,6 +46,18 @@ jobs:
       - name: Run browser E2E
         run: npm run validate:e2e
 
+      - name: Run Browser Observation adapter E2E
+        run: npm run smoke:browser-observation
+
+      - name: Run multi-window target selection E2E
+        run: npm run smoke:target-selection
+
+      - name: Run real action popup fallback E2E
+        run: npm run smoke:action-popup-target
+
+      - name: Run occupied debugger compatibility E2E
+        run: npm run smoke:debugger-conflict
+
       - name: Upload browser E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -53,6 +65,7 @@ jobs:
           name: tutorial-recorder-browser-e2e
           path: |
             output/playwright/report.json
+            output/playwright/browser-observation-report.json
             output/playwright/*.png
             output/playwright/downloads/
           if-no-files-found: warn

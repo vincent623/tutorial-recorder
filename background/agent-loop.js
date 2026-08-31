@@ -7,6 +7,7 @@ import { buildAgentToolSchema, describeAgentAction, executeAiAgentAction, extrac
 import { createTrackedAiRequestController, getAiRequestConfigurationEpoch, releaseTrackedAiRequestController } from './ai-request-control.js';
 import { AI_ANALYZE_TIMEOUT_MS, createAiSharingRevokedError, createAiTimeoutError, hasVisionAnalysisConfig, parseExtraHeaders, parseImageDataUrl, resizeDataUrlToSize, resolveVisionUrl, sanitizePageTitle, summarizeUrlForPrompt } from './ai-vision.js';
 import { notifyContent, notifyPopup } from './notify.js';
+import { readCompatibleViewport } from './page-automation.js';
 import { S, updateBadge } from './runtime-state.js';
 import { captureScreenshot } from './screenshot-engine.js';
 import { AI_AGENT_MAX_STEPS, normalizeApiStyle } from './settings-schema.js';
@@ -17,12 +18,10 @@ export const AI_AGENT_STEP_DELAY_MS = 800;
 export const AI_AGENT_DECISION_RETRY_LIMIT = 1;
 export const AI_AGENT_PAGE_STABILITY_TIMEOUT_MS = 8_000;
 export const AI_AGENT_PAGE_STABILITY_INTERVAL_MS = 400;
-
 export async function pauseAiAgent() {
   if (!S.currentRuntime.isRecording || S.currentRuntime.recordingMode !== 'ai') {
     return;
   }
-
   if (S.currentRuntime.aiAgent?.pendingApproval?.decision === 'pending') {
     throw new Error('当前有待确认的 AI 动作，请先允许一次或拒绝并接管');
   }
@@ -31,7 +30,6 @@ export async function pauseAiAgent() {
     S.currentRuntime.isPaused = true;
     S.currentRuntime.pauseStartedAt = Date.now();
   }
-
   await updateAiAgentState({
     status: 'paused',
     paused: true,
@@ -41,11 +39,11 @@ export async function pauseAiAgent() {
   notifyPopup('paused');
   notifyContent('recordingPaused');
 }
+
 export async function resumeAiAgent() {
   if (!S.currentRuntime.isRecording || S.currentRuntime.recordingMode !== 'ai') {
     return;
   }
-
   if (S.currentRuntime.aiAgent?.status === 'failed') {
     throw new Error('AI 已失败，请接管操作或停止导出');
   }
@@ -71,6 +69,7 @@ export async function resumeAiAgent() {
   notifyPopup('resumed');
   notifyContent('recordingResumed');
 }
+
 export function runAiAgentLoop(initialSettings, requestStop) {
   if (S.aiAgentLoopPromise) {
     return S.aiAgentLoopPromise;
@@ -127,8 +126,8 @@ async function performRunAiAgentLoop(initialSettings, requestStop) {
       await updateAiAgentState({
         status: 'retrying',
         iteration: S.currentRuntime.aiAgent.iteration + 1,
-        lastAction: 'blocked_repeated_click',
-        message: `已阻止重复点击“${sanitizeEditableText(action.targetText, 80)}”，正在重新观察页面。`
+        lastAction: 'blocked_repeated_action',
+        message: `已阻止重复操作“${sanitizeEditableText(action.targetText, 80)}”，正在重新观察页面。`
       });
       notifyPopup('warning', { message: S.currentRuntime.aiAgent.message });
       await delay(AI_AGENT_STEP_DELAY_MS);
@@ -139,7 +138,7 @@ async function performRunAiAgentLoop(initialSettings, requestStop) {
     const policy = evaluateAgentActionPolicy(action, {
       currentUrl: screenshot?.pageContext?.url || ''
     });
-
+    if (policy.decision === 'allow') action = { ...action, policyAuthorization: policy.code };
     if (policy.decision === 'block') {
       await updateAiAgentState({
         status: 'retrying',
@@ -359,16 +358,18 @@ export function buildAgentDecisionRequest(screenshot, settings) {
 }
 
 export async function readAgentViewport() {
-  if (!S.currentRuntime.cdpAttached || !S.currentRuntime.tabId) {
+  if (!S.currentRuntime.tabId) {
     return null;
   }
 
   try {
-    const metrics = await chrome.debugger.sendCommand(
-      { tabId: S.currentRuntime.tabId },
-      'Page.getLayoutMetrics'
-    );
-    const css = metrics?.cssLayoutSize || metrics?.layoutViewport || null;
+    const metrics = S.currentRuntime.cdpAttached
+      ? await chrome.debugger.sendCommand(
+          { tabId: S.currentRuntime.tabId },
+          'Page.getLayoutMetrics'
+        )
+      : null;
+    const css = metrics?.cssLayoutSize || metrics?.layoutViewport || await readCompatibleViewport();
     const width = Math.round(Number(css?.width) || 0);
     const height = Math.round(Number(css?.height) || 0);
 
@@ -419,7 +420,7 @@ export function buildAgentDecisionPrompt(screenshot) {
     '如果目标已完成，调用 finish。',
     '不得重复执行已完成步骤；如果上一动作已经让页面达到目标状态，必须直接调用 finish。',
     '只有在新的向导步骤确实需要再次点击同一低风险控件时，才可设置 allowRepeat=true 并写明 repeatReason；提交、删除、支付、发布、发送、购买等高风险目标禁止重复。',
-    '如果需要点击，给出视口坐标 x/y，并在可识别时用 targetText 返回目标控件的完整可见文字；如果需要悬停，给出视口坐标 x/y；如果需要输入，先确保输入框已聚焦；搜索类输入完成后通常需要 press_key Enter；如果需要打开新地址，使用 navigate 并给出完整 http/https 地址；如果页面正在加载或动效未完成，可用 wait 短暂等待。',
+    '如果需要点击，给出视口坐标 x/y，并在可识别时用 targetText 返回按钮/链接的完整可见文字；如果需要输入，优先在一次 type_text 中返回输入框的精确 aria-label/placeholder 作为 targetText，无需先点击；当用户目标明确要求立即执行 GET 搜索时，在同一次 type_text 中设置 submit=true，无需再调用 press_key Enter；其他可能提交数据的场景不得设置 submit=true。需要悬停时给出视口坐标 x/y；需要打开新地址时使用 navigate 并给出完整 http/https 地址；页面正在加载或动效未完成时可用 wait 短暂等待。',
     '每次只执行一个动作，并写出一句中文教程步骤说明 description。',
     '如果不能使用工具调用，请只输出 JSON，例如 {"action":"click_at_xy","x":120,"y":240,"targetText":"提交","description":"点击提交按钮"}。'
   ].join('\n');
@@ -470,7 +471,6 @@ export function assertAgentTabIsRecordable(url) {
   if (!url) {
     return;
   }
-
   if (/^(chrome|chrome-extension|edge|brave|vivaldi|opera|about|devtools):/i.test(url)) {
     throw new Error(`AI 操作后进入浏览器内部页面：${summarizeUrlForPrompt(url) || url}`);
   }
