@@ -4,7 +4,7 @@ import { notifyPopup } from './notify.js';
 import { createOperationId, runIdempotentOperation, runSerializedOperation } from './op-safety.js';
 import { queueRealtimeSuggestion } from './realtime-suggestions.js';
 import { ensureScreenshotAsset, persistRecording } from './recording-assets.js';
-import { assertRecordingTargetTab, getSettledRecordingTargetTab, normalizeRecordingTargetError, normalizeRecordingTargetOptions } from './recording-target.js';
+import { assertRecordingTargetTab, getSettledRecordingTargetTab, normalizeCdpDebuggerAttachError, normalizeRecordingTargetOptions } from './recording-target.js';
 import { S, getElapsedMs, persistRuntime, updateBadge } from './runtime-state.js';
 import { createRandomSuffix, sanitizeEditableText, sanitizeOperationId } from './text-utils.js';
 
@@ -125,6 +125,10 @@ export async function captureScreenshotDataUrl(tab) {
       return await captureVisibleTabWithCdp(tab.id);
     } catch (error) {
       S.currentRuntime.screenshotEngine = 'standard';
+      if (S.currentRuntime.recordingMode === 'ai') {
+        S.currentRuntime.automationEngine = 'scripting';
+        S.currentRuntime.mediaStatus = 'AI 录制中（兼容模式）';
+      }
       S.currentRuntime.cdpAttached = false;
       S.currentRuntime.cdpCrop = null;
       await persistRuntime();
@@ -147,11 +151,17 @@ export async function attachCdpDebugger(tabId, options = {}) {
   assertRecordingTargetTab(tab, modeLabel, targetOptions);
 
   const target = { tabId: tab.id };
-  await chrome.debugger.attach(target, CDP_PROTOCOL_VERSION).catch((error) => {
-    throw normalizeRecordingTargetError(error, modeLabel);
-  });
+  try {
+    await chrome.debugger.attach(target, CDP_PROTOCOL_VERSION);
+  } catch (error) {
+    const latestTab = (await getSettledRecordingTargetTab(tab.id, targetOptions)) || tab;
+    throw normalizeCdpDebuggerAttachError(error, modeLabel, latestTab, targetOptions);
+  }
   S.currentRuntime.cdpAttached = true;
   S.currentRuntime.screenshotEngine = 'cdp';
+  if (S.currentRuntime.recordingMode === 'ai') {
+    S.currentRuntime.automationEngine = 'cdp';
+  }
   await chrome.debugger.sendCommand(target, 'Page.enable').catch(() => {});
   await chrome.debugger.sendCommand(target, 'DOM.enable').catch(() => {});
   await persistRuntime();

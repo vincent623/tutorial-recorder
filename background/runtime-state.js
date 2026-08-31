@@ -36,6 +36,7 @@ export function createIdleRuntime() {
     recordingMode: 'manual',
     captureMode: DEFAULT_SETTINGS.captureMode,
     screenshotEngine: DEFAULT_SETTINGS.screenshotEngine,
+    automationEngine: 'standard',
     cdpAttached: false,
     cdpWarningShown: false,
     cdpCrop: null,

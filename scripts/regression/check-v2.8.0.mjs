@@ -34,9 +34,13 @@ for (const name of backgroundFiles) {
 
 const checks = [
   {
-    name: 'version metadata is aligned at v2.8.0',
+    name: 'version metadata remains aligned at or above v2.8.0',
     pass:
-      packageJson.version === '2.8.0' &&
+      (Number(packageJson.version.split('.')[0]) > 2 ||
+        (Number(packageJson.version.split('.')[0]) === 2 &&
+          (Number(packageJson.version.split('.')[1]) > 8 ||
+            (Number(packageJson.version.split('.')[1]) === 8 &&
+              Number(packageJson.version.split('.')[2]) >= 0)))) &&
       packageLock.version === packageJson.version &&
       packageLock.packages?.['']?.version === packageJson.version &&
       manifest.version === packageJson.version

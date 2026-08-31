@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const entries = ['background/background.js'];
+const entries = ['background/background.js', 'background/browser-observation.js'];
 const modules = new Map();
 
 async function getModule(absolutePath) {

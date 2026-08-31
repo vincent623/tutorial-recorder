@@ -14,6 +14,8 @@ const reportPath = path.join(artifactsDir, 'ai-smoke-report.json');
 const port = Number.parseInt(process.env.PW_FIXTURE_PORT || '48124', 10);
 const headless = process.env.PW_HEADLESS !== '0';
 const browserChannel = process.env.PW_BROWSER_CHANNEL?.trim() || 'chromium';
+const browserExecutablePath = process.env.PW_EXECUTABLE_PATH?.trim() || '';
+const scenario = process.env.PW_AI_SMOKE_SCENARIO?.trim() === 'search' ? 'search' : 'review';
 const aiConfig = await loadAiConfig();
 let partialReport = null;
 
@@ -26,6 +28,7 @@ async function main() {
   let context;
   const report = {
     fixtureUrl: `http://127.0.0.1:${port}/fixture.html`,
+    scenario,
     aiConfig: redactAiConfig(aiConfig),
     statusSamples: [],
     runtimeSamples: [],
@@ -36,7 +39,7 @@ async function main() {
   try {
     context = await chromium.launchPersistentContext(profileDir, {
       headless,
-      channel: browserChannel,
+      ...(browserExecutablePath ? { executablePath: browserExecutablePath } : { channel: browserChannel }),
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
@@ -98,7 +101,9 @@ async function main() {
     }
     await popup.reload({ waitUntil: 'domcontentloaded' });
     await popup.waitForFunction(() => Boolean(chrome?.runtime?.sendMessage));
-    const goal = '点击“切换到评审面板”，确认当前模式变为“评审中”后完成 AI 录制。';
+    const goal = scenario === 'search'
+      ? '在“搜索教程”输入框输入“AI 录制”，立即执行搜索，确认页面显示“已搜索：AI 录制”后完成 AI 录制。'
+      : '点击“切换到评审面板”，确认当前模式变为“评审中”后完成 AI 录制。';
     await popup.locator('#aiGoal').fill(goal);
 
     report.fallbackStartResult = await popup.evaluate(async ({ targetDescription, targetUrl }) => {
@@ -157,8 +162,15 @@ async function main() {
       headline: document.getElementById('headline')?.textContent || '',
       metricMode: document.getElementById('metricMode')?.textContent || '',
       metricCount: document.getElementById('metricCount')?.textContent || '',
-      statusText: document.getElementById('statusText')?.textContent || ''
+      statusText: document.getElementById('statusText')?.textContent || '',
+      searchQuery: document.getElementById('tutorialQuery')?.value || '',
+      searchStatus: document.getElementById('searchStatus')?.textContent || ''
     }));
+
+    const recordedSteps = report.runtimeSamples.flatMap((sample) => sample?.aiAgent?.recentSteps || []);
+    const compositeSearchStep = recordedSteps.find(
+      (step) => step.action === 'type_text' && step.targetText === '搜索教程' && step.submit === true
+    );
 
     report.checks = {
       startStatusVisible: report.statusSamples.some((item) => /正在启动 AI|AI 正在观察|正在执行/.test(item.text)),
@@ -173,9 +185,10 @@ async function main() {
       debuggerDetached:
         finalState.runtime?.cdpAttached !== true &&
         report.extensionDebuggerProbe.attached === false,
-      browserActionCompleted:
-        report.fixtureState.metricMode === '评审中' &&
-        Number.parseInt(report.fixtureState.metricCount, 10) === 1,
+      browserActionCompleted: scenario === 'search'
+        ? report.fixtureState.searchQuery === 'AI 录制' && report.fixtureState.searchStatus === '已搜索：AI 录制'
+        : report.fixtureState.metricMode === '评审中' && Number.parseInt(report.fixtureState.metricCount, 10) === 1,
+      ...(scenario === 'search' ? { compositeSearchActionUsed: Boolean(compositeSearchStep) } : {}),
       historyCreated: finalState.history.some((item) => item.recordingMode === 'ai'),
       screenshotsCaptured: finalState.history.some((item) => item.recordingMode === 'ai' && item.screenshotCount >= 1)
     };
@@ -367,6 +380,7 @@ function summarizeRuntime(runtime) {
                 requestedX: step.requestedX,
                 requestedY: step.requestedY,
                 targetText: step.targetText,
+                submit: step.submit === true,
                 allowRepeat: step.allowRepeat,
                 repeatReason: step.repeatReason,
                 matchedText: step.matchedText,

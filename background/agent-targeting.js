@@ -1,20 +1,22 @@
 import { S } from './runtime-state.js';
+import { readCompatibleClickTarget, resolveCompatibleTextTarget } from './page-automation.js';
 import { sanitizeEditableText } from './text-utils.js';
 
 export async function calibrateAgentAction(action) {
-  if (action?.action !== 'click_at_xy' || !action.targetText) {
+  const targetBoundAction = action?.action === 'click_at_xy' || action?.action === 'type_text';
+  if (!targetBoundAction || !action.targetText) {
     return action;
   }
 
   const center = await resolveAgentTargetCenter(action.targetText);
   if (!center) {
-    return { ...action, coordinateSource: 'vision' };
+    return action.action === 'click_at_xy' ? { ...action, coordinateSource: 'vision' } : action;
   }
 
   return {
     ...action,
-    requestedX: action.x,
-    requestedY: action.y,
+    ...(Number.isFinite(action.x) ? { requestedX: action.x } : {}),
+    ...(Number.isFinite(action.y) ? { requestedY: action.y } : {}),
     x: center.x,
     y: center.y,
     matchedText: center.matchedText,
@@ -28,13 +30,20 @@ export async function calibrateAgentAction(action) {
 }
 
 export function isRepeatedAgentAction(action, steps = []) {
-  if (action?.action !== 'click_at_xy' || !action.targetText || !Array.isArray(steps) || !steps.length) {
+  if (!action?.targetText || !Array.isArray(steps) || !steps.length) {
     return false;
   }
 
   const previous = steps[steps.length - 1];
-  const repeatedTarget = previous?.action === 'click_at_xy' && previous.targetText === action.targetText;
+  const repeatedTarget = previous?.action === action.action && previous.targetText === action.targetText;
   if (!repeatedTarget) {
+    return false;
+  }
+
+  if (action.action === 'type_text') {
+    return true;
+  }
+  if (action.action !== 'click_at_xy') {
     return false;
   }
 
@@ -44,7 +53,7 @@ export function isRepeatedAgentAction(action, steps = []) {
 }
 
 export async function resolveAgentTargetCenter(targetText) {
-  if (!S.currentRuntime.cdpAttached || !S.currentRuntime.tabId) {
+  if (!S.currentRuntime.tabId) {
     return null;
   }
 
@@ -77,11 +86,11 @@ export async function resolveAgentTargetCenter(targetText) {
       return hash(path.join('>') + '|' + contextText + '|' + element.outerHTML.slice(0, 500));
     };
     const target = ${JSON.stringify(normalizedTarget)}.replace(/\\s+/g, ' ').trim();
-    const selectors = 'button, a, [role="button"], input[type="button"], input[type="submit"], summary';
+    const selectors = 'button, a, [role="button"], input[type="button"], input[type="submit"], input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="email"], input[type="tel"], textarea, [contenteditable="true"], summary';
     const candidates = [...document.querySelectorAll(selectors)].map((element) => {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
-      const text = String(element.innerText || element.value || element.getAttribute('aria-label') || '')
+      const text = String(element.innerText || element.getAttribute('aria-label') || element.getAttribute('placeholder') || element.value || '')
         .replace(/\\s+/g, ' ')
         .trim();
       const visible = rect.width > 2 && rect.height > 2 && rect.bottom > 0 && rect.right > 0 &&
@@ -96,7 +105,7 @@ export async function resolveAgentTargetCenter(targetText) {
         text,
         rect,
         visible: visible && hitTested,
-        targetType: String(element.getAttribute('type') || '').toLowerCase(),
+        targetType: String(element.getAttribute('type') || (element instanceof HTMLTextAreaElement ? 'textarea' : element.isContentEditable ? 'contenteditable' : '')).toLowerCase(),
         targetRole: String(element.getAttribute('role') || '').toLowerCase(),
         targetHref: element instanceof HTMLAnchorElement ? element.href : '',
         targetFormMethod: String(element.form?.method || '').toLowerCase(),
@@ -118,12 +127,13 @@ export async function resolveAgentTargetCenter(targetText) {
   })()`;
 
   try {
-    const result = await chrome.debugger.sendCommand(
-      { tabId: S.currentRuntime.tabId },
-      'Runtime.evaluate',
-      { expression, returnByValue: true }
-    );
-    const value = result?.result?.value;
+    const value = S.currentRuntime.cdpAttached
+      ? (await chrome.debugger.sendCommand(
+          { tabId: S.currentRuntime.tabId },
+          'Runtime.evaluate',
+          { expression, returnByValue: true }
+        ))?.result?.value
+      : await resolveCompatibleTextTarget(normalizedTarget);
     return Number.isFinite(value?.x) && Number.isFinite(value?.y) ? value : null;
   } catch (error) {
     console.warn('[Background] Calibrate agent click target failed:', error);
@@ -132,7 +142,8 @@ export async function resolveAgentTargetCenter(targetText) {
 }
 
 export async function assertAgentClickTargetFresh(action) {
-  if (action?.action !== 'click_at_xy' || action.coordinateSource !== 'visible-text') {
+  const targetBoundAction = action?.action === 'click_at_xy' || action?.action === 'type_text';
+  if (!targetBoundAction || action.coordinateSource !== 'visible-text') {
     return;
   }
 
@@ -146,7 +157,7 @@ export async function assertAgentClickTargetFresh(action) {
       return (result >>> 0).toString(16);
     };
     const elementAtPoint = document.elementFromPoint(${Number(action.x)}, ${Number(action.y)});
-    const element = elementAtPoint?.closest('button, a, [role="button"], input[type="button"], input[type="submit"], summary');
+    const element = elementAtPoint?.closest('button, a, [role="button"], input[type="button"], input[type="submit"], input:not([type]), input[type="text"], input[type="search"], input[type="url"], input[type="email"], input[type="tel"], textarea, [contenteditable="true"], summary');
     if (!element) return null;
     const path = [];
     let node = element;
@@ -159,18 +170,19 @@ export async function assertAgentClickTargetFresh(action) {
     }
     const context = element.closest('[data-id], [data-testid], tr, li, article, [role="row"]') || element.parentElement;
     const contextText = String(context?.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 500);
-    const text = String(element.innerText || element.value || element.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim();
+    const text = String(element.innerText || element.getAttribute('aria-label') || element.getAttribute('placeholder') || element.value || '').replace(/\\s+/g, ' ').trim();
     return {
       text: text.slice(0, 160),
       fingerprint: hash(path.join('>') + '|' + contextText + '|' + element.outerHTML.slice(0, 500))
     };
   })()`;
-  const result = await chrome.debugger.sendCommand(
-    { tabId: S.currentRuntime.tabId },
-    'Runtime.evaluate',
-    { expression, returnByValue: true }
-  );
-  const current = result?.result?.value;
+  const current = S.currentRuntime.cdpAttached
+    ? (await chrome.debugger.sendCommand(
+        { tabId: S.currentRuntime.tabId },
+        'Runtime.evaluate',
+        { expression, returnByValue: true }
+      ))?.result?.value
+    : await readCompatibleClickTarget(action.x, action.y);
   if (
     !current ||
     sanitizeEditableText(current.text, 160) !== sanitizeEditableText(action.targetText, 160) ||

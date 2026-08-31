@@ -1,9 +1,10 @@
 import { extractVisionText } from './ai-vision.js';
-import { assertApprovedActionSourceFresh, assertApprovedSensitiveActionFresh } from './agent-action-guard.js';
-import { assertAgentClickTargetFresh } from './agent-targeting.js';
+import { AGENT_KEY_EVENT_DEFS, performExecuteAiAgentAction } from './agent-action-executor.js';
 import { runExclusiveOperation } from './op-safety.js';
 import { S } from './runtime-state.js';
-import { clampNumber, delay, sanitizeCoordinate, sanitizeEditableText } from './text-utils.js';
+import { clampNumber, sanitizeCoordinate, sanitizeEditableText } from './text-utils.js';
+
+export { AGENT_KEY_EVENT_DEFS, performExecuteAiAgentAction };
 
 export const AGENT_TOOL_NAMES = Object.freeze([
   'click_at_xy',
@@ -28,7 +29,7 @@ export function buildAgentToolSchema(apiStyle) {
           y: { type: 'number' },
           targetText: {
             type: 'string',
-            description: 'Exact visible text of the button or link when available, used to calibrate the visual coordinate.'
+            description: 'Exact visible text, accessible label, or placeholder of the button, link, or form field when available, used to calibrate the visual coordinate.'
           },
           allowRepeat: {
             type: 'boolean',
@@ -45,11 +46,19 @@ export function buildAgentToolSchema(apiStyle) {
     },
     {
       name: 'type_text',
-      description: 'Type text into the currently focused input.',
+      description: 'Locate an editable field by its exact accessible label or placeholder, type text, and optionally submit it.',
       parameters: {
         type: 'object',
         properties: {
           text: { type: 'string' },
+          targetText: {
+            type: 'string',
+            description: 'Exact accessible label, placeholder, or visible label of the editable field. Prefer this over relying on prior focus.'
+          },
+          submit: {
+            type: 'boolean',
+            description: 'True only when the user goal requires immediately submitting this field, such as a GET search.'
+          },
           description: { type: 'string' }
         },
         required: ['text', 'description']
@@ -237,17 +246,6 @@ export function parseAgentActionText(text) {
   }
 }
 
-export const AGENT_KEY_EVENT_DEFS = Object.freeze({
-  enter: { key: 'Enter', code: 'Enter', keyCode: 13 },
-  tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
-  escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
-  backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
-  arrowup: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
-  arrowdown: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
-  arrowleft: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
-  arrowright: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 }
-});
-
 export function normalizeAgentKey(value) {
   const raw = sanitizeEditableText(value, 24).toLowerCase().replace(/[\s_-]+/g, '');
   return Object.hasOwn(AGENT_KEY_EVENT_DEFS, raw) ? raw : '';
@@ -306,7 +304,14 @@ export function sanitizeAgentAction(action = {}) {
       throw new Error('AI 输入动作缺少文本');
     }
 
-    return { action: normalizedAction, text, description };
+    const targetText = sanitizeEditableText(action.targetText, 160);
+    return {
+      action: normalizedAction,
+      text,
+      ...(targetText ? { targetText } : {}),
+      ...(action.submit === true ? { submit: true } : {}),
+      description
+    };
   }
 
   if (normalizedAction === 'scroll') {
@@ -356,7 +361,7 @@ export function describeAgentAction(action = {}) {
   }
 
   if (action.action === 'type_text') {
-    return '在当前输入框中输入内容';
+    return action.submit ? '在目标输入框中输入内容并提交' : '在目标输入框中输入内容';
   }
 
   if (action.action === 'scroll') {
@@ -385,90 +390,4 @@ export function describeAgentAction(action = {}) {
 export async function executeAiAgentAction(action) {
   const lockKey = `agentAction:${S.currentRuntime.recordingId || 'idle'}:${S.currentRuntime.aiAgent?.iteration || 0}`;
   return runExclusiveOperation(lockKey, () => performExecuteAiAgentAction(action));
-}
-
-export async function performExecuteAiAgentAction(action) {
-  if (!S.currentRuntime.cdpAttached || !S.currentRuntime.tabId) {
-    throw new Error('CDP 未连接，无法执行 AI 操作');
-  }
-
-  const target = { tabId: S.currentRuntime.tabId };
-  await assertApprovedActionSourceFresh(action);
-
-  if (action.action === 'click_at_xy') {
-    await assertAgentClickTargetFresh(action);
-    await assertApprovedSensitiveActionFresh(action);
-    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mousePressed',
-      x: action.x,
-      y: action.y,
-      button: 'left',
-      clickCount: 1
-    });
-    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseReleased',
-      x: action.x,
-      y: action.y,
-      button: 'left',
-      clickCount: 1
-    });
-    return;
-  }
-
-  if (action.action === 'type_text') {
-    await chrome.debugger.sendCommand(target, 'Input.insertText', {
-      text: action.text
-    });
-    return;
-  }
-
-  if (action.action === 'scroll') {
-    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseWheel',
-      x: action.x,
-      y: action.y,
-      deltaY: action.deltaY,
-      deltaX: 0
-    });
-    return;
-  }
-
-  if (action.action === 'hover') {
-    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
-      x: action.x,
-      y: action.y
-    });
-    return;
-  }
-
-  if (action.action === 'press_key') {
-    await assertApprovedSensitiveActionFresh(action);
-    const keyDef = AGENT_KEY_EVENT_DEFS[action.key] || AGENT_KEY_EVENT_DEFS.enter;
-    const baseEvent = {
-      key: keyDef.key,
-      code: keyDef.code,
-      windowsVirtualKeyCode: keyDef.keyCode,
-      nativeVirtualKeyCode: keyDef.keyCode
-    };
-
-    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', {
-      type: 'keyDown',
-      ...baseEvent
-    });
-    await chrome.debugger.sendCommand(target, 'Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      ...baseEvent
-    });
-    return;
-  }
-
-  if (action.action === 'navigate') {
-    await chrome.debugger.sendCommand(target, 'Page.navigate', { url: action.url });
-    return;
-  }
-
-  if (action.action === 'wait') {
-    await delay(action.ms || 800);
-  }
 }

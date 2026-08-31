@@ -89,7 +89,8 @@ const checks = [
       /function normalizeRecordingTargetError\(error, modeLabel\)/.test(source.background) &&
       /chrome-extension:\\\/\\\//.test(source.background) &&
       /Cannot access \.\* URL/.test(source.background) &&
-      /await chrome\.debugger\.attach\(target, CDP_PROTOCOL_VERSION\)\.catch/.test(source.background) &&
+      (/await chrome\.debugger\.attach\(target, CDP_PROTOCOL_VERSION\)\.catch/.test(source.background) ||
+        /throw normalizeCdpDebuggerAttachError\(error, modeLabel, latestTab, targetOptions\)/.test(source.background)) &&
       /assertRecordingTargetTab\(tab, modeLabel, targetOptions\)/.test(source.background)
   },
   {

@@ -208,6 +208,7 @@ export async function startAiRecording(tabId, targetDescription, options = {}) {
     recordingMode: 'ai',
     captureMode: 'agent',
     screenshotEngine: 'cdp',
+    automationEngine: 'cdp',
     captureIntervalMs: settings.screenshotInterval * 1000,
     autoScreenshot: false,
     mediaStatus: 'AI 录制中',
@@ -276,6 +277,9 @@ export async function attachAiCdpDebuggerWithFallback(initialTab, options = {}) 
     });
     return initialTab;
   } catch (error) {
+    if (error?.code === 'CDP_DEBUGGER_UNAVAILABLE') {
+      return enterAiCompatibilityMode(initialTab, error);
+    }
     if (!targetOptions.allowFallbackTarget || !isRecordingTargetError(error)) {
       throw error;
     }
@@ -292,11 +296,37 @@ export async function attachAiCdpDebuggerWithFallback(initialTab, options = {}) 
   await persistRuntime();
   notifyAiStatus();
 
-  await attachCdpDebugger(activatedTab.id, {
-    modeLabel: 'AI 录制',
-    targetUrl: targetOptions.targetUrl
-  });
+  try {
+    await attachCdpDebugger(activatedTab.id, {
+      modeLabel: 'AI 录制',
+      targetUrl: targetOptions.targetUrl
+    });
+  } catch (error) {
+    if (error?.code === 'CDP_DEBUGGER_UNAVAILABLE') {
+      return enterAiCompatibilityMode(activatedTab, error);
+    }
+    throw error;
+  }
   return activatedTab;
+}
+
+export async function enterAiCompatibilityMode(tab, error) {
+  S.currentRuntime.tabId = tab.id;
+  S.currentRuntime.windowId = tab.windowId;
+  S.currentRuntime.screenshotEngine = 'standard';
+  S.currentRuntime.automationEngine = 'scripting';
+  S.currentRuntime.cdpAttached = false;
+  S.currentRuntime.cdpCrop = null;
+  S.currentRuntime.mediaStatus = 'AI 录制中（兼容模式）';
+  await persistRuntime();
+  console.warn(
+    '[Background] CDP unavailable; AI compatibility mode enabled:',
+    sanitizeEditableText(error?.diagnosticMessage || error?.message || error, 240)
+  );
+  notifyPopup('warning', {
+    message: '目标页的调试器通道已被占用，已自动切换到 AI 兼容模式。录制可以继续，部分复杂页面操作可能需要手动接管。'
+  });
+  return tab;
 }
 
 export async function pauseRecording() {

@@ -1,14 +1,18 @@
 {
   "name": "tutorial-recorder",
-  "version": "2.8.0",
+  "version": "2.8.8",
   "private": true,
   "type": "module",
   "scripts": {
     "check": "node scripts/check-syntax.mjs && node --experimental-vm-modules scripts/check-module-links.mjs && npm run test:regression && npm run stress:scale",
-    "test:regression": "node scripts/regression/check-v1.3.1.mjs && node scripts/regression/check-v1.4.0.mjs && node scripts/regression/check-v1.5.0.mjs && node scripts/regression/check-v2.0.0.mjs && node scripts/regression/check-v2.0.2.mjs && node scripts/regression/check-v2.0.3.mjs && node scripts/regression/check-v2.1.0.mjs && node scripts/regression/check-v2.1.1.mjs && node scripts/regression/check-v2.2.0.mjs && node scripts/regression/check-v2.2.1.mjs && node scripts/regression/check-v2.2.2.mjs && node scripts/regression/check-v2.2.3.mjs && node scripts/regression/check-v2.2.4.mjs && node scripts/regression/check-v2.2.5.mjs && node scripts/regression/check-v2.2.6.mjs && node scripts/regression/check-v2.2.7.mjs && node scripts/regression/check-v2.3.0.mjs && node scripts/regression/check-v2.4.0.mjs && node scripts/regression/check-v2.5.0.mjs && node scripts/regression/check-v2.6.0.mjs && node scripts/regression/check-v2.6.1.mjs && node scripts/regression/check-v2.7.0.mjs && node scripts/regression/check-commercial-agent-policy.mjs && node scripts/regression/check-commercial-ai-consent.mjs && node scripts/regression/check-commercial-history-retention.mjs && node scripts/regression/check-commercial-release-version.mjs && node scripts/regression/check-v2.8.0.mjs",
+    "test:regression": "node scripts/regression/check-v1.3.1.mjs && node scripts/regression/check-v1.4.0.mjs && node scripts/regression/check-v1.5.0.mjs && node scripts/regression/check-v2.0.0.mjs && node scripts/regression/check-v2.0.2.mjs && node scripts/regression/check-v2.0.3.mjs && node scripts/regression/check-v2.1.0.mjs && node scripts/regression/check-v2.1.1.mjs && node scripts/regression/check-v2.2.0.mjs && node scripts/regression/check-v2.2.1.mjs && node scripts/regression/check-v2.2.2.mjs && node scripts/regression/check-v2.2.3.mjs && node scripts/regression/check-v2.2.4.mjs && node scripts/regression/check-v2.2.5.mjs && node scripts/regression/check-v2.2.6.mjs && node scripts/regression/check-v2.2.7.mjs && node scripts/regression/check-v2.3.0.mjs && node scripts/regression/check-v2.4.0.mjs && node scripts/regression/check-v2.5.0.mjs && node scripts/regression/check-v2.6.0.mjs && node scripts/regression/check-v2.6.1.mjs && node scripts/regression/check-v2.7.0.mjs && node scripts/regression/check-commercial-agent-policy.mjs && node scripts/regression/check-commercial-ai-consent.mjs && node scripts/regression/check-commercial-history-retention.mjs && node scripts/regression/check-commercial-release-version.mjs && node scripts/regression/check-v2.8.0.mjs && node scripts/regression/check-v2.8.1.mjs && node scripts/regression/check-v2.8.2.mjs && node scripts/regression/check-v2.8.3.mjs && node scripts/regression/check-v2.8.4.mjs && node scripts/regression/check-v2.8.5.mjs && node scripts/regression/check-v2.8.6.mjs && node scripts/regression/check-ai-autonomy-usability.mjs && node scripts/regression/check-v2.8.7.mjs && node scripts/regression/check-v2.8.8.mjs && node scripts/regression/check-browser-observation.mjs",
     "package": "node scripts/package-extension.mjs",
     "stress:scale": "node scripts/stress/recording-scale.mjs",
     "smoke:ai": "node scripts/e2e/ai-recording-smoke.mjs",
+    "smoke:target-selection": "node scripts/e2e/target-selection-smoke.mjs",
+    "smoke:action-popup-target": "node scripts/e2e/action-popup-target-smoke.mjs",
+    "smoke:debugger-conflict": "node scripts/e2e/debugger-conflict-smoke.mjs",
+    "smoke:browser-observation": "node scripts/e2e/browser-observation-smoke.mjs",
     "validate:e2e": "node scripts/e2e/validate-extension.mjs",
     "watchdog": "node scripts/dev-watchdog.mjs"
   },

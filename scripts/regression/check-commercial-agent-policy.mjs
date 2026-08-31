@@ -73,14 +73,20 @@ const cases = [
     expected: 'confirm'
   },
   {
-    name: 'same-origin navigation requires approval because GET may mutate state',
+    name: 'same-origin reversible navigation remains automatic',
     action: { action: 'navigate', url: 'https://example.com/next' },
     context: { currentUrl: 'https://example.com/start' },
-    expected: 'confirm'
+    expected: 'allow'
   },
   {
-    name: 'cross-origin navigation requires approval',
+    name: 'cross-origin reversible navigation remains automatic',
     action: { action: 'navigate', url: 'https://accounts.example.net/login' },
+    context: { currentUrl: 'https://example.com/start' },
+    expected: 'allow'
+  },
+  {
+    name: 'high-risk URL navigation still requires approval',
+    action: { action: 'navigate', url: 'https://example.com/logout' },
     context: { currentUrl: 'https://example.com/start' },
     expected: 'confirm'
   },
@@ -228,24 +234,24 @@ assert.equal(
 console.log('ok - one-time approvals expire when the page or approved target changes');
 
 const targetingSource = await readFile(new URL('../../background/agent-targeting.js', import.meta.url), 'utf8');
-const toolsSource = await readFile(new URL('../../background/agent-tools.js', import.meta.url), 'utf8');
+const executorSource = await readFile(new URL('../../background/agent-action-executor.js', import.meta.url), 'utf8');
 const actionGuardSource = await readFile(new URL('../../background/agent-action-guard.js', import.meta.url), 'utf8');
 assert.match(targetingSource, /targetFingerprint/, 'calibrated targets must carry a stable opaque fingerprint');
 assert.match(targetingSource, /elementFromPoint/, 'target calibration and dispatch validation must use hit testing');
-assert.match(toolsSource, /assertAgentClickTargetFresh\(action\)/, 'click dispatch must revalidate the target immediately before execution');
+assert.match(executorSource, /assertAgentClickTargetFresh\(action\)/, 'click dispatch must revalidate the target immediately before execution');
 assert.match(actionGuardSource, /approvalPageDigest/, 'coordinate and Enter approvals must seal the approved page state');
 assert.match(actionGuardSource, /approvalFocusFingerprint/, 'Enter approvals must seal the approved focus target');
 assert.match(actionGuardSource, /approvalPointFingerprint/, 'coordinate approvals must seal the elementFromPoint target');
 assert.match(actionGuardSource, /approvalSourceUrl/, 'every approved action must seal its exact source URL');
-assert.match(toolsSource, /assertApprovedActionSourceFresh\(action\)/, 'every approved action must verify its source URL immediately before dispatch');
+assert.match(executorSource, /assertApprovedActionSourceFresh\(action\)/, 'every approved action must verify its source URL immediately before dispatch');
 assert.match(
-  toolsSource,
-  /if \(action\.action === 'click_at_xy'\)[\s\S]*assertApprovedSensitiveActionFresh\(action\)[\s\S]*Input\.dispatchMouseEvent/,
+  executorSource,
+  /if \(action\.action === 'click_at_xy'\)[\s\S]*assertApprovedSensitiveActionFresh\(action\)[\s\S]*dispatchCdpClick/,
   'coordinate clicks must verify the approval seal immediately before dispatch'
 );
 assert.match(
-  toolsSource,
-  /if \(action\.action === 'press_key'\)[\s\S]*assertApprovedSensitiveActionFresh\(action\)[\s\S]*Input\.dispatchKeyEvent/,
+  executorSource,
+  /if \(action\.action === 'press_key'\)[\s\S]*assertApprovedSensitiveActionFresh\(action\)[\s\S]*dispatchCdpKey/,
   'Enter must verify page and focus approval seals immediately before dispatch'
 );
 console.log('ok - approved visible-text clicks preserve target identity through dispatch');

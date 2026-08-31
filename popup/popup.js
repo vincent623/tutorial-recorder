@@ -37,8 +37,6 @@ const CAPTURE_MODE_HINTS = {
 };
 const IDEMPOTENT_ACTIONS = new Set(['stopRecording', 'manualCapture', 'downloadRecording']);
 const RECORDABLE_TAB_PROTOCOLS = new Set(['http:', 'https:', 'file:']);
-const RECORDING_TARGET_HELP =
-  '请先打开要录制的 http/https/file 网页，再从扩展弹窗启动录制；扩展页、设置页和 chrome:// 页面不能作为录制目标。';
 
 const elements = {
   pageTitle: $('pageTitle'),
@@ -104,6 +102,7 @@ let detailState = createDetailState();
 let timer = null;
 let currentSettings = {};
 let initialWorkspaceSelectionHandled = false;
+let aiStartPending = false;
 const pendingOperationIds = new Map();
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -304,13 +303,8 @@ async function startRecording() {
   }
 
   const tab = await getRecordingTargetTab();
-  if (!tab) {
-    alert(RECORDING_TARGET_HELP);
-    return;
-  }
-
   const result = await sendAction('startRecording', {
-    tabId: tab.id,
+    tabId: tab?.id ?? null,
     targetUrl: getTabTargetUrl(tab),
     allowFallbackTarget: true
   });
@@ -354,31 +348,30 @@ async function startAiRecording() {
   }
 
   const tab = await getRecordingTargetTab();
-  if (!tab) {
-    alert(RECORDING_TARGET_HELP);
-    return;
-  }
-
   setLocalAiStartupFeedback('正在启动 AI...', 'starting');
   elements.btnAiStart.disabled = true;
 
   let result;
+  aiStartPending = true;
   try {
     result = await sendAction('startAiRecording', {
-      tabId: tab.id,
+      tabId: tab?.id ?? null,
       targetUrl: getTabTargetUrl(tab),
       targetDescription,
       allowFallbackTarget: true
     });
   } catch (error) {
     result = { ok: false, error: error.message || '未知错误' };
+  } finally {
+    aiStartPending = false;
   }
 
   if (!result?.ok) {
-    state.aiAgent = createAiAgentState();
-    state.recordingMode = 'manual';
+    await hydrate().catch(() => {
+      state = createIdleState();
+      updateUi();
+    });
     alert(`AI 录制启动失败：${result?.error || '未知错误'}`);
-    updateUi();
     return;
   }
 
@@ -401,9 +394,22 @@ function setLocalAiStartupFeedback(message, status) {
 }
 
 async function getRecordingTargetTab() {
-  const [currentActiveTab] = await queryTabsSafely({ active: true, currentWindow: true });
+  const currentContextTab = await getCurrentTabSafely();
+  const contextWindowId = currentContextTab?.windowId;
+  const [currentActiveTab] = await queryTabsSafely(
+    Number.isInteger(contextWindowId)
+      ? { active: true, windowId: contextWindowId }
+      : { active: true, currentWindow: true }
+  );
   if (isRecordableTab(currentActiveTab)) {
     return currentActiveTab;
+  }
+
+  if (Number.isInteger(contextWindowId)) {
+    const tabs = await queryTabsSafely({ windowId: contextWindowId });
+    return tabs
+      .filter(isRecordableTab)
+      .sort(compareRecordingTargetTabs)[0] || null;
   }
 
   const [lastFocusedActiveTab] = await queryTabsSafely({ active: true, lastFocusedWindow: true });
@@ -411,18 +417,16 @@ async function getRecordingTargetTab() {
     return lastFocusedActiveTab;
   }
 
-  const tabs = await queryTabsSafely({});
-  const activeRecordableTabs = tabs
-    .filter((tab) => tab.active && isRecordableTab(tab))
-    .sort(compareRecordingTargetTabs);
+  return null;
+}
 
-  if (activeRecordableTabs.length) {
-    return activeRecordableTabs[0];
+async function getCurrentTabSafely() {
+  try {
+    return await chrome.tabs.getCurrent();
+  } catch (error) {
+    console.warn('[Popup] Unable to read current tab:', error);
+    return null;
   }
-
-  return tabs
-    .filter(isRecordableTab)
-    .sort(compareRecordingTargetTabs)[0] || null;
 }
 
 async function queryTabsSafely(queryInfo) {
@@ -989,7 +993,9 @@ function handleRuntimeMessage(message) {
       elements.statusText.textContent = message.message || '提示';
       break;
     case 'error':
-      alert(`错误：${message.message || '未知错误'}`);
+      if (!aiStartPending) {
+        alert(`错误：${message.message || '未知错误'}`);
+      }
       break;
     default:
       return;

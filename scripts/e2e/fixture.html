@@ -177,6 +177,21 @@
       gap: 10px;
     }
 
+    .search-form {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .search-form input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: var(--text);
+      font: inherit;
+    }
+
     .note {
       padding: 14px 16px;
       border-radius: 16px;
@@ -209,6 +224,10 @@
         <p class="lead" id="description">
           这是一个本地验证页面，用来制造足够明显的界面变化，方便确认截图、录音和 PDF 导出是否正常。
         </p>
+        <form id="tutorialSearch" class="search-form" method="get" action="/fixture.html">
+          <input id="tutorialQuery" type="search" name="q" placeholder="搜索教程">
+          <span id="searchStatus">尚未搜索</span>
+        </form>
         <div class="actions">
           <button id="btnPlan">切换到计划面板</button>
           <button id="btnReview" class="secondary">切换到评审面板</button>
@@ -268,6 +287,9 @@
     const metricCount = document.getElementById('metricCount');
     const metricLast = document.getElementById('metricLast');
     const notes = document.getElementById('notes');
+    const tutorialSearch = document.getElementById('tutorialSearch');
+    const tutorialQuery = document.getElementById('tutorialQuery');
+    const searchStatus = document.getElementById('searchStatus');
 
     const themes = ['theme-default', 'theme-sunset', 'theme-forest', 'theme-night'];
     let themeIndex = 0;
@@ -309,6 +331,12 @@
       app.classList.add(themes[themeIndex]);
       metricTheme.textContent = String(themeIndex + 1);
       pushStep('切换主题色板', `当前主题编号已变为 ${themeIndex + 1}，页面强调色同步更新。`);
+    });
+
+    tutorialSearch.addEventListener('submit', (event) => {
+      event.preventDefault();
+      searchStatus.textContent = `已搜索：${tutorialQuery.value}`;
+      pushStep('执行教程搜索', `搜索关键词：${tutorialQuery.value}`);
     });
   </script>
 </body>

@@ -17,7 +17,7 @@
 - 自定义下载子目录，或为 ZIP 弹出一次保存位置选择
 - 可选 CDP 精确截图模式，支持目标标签页非前台时继续截图，并可设置像素裁切区域
 - 可选实时 AI 建议，录制中异步生成最新步骤文案并允许立即覆盖
-- AI 自动录制：输入教程目标后由 AI 通过 CDP 执行单步浏览器动作，危险按钮、坐标兜底点击、Enter 提交和跨站导航需要单次确认，支持暂停、接管和停止导出
+- AI 自动录制：优先通过 CDP 执行单步浏览器动作；若目标页调试器被 DevTools、自动化或其他扩展占用，会自动切换到标准截图 + Scripting 兼容模式。搜索框聚焦/输入、GET 搜索、分页、站内外普通导航等可撤销动作自动执行；删除、支付、发布、授权、POST 提交、高风险 URL 和无法判断影响的业务按钮仍需单次确认，支持暂停、接管和停止导出
 
 ## 项目结构
 
@@ -54,7 +54,7 @@ tutorial-recorder/
 - 自动截图间隔
 - 是否自动截图
 - 是否显示实时 AI 建议
-- `AI 录制`：填写教程目标后启动自动录制，执行中可暂停 AI、接管操作或停止导出
+- `AI 录制`：填写教程目标后启动自动录制，执行中可暂停 AI、接管操作或停止导出；多窗口场景只会选择启动面板所在窗口的目标网页，不会跨窗口猜测
 - AI Agent 支持 `click_at_xy / type_text / scroll / press_key / navigate / hover / wait / finish` 八种工具；决策截图会按视口 CSS 像素对齐，点击动作还会用可见控件文字校准目标中心并记录原始/执行坐标
 
 点击 `完整设置` 后，可以在独立设置页继续配置：
@@ -81,7 +81,7 @@ tutorial-recorder/
 - 截图分析会附带页面标题、地址和最近一次交互动作，帮助视觉模型更准确地判断“用户正在做什么”
 - 开启 `实时 AI 建议` 后，每次截图保存完成会异步排队生成当前步骤建议；录制不会等待模型返回，连续快速截图时只保留最新待分析截图
 - popup 里的实时建议文本框可直接编辑，保存后的文案会优先用于最终 Markdown、PDF 和 ZIP 导出
-- `AI 录制` 会自动使用 CDP 模式并显示调试提示；默认最多执行 50 步或 10 分钟，到达限制后会保留已完成步骤并导出
+- `AI 录制` 默认使用 CDP 模式并显示调试提示；CDP 被占用时会自动进入兼容模式而不是启动失败。默认最多执行 50 步或 10 分钟，到达限制后会保留已完成步骤并导出
 - AI Agent 失败时不会丢失已录制截图，可接管为人工录制或直接停止生成教程
 - 单张截图的 AI 识别默认带超时保护；如果模型响应过慢，会自动回退到默认说明并继续导出
 - AI 提示词支持 4 个内置版本和 1 个自定义版本；自定义模板可使用 `{{stepIndex}}`、`{{totalSteps}}`、`{{pageTitle}}`、`{{pageUrl}}`、`{{pageUrlLine}}`、`{{interactionSummary}}`、`{{previousDescription}}`
@@ -166,7 +166,7 @@ npm run validate:e2e
 
 仓库包含 `.github/workflows/release.yml`：
 
-- push 到 `main`、PR、手动触发：运行 `npm ci`、`npm run check`、真实 Chromium `npm run validate:e2e`、`npm run package`，并上传浏览器证据、ZIP 与 sha256 为 workflow artifact
+- push 到 `main`、PR、手动触发：运行 `npm ci`、`npm run check`、真实 Chromium `npm run validate:e2e`、多窗口目标选择、真实 action popup fallback 与调试器占用兼容模式 E2E、`npm run package`，并上传浏览器证据、ZIP 与 sha256 为 workflow artifact
 - main/tag/手动 CI 会在独立作业中使用 `DEEPSEEK_API_KEY` Secret 和 `deepseek-v4-flash-vision-exp` 执行真实“识别按钮 → 点击 → 确认状态 → 结束并释放调试器”回归；main 上的供应商波动不会遮蔽确定性门禁，标签发布则必须实模通过
 - 浏览器证据 artifact 只白名单上传脱敏 JSON、截图和下载结果；包含扩展设置的临时 Chromium Profile 会在 smoke 结束后删除，且不会进入 artifact
 - push `v*` 标签：必须通过确定性门禁和 DeepSeek 实模烟测，且标签与 `package.json` 版本完全一致；发布作业复核 SHA256 后创建 GitHub Release
