@@ -10,6 +10,7 @@ const adapter = {
     sameOriginFrames: false,
     crossOriginFrames: false,
     closedShadowDom: false,
+    transformedFrames: false,
     selfDrawnSurfaces: false
   },
   async capture() {
@@ -283,6 +284,267 @@ assert.deepEqual(framedResult.observation.degradedReasons, ['same-origin-frame-c
 assert.deepEqual(framedResult.observation.receipt.degradedReasons, ['same-origin-frame-content-unavailable']);
 
 console.log('ok - unsupported page regions are explicit in the outcome and receipt');
+
+let refinementId = 0;
+let lastProbeOptions = null;
+const refinementObservation = createBrowserObservationModule({
+  getTab: async () => ({
+    id: 42,
+    url: 'https://example.test/refine',
+    title: 'Refine',
+    status: 'complete',
+    active: true,
+    windowId: 7
+  }),
+  selectAdapter: () => ({
+    ...adapter,
+    async inspect(tabId, options) {
+      lastProbeOptions = options;
+      return {
+        documentToken: 'refine-document',
+        revision: `refine-${JSON.stringify(options)}`,
+        url: 'https://example.test/refine',
+        title: 'Refine',
+        viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0 },
+        observedRegions: {},
+        elements: [],
+        truncated: false
+      };
+    }
+  }),
+  createObservationId: () => `refinement-${++refinementId}`,
+  now: () => 7_000
+});
+
+const refinementSource = await refinementObservation.observe({ tabId: 42 });
+const refinedResult = await refinementObservation.refine({
+  tabId: 42,
+  observationId: refinementSource.observation.id,
+  role: 'button',
+  region: { x: 10, y: 20, width: 300, height: 200 },
+  maxElements: 30
+});
+assert.equal(refinedResult.status, 'ready');
+assert.equal(refinedResult.observation.id, 'refinement-2');
+assert.deepEqual(lastProbeOptions, {
+  maxElements: 30,
+  region: { x: 10, y: 20, width: 300, height: 200 },
+  role: 'button'
+});
+const expiredRefinement = await refinementObservation.refine({
+  tabId: 42,
+  observationId: refinementSource.observation.id
+});
+assert.equal(expiredRefinement.status, 'unavailable');
+assert.equal(expiredRefinement.reasonCode, 'observation-expired');
+const secondRefinement = await refinementObservation.refine({
+  tabId: 42,
+  observationId: refinedResult.observation.id,
+  role: 'button'
+});
+assert.equal(secondRefinement.status, 'ready');
+const limitedRefinement = await refinementObservation.refine({
+  tabId: 42,
+  observationId: secondRefinement.observation.id,
+  role: 'button'
+});
+assert.equal(limitedRefinement.status, 'unavailable');
+assert.equal(limitedRefinement.reasonCode, 'refinement-limit-reached');
+
+console.log('ok - refinement creates new references and enforces lineage limits');
+
+let refinementDocumentToken = 'document-before';
+const changingDocumentRefinement = createBrowserObservationModule({
+  getTab: async () => ({
+    id: 42,
+    url: 'https://example.test/refine',
+    title: 'Refine',
+    status: 'complete',
+    active: true,
+    windowId: 7
+  }),
+  selectAdapter: () => ({
+    ...adapter,
+    async inspect() {
+      return {
+        documentToken: refinementDocumentToken,
+        revision: refinementDocumentToken,
+        url: 'https://example.test/refine',
+        title: 'Refine',
+        viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0 },
+        observedRegions: {},
+        elements: [],
+        truncated: false
+      };
+    }
+  }),
+  createObservationId: () => 'changing-refinement',
+  now: () => 8_000
+});
+const changingRefinementSource = await changingDocumentRefinement.observe({ tabId: 42 });
+refinementDocumentToken = 'document-after';
+const changingRefinementResult = await changingDocumentRefinement.refine({
+  tabId: 42,
+  observationId: changingRefinementSource.observation.id
+});
+assert.equal(changingRefinementResult.status, 'unavailable');
+assert.equal(changingRefinementResult.reasonCode, 'observation-page-changed');
+
+console.log('ok - refinement rejects a source whose document identity changed');
+
+let guardedRefinementId = 0;
+const guardedRefinement = createBrowserObservationModule({
+  getTab: async () => ({
+    id: 42,
+    url: 'https://example.test/guarded-refine',
+    title: 'Guarded refine',
+    status: 'complete',
+    active: true,
+    windowId: 7
+  }),
+  selectAdapter: () => ({
+    ...adapter,
+    async inspect() {
+      return {
+        documentToken: 'guarded-document',
+        revision: 'guarded-revision',
+        url: 'https://example.test/guarded-refine',
+        title: 'Guarded refine',
+        viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0 },
+        observedRegions: {},
+        elements: [],
+        truncated: false
+      };
+    }
+  }),
+  createObservationId: () => `guarded-refinement-${++guardedRefinementId}`,
+  now: () => 9_000
+});
+const guardedSource = await guardedRefinement.observe({
+  tabId: 42,
+  internalRefinementDepth: -100,
+  internalLineageStartedAt: 999_999,
+  internalExpectedDocumentToken: 'forged-document'
+});
+assert.equal(guardedSource.status, 'ready');
+const guardedFirst = await guardedRefinement.refine({
+  tabId: 42,
+  observationId: guardedSource.observation.id
+});
+const guardedSecond = await guardedRefinement.refine({
+  tabId: 42,
+  observationId: guardedFirst.observation.id
+});
+const guardedLimit = await guardedRefinement.refine({
+  tabId: 42,
+  observationId: guardedSecond.observation.id
+});
+assert.equal(guardedFirst.status, 'ready');
+assert.equal(guardedSecond.status, 'ready');
+assert.equal(guardedLimit.reasonCode, 'refinement-limit-reached');
+
+console.log('ok - public observe input cannot forge internal refinement lineage state');
+
+let deadlineNow = 10_000;
+let deadlineCaptureCount = 0;
+let deadlineObservationId = 0;
+const deadlineRefinement = createBrowserObservationModule({
+  getTab: async () => ({
+    id: 42,
+    url: 'https://example.test/deadline',
+    title: 'Deadline',
+    status: 'complete',
+    active: true,
+    windowId: 7
+  }),
+  selectAdapter: () => ({
+    ...adapter,
+    async capture() {
+      deadlineCaptureCount += 1;
+      if (deadlineCaptureCount > 1) deadlineNow = 13_000;
+      return 'data:image/png;base64,AA==';
+    },
+    async inspect() {
+      return {
+        documentToken: 'deadline-document',
+        revision: 'deadline-revision',
+        url: 'https://example.test/deadline',
+        title: 'Deadline',
+        viewport: { width: 1280, height: 720, scrollX: 0, scrollY: 0 },
+        observedRegions: {},
+        elements: [],
+        truncated: false
+      };
+    }
+  }),
+  createObservationId: () => `deadline-${++deadlineObservationId}`,
+  now: () => deadlineNow
+});
+const deadlineSource = await deadlineRefinement.observe({ tabId: 42 });
+const deadlineResult = await deadlineRefinement.refine({
+  tabId: 42,
+  observationId: deadlineSource.observation.id
+});
+assert.equal(deadlineResult.status, 'unavailable');
+assert.equal(deadlineResult.reasonCode, 'refinement-limit-reached');
+
+console.log('ok - refinement cannot succeed after its total lineage deadline');
+
+let scriptingInjectionCount = 0;
+const cappedScriptingAdapter = createScriptingObservationAdapter({
+  tabs: {
+    async getZoom() {
+      return 1;
+    }
+  },
+  scripting: {
+    async executeScript() {
+      scriptingInjectionCount += 1;
+      if (scriptingInjectionCount === 1) return [];
+      return [
+        {
+          documentId: 'top-document',
+          result: {
+            documentToken: 'top-token',
+            revision: 'top-revision',
+            frameContext: { isTop: true, sameOriginToTop: true, framePath: [] },
+            url: 'https://example.test/frames',
+            title: 'Frames',
+            viewport: { width: 100, height: 100 },
+            observedRegions: { sameOriginFrames: 1 },
+            elements: [
+              { name: 'low', priority: 1, rect: { x: 0, y: 5, width: 10, height: 10 } },
+              { name: 'top', priority: 100, rect: { x: 0, y: 50, width: 10, height: 10 } }
+            ],
+            truncated: false
+          }
+        },
+        {
+          documentId: 'child-document',
+          result: {
+            documentToken: 'child-token',
+            revision: 'child-revision',
+            frameContext: { isTop: false, sameOriginToTop: true, framePath: ['child'] },
+            url: 'https://example.test/child',
+            title: 'Child',
+            viewport: { width: 100, height: 100 },
+            observedRegions: {},
+            elements: [
+              { name: 'child', priority: 90, rect: { x: 0, y: 10, width: 10, height: 10 } },
+              { name: 'lower-child', priority: 2, rect: { x: 0, y: 20, width: 10, height: 10 } }
+            ],
+            truncated: false
+          }
+        }
+      ];
+    }
+  }
+});
+const cappedInspection = await cappedScriptingAdapter.inspect(42, { maxElements: 2 });
+assert.deepEqual(cappedInspection.elements.map((element) => element.name), ['child', 'top']);
+assert.equal(cappedInspection.truncated, true);
+
+console.log('ok - scripting frame aggregation preserves a global rank and element cap');
 
 let activationListener = null;
 const switchingAdapter = createScriptingObservationAdapter({
