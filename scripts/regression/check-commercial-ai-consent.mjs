@@ -43,6 +43,17 @@ const aiVisionSource = await readFile(new URL('../../background/ai-vision.js', i
 const agentLoopSource = await readFile(new URL('../../background/agent-loop.js', import.meta.url), 'utf8');
 const settingsServiceSource = await readFile(new URL('../../background/settings-service.js', import.meta.url), 'utf8');
 const requestControlSource = await readFile(new URL('../../background/ai-request-control.js', import.meta.url), 'utf8');
+const settingsHtml = await readFile(new URL('../../settings/settings.html', import.meta.url), 'utf8');
+const privacyPolicy = await readFile(new URL('../../docs/privacy-policy-zh.md', import.meta.url), 'utf8');
+const storeListing = await readFile(new URL('../../memory/store-listing.md', import.meta.url), 'utf8');
+const gitignore = await readFile(new URL('../../.gitignore', import.meta.url), 'utf8');
+assert.match(settingsHtml, /页面截图和脱敏控件摘要发送给所选 AI 服务商/);
+assert.match(settingsHtml, /不发送输入值、原始 DOM、Cookie、Storage 或 URL 参数/);
+assert.match(privacyPolicy, /决策截图只在当前请求期间存于内存/);
+assert.match(privacyPolicy, /不包含输入值、隐藏或屏幕外元素清单、原始 HTML\/DOM、Cookie、Storage、完整链接/);
+assert.match(storeListing, /带编号决策截图仅在请求期间存于内存/);
+assert.match(gitignore, /^chats\/$/m, 'local conversation archives must not be committed');
+console.log('ok - consent, privacy policy, and store disclosure describe the remote observation projection');
 const workerSource = tutorialGeneratorSource.match(/export async function runDescriptionAnalysisWorker[\s\S]*?\n}\n/)?.[0] || '';
 assert.match(workerSource, /while \(queue\.length\)[\s\S]*await getSettings\(\)/, 'each queue iteration must reload settings');
 assert.match(workerSource, /hasVisionAnalysisConfig\(settings\)/, 'each queue iteration must recheck consent');

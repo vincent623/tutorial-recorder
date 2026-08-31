@@ -15,6 +15,10 @@ const requestedPort = Number.parseInt(process.env.PW_FIXTURE_PORT || '0', 10);
 const headless = process.env.PW_HEADLESS !== '0';
 const browserChannel = process.env.PW_BROWSER_CHANNEL?.trim() || 'chromium';
 const browserExecutablePath = process.env.PW_EXECUTABLE_PATH?.trim() || '';
+const observationModelSmokeEnabled = process.env.PW_OBSERVATION_MODEL_SMOKE === '1';
+const observationModelConfig = observationModelSmokeEnabled
+  ? await loadObservationModelConfig()
+  : null;
 
 await mkdir(artifactsDir, { recursive: true });
 const profileDir = await mkdtemp(path.join(os.tmpdir(), 'tutorial-recorder-observation-'));
@@ -36,6 +40,11 @@ try {
   const serviceWorker =
     context.serviceWorkers()[0] ||
     (await context.waitForEvent('serviceworker', { timeout: 20_000 }));
+  serviceWorker.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      console.log(`[service worker ${message.type()}] ${message.text()}`);
+    }
+  });
   const extensionId = new URL(serviceWorker.url()).host;
   const fixtureUrl = `http://127.0.0.1:${port}/fixture.html`;
   const page = context.pages()[0] || (await context.newPage());
@@ -61,11 +70,46 @@ try {
     waitUntil: 'domcontentloaded'
   });
   await harness.waitForFunction(() => document.documentElement.dataset.ready === 'true');
+  const configuredObservationSettings = await configureObservationSettings(
+    harness,
+    observationModelConfig || { aiDataSharingConsent: true }
+  );
+  assert.equal(configuredObservationSettings.aiDataSharingConsent, true);
   await page.bringToFront();
 
   const scripting = await observeFromHarness(harness, tabId, false);
+  const deniedRemoteProjection = await projectFromHarness(
+    harness,
+    tabId,
+    scripting.observationId,
+    false
+  );
+  const remoteProjection = await projectFromHarness(
+    harness,
+    tabId,
+    scripting.observationId,
+    true
+  );
   const searchTarget = scripting.elementSummaries.find((element) => element.name === '搜索教程');
   assert.ok(searchTarget, 'ordinary observation should include the search field');
+  const verifiedSearch = await verifyFromHarness(
+    harness,
+    tabId,
+    scripting.observationId,
+    searchTarget.ref
+  );
+  await page.locator('#tutorialQuery').evaluate((element) => {
+    element.style.transform = 'translate(80px, 40px)';
+  });
+  const movedVerifiedSearch = await verifyFromHarness(
+    harness,
+    tabId,
+    scripting.observationId,
+    searchTarget.ref
+  );
+  await page.locator('#tutorialQuery').evaluate((element) => {
+    element.style.transform = '';
+  });
   const refinedSearch = await refineFromHarness(harness, tabId, false, scripting.observationId, {
     role: 'searchbox',
     region: {
@@ -76,6 +120,18 @@ try {
     },
     maxElements: 10
   });
+  const modelBaseline = observationModelSmokeEnabled
+    ? await observeFromHarness(harness, tabId, false)
+    : null;
+  const modelDecision = observationModelSmokeEnabled
+    ? await decideFromHarness(harness, tabId, modelBaseline.observationId, observationModelConfig)
+    : { status: 'skipped' };
+  const modelNavigationDecision = observationModelSmokeEnabled
+    ? await decideFromHarness(harness, tabId, modelBaseline.observationId, {
+        ...observationModelConfig,
+        targetDescription: '通过页面中的“打开教程详情”链接进入教程详情'
+      })
+    : { status: 'skipped' };
   await page.evaluate(() => {
     Object.defineProperty(globalThis, '__tutorialRecorderBrowserObservationProbeHelpersV1', {
       value: Object.freeze({ pageOwnedPoison: true }),
@@ -105,6 +161,28 @@ try {
   assert.equal(scripting.hasForbiddenElementField, false);
   assert.equal(scripting.elementNames.includes('PRIVATE_BROWSER_OBSERVATION_NOTE'), false);
   assert.equal(scripting.shadowComparison.equivalentTarget, true);
+  assert.equal(deniedRemoteProjection.status, 'unavailable');
+  assert.equal(deniedRemoteProjection.reasonCode, 'ai-data-sharing-consent-required');
+  assert.equal(remoteProjection.status, 'ready');
+  assert.equal(remoteProjection.decisionScreenshot.isPng, true);
+  assert.equal(remoteProjection.decisionScreenshot.length > 100, true);
+  assert.equal(remoteProjection.projection.elements.length, scripting.elementCount);
+  if (observationModelSmokeEnabled) {
+    for (const decision of [modelDecision, modelNavigationDecision]) {
+      assert.equal(decision.status, 'ready');
+      assert.equal(decision.observationIdMatches, true);
+      assert.equal(decision.elementRefMatches, true);
+    }
+    assertModelDecisionTargets(modelDecision, modelBaseline, '搜索教程', 'type_text');
+    assertModelDecisionTargets(modelNavigationDecision, modelBaseline, '打开教程详情', 'click_element');
+  }
+  assert.equal(verifiedSearch.status, 'verified');
+  assert.equal(movedVerifiedSearch.status, 'moved');
+  assert.notDeepEqual(movedVerifiedSearch.target.center, verifiedSearch.target.center);
+  const serializedRemoteProjection = JSON.stringify(remoteProjection.projection);
+  for (const forbidden of ['PRIVATE_BROWSER_OBSERVATION_NOTE', 'targetHref', 'fingerprint', 'documentToken']) {
+    assert.equal(serializedRemoteProjection.includes(forbidden), false);
+  }
   assert.equal(refinedSearch.status, 'ready');
   assert.equal(refinedSearch.observationId === scripting.observationId, false);
   assert.deepEqual(refinedSearch.elementSummaries.map((element) => element.name), ['搜索教程']);
@@ -133,6 +211,15 @@ try {
   });
   await page.locator('iframe').last().waitFor({ state: 'visible' });
   const framedScripting = await observeFromHarness(harness, tabId, false);
+  const modelFrameDecision = observationModelSmokeEnabled
+    ? await decideFromHarness(harness, tabId, framedScripting.observationId, {
+        ...observationModelConfig,
+        targetDescription: '点击同源 iframe 中的“Frame action”按钮'
+      })
+    : { status: 'skipped' };
+  if (observationModelSmokeEnabled) {
+    assertModelDecisionTargets(modelFrameDecision, framedScripting, 'Frame action', 'click_element');
+  }
   const framedCdp = await observeFromHarness(harness, tabId, true);
   assert.equal(framedScripting.status, 'ready');
   assert.equal(framedScripting.capabilities.sameOriginFrames, true);
@@ -243,6 +330,15 @@ try {
     document.querySelector('main')?.append(shadowHost, canvas);
   });
   const complexScripting = await observeFromHarness(harness, tabId, false);
+  const modelShadowDecision = observationModelSmokeEnabled
+    ? await decideFromHarness(harness, tabId, complexScripting.observationId, {
+        ...observationModelConfig,
+        targetDescription: '点击开放 Shadow DOM 中的“Shadow action”按钮'
+      })
+    : { status: 'skipped' };
+  if (observationModelSmokeEnabled) {
+    assertModelDecisionTargets(modelShadowDecision, complexScripting, 'Shadow action', 'click_element');
+  }
   const complexCdp = await observeFromHarness(harness, tabId, true);
   for (const observation of [complexScripting, complexCdp]) {
     assert.equal(observation.status, 'degraded');
@@ -371,6 +467,20 @@ try {
   const report = {
     fixtureUrl,
     scripting,
+    deniedRemoteProjection,
+    remoteProjection,
+    observationModel: {
+      enabled: observationModelSmokeEnabled,
+      config: observationModelConfig ? redactObservationModelConfig(observationModelConfig) : null,
+      decisions: {
+        search: modelDecision,
+        navigation: modelNavigationDecision,
+        sameOriginFrame: modelFrameDecision,
+        openShadowDom: modelShadowDecision
+      }
+    },
+    verifiedSearch,
+    movedVerifiedSearch,
     refinedSearch,
     cdp,
     refinedCdpSearch,
@@ -413,6 +523,25 @@ try {
       sensitiveEditableTextExcluded:
         !scripting.elementNames.includes('PRIVATE_BROWSER_OBSERVATION_NOTE') &&
         !cdp.elementNames.includes('PRIVATE_BROWSER_OBSERVATION_NOTE'),
+      remoteProjectionIsConsentBoundAndSanitized:
+        deniedRemoteProjection.status === 'unavailable' &&
+        remoteProjection.status === 'ready' &&
+        remoteProjection.decisionScreenshot.isPng,
+      observationModelUsesCurrentElementReference:
+        !observationModelSmokeEnabled || (
+          [modelDecision, modelNavigationDecision, modelFrameDecision, modelShadowDecision]
+            .every((decision) =>
+              decision.status === 'ready' &&
+              decision.observationIdMatches &&
+              decision.elementRefMatches
+            ) &&
+          modelDecisionTargets(modelDecision, modelBaseline, '搜索教程', 'type_text') &&
+          modelDecisionTargets(modelNavigationDecision, modelBaseline, '打开教程详情', 'click_element') &&
+          modelDecisionTargets(modelFrameDecision, framedScripting, 'Frame action', 'click_element') &&
+          modelDecisionTargets(modelShadowDecision, complexScripting, 'Shadow action', 'click_element')
+        ),
+      elementReferencesAreReverifiedBeforeAction:
+        verifiedSearch.status === 'verified' && movedVerifiedSearch.status === 'moved',
       refinementCreatesFocusedObservation:
         refinedSearch.elementSummaries.length === 1 &&
         refinedSearch.elementSummaries[0].name === '搜索教程' &&
@@ -470,6 +599,13 @@ async function observeFromHarness(harness, tabId, useCdp) {
   );
 }
 
+async function configureObservationSettings(harness, settings) {
+  return harness.evaluate(
+    (nextSettings) => globalThis.configureBrowserObservationSettings(nextSettings),
+    settings
+  );
+}
+
 async function refineFromHarness(harness, tabId, useCdp, observationId, options) {
   return harness.evaluate(
     ({ targetTabId, shouldUseCdp, sourceObservationId, refinementOptions }) =>
@@ -485,6 +621,106 @@ async function refineFromHarness(harness, tabId, useCdp, observationId, options)
       sourceObservationId: observationId,
       refinementOptions: options
     }
+  );
+}
+
+async function projectFromHarness(harness, tabId, observationId, aiDataSharingConsent) {
+  return harness.evaluate(
+    ({ targetTabId, sourceObservationId, consent }) =>
+      globalThis.runBrowserObservationProjection(targetTabId, sourceObservationId, consent),
+    { targetTabId: tabId, sourceObservationId: observationId, consent: aiDataSharingConsent }
+  );
+}
+
+async function verifyFromHarness(harness, tabId, observationId, elementRef) {
+  return harness.evaluate(
+    ({ targetTabId, sourceObservationId, sourceElementRef }) =>
+      globalThis.runBrowserObservationVerification(
+        targetTabId,
+        sourceObservationId,
+        sourceElementRef
+      ),
+    {
+      targetTabId: tabId,
+      sourceObservationId: observationId,
+      sourceElementRef: elementRef
+    }
+  );
+}
+
+async function decideFromHarness(harness, tabId, observationId, settings) {
+  return harness.evaluate(
+    ({ targetTabId, sourceObservationId, modelSettings }) =>
+      globalThis.runBrowserObservationModelDecision(
+        targetTabId,
+        sourceObservationId,
+        modelSettings
+      ),
+    {
+      targetTabId: tabId,
+      sourceObservationId: observationId,
+      modelSettings: settings
+    }
+  );
+}
+
+async function loadObservationModelConfig() {
+  const envPath = path.join(repoRoot, '.env');
+  const raw = await readFile(envPath, 'utf8').catch(() => '');
+  const local = new Map();
+  for (const line of raw.split(/\r?\n/)) {
+    const match = line.trim().match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (match) local.set(match[1].toUpperCase(), match[2].trim());
+  }
+  const legacyValues = raw.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#') && !line.includes('='));
+  const apiKey = process.env.PW_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim() ||
+    local.get('TUTORIAL_RECORDER_API_KEY') || local.get('DEEPSEEK_API_KEY') || local.get('API_KEY') ||
+    legacyValues[0] || '';
+  if (!apiKey) {
+    throw new Error('Observation model smoke requires PW_API_KEY, DEEPSEEK_API_KEY, or a local .env key');
+  }
+  return {
+    aiDataSharingConsent: true,
+    providerPreset: process.env.PW_PROVIDER_PRESET?.trim() || 'deepseekOfficial',
+    apiStyle: process.env.PW_API_STYLE?.trim() || 'chatCompletions',
+    apiBaseUrl: process.env.PW_API_BASE_URL?.trim() ||
+      local.get('TUTORIAL_RECORDER_API_BASE_URL') || local.get('API_BASE_URL') || 'https://api.deepseek.com',
+    apiKey,
+    modelId: process.env.PW_MODEL_ID?.trim() ||
+      local.get('TUTORIAL_RECORDER_MODEL_ID') || local.get('MODEL_ID') || 'deepseek-v4-flash-vision-exp',
+    extraHeadersJson: process.env.PW_EXTRA_HEADERS_JSON?.trim() || '',
+    targetDescription: '在“搜索教程”输入框中输入“浏览器 Agent”并提交搜索'
+  };
+}
+
+function redactObservationModelConfig(config) {
+  return {
+    providerPreset: config.providerPreset,
+    apiStyle: config.apiStyle,
+    apiBaseUrl: config.apiBaseUrl,
+    modelId: config.modelId,
+    apiKeyConfigured: Boolean(config.apiKey),
+    extraHeadersConfigured: Boolean(config.extraHeadersJson)
+  };
+}
+
+function assertModelDecisionTargets(decision, observation, expectedName, expectedAction) {
+  assert.equal(
+    modelDecisionTargets(decision, observation, expectedName, expectedAction),
+    true,
+    `model must use ${expectedAction} on ${expectedName}`
+  );
+}
+
+function modelDecisionTargets(decision, observation, expectedName, expectedAction) {
+  const expected = observation?.elementSummaries?.find((element) => element.name === expectedName);
+  return Boolean(
+    expected &&
+    decision?.action?.action === expectedAction &&
+    decision.action.elementRef === expected.ref &&
+    decision.action.observationId === observation.observationId
   );
 }
 

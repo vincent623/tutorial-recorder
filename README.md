@@ -7,7 +7,7 @@
 - 自动截图和手动截图
 - 真实视频录制 + 麦克风录音（音频/视频直接落盘 IndexedDB，分别带 100MB/400MB 体积熔断保护）
 - 基于 16 个 Provider 预设生成步骤说明：国产（火山方舟、智谱 GLM、硅基流动、阿里云百炼、月之暗面 Kimi、DeepSeek 官方）、海外（OpenAI、Claude、Google Gemini、Groq、Mistral）、中转与网关（OpenRouter、Azure OpenAI、One API / New API 自建中转、OpenAI Compatible、自定义），并支持一键"测试连接"验证全链路
-- AI 截图发送默认关闭，只有用户在完整设置页明确授权后才会把当前页面截图发送到所选服务商；授权可随时撤回
+- AI 截图发送默认关闭，只有用户在完整设置页明确授权后才会把页面截图及相应功能所需的最小脱敏上下文发送到所选服务商；授权可随时撤回
 - 远程 AI 服务端点强制使用 HTTPS；HTTP 仅允许本机回环开发地址
 - 敏感信息防护：密码/验证码/卡号输入永不上报，手机号/身份证/银行卡号自动打码后才进入 AI 提示词；页面截图本身仍可能含可见敏感信息，启用 AI 前会明确提示
 - 导出单个 `ZIP`，内含 `Markdown + 单文件 HTML + PDF + 音频 WebM + 视频 WebM + PNG`
@@ -55,12 +55,12 @@ tutorial-recorder/
 - 是否自动截图
 - 是否显示实时 AI 建议
 - `AI 录制`：填写教程目标后启动自动录制，执行中可暂停 AI、接管操作或停止导出；多窗口场景只会选择启动面板所在窗口的目标网页，不会跨窗口猜测
-- AI Agent 支持 `click_at_xy / type_text / scroll / press_key / navigate / hover / wait / finish` 八种工具；决策截图会按视口 CSS 像素对齐，点击动作还会用可见控件文字校准目标中心并记录原始/执行坐标
+- 正式 AI Agent 当前仍兼容 `click_at_xy / type_text / scroll / press_key / navigate / hover / wait / finish` 八种工具；新观察模式已支持短期元素引用、执行前复验和带审计原因的坐标降级，待完成 Action Transaction 切流后替换旧文字/坐标定位路径
 
 点击 `完整设置` 后，可以在独立设置页继续配置：
 
 - `Provider 预设`（按国产 / 海外 / 中转与网关分组）、`API Key`、`模型 / Endpoint ID`
-- AI 截图发送授权（默认关闭，可随时撤回；关闭后仍可使用本地录制与导出）
+- AI 截图与脱敏控件摘要发送授权（默认关闭，可随时撤回；关闭后仍可使用本地录制与导出）
 - `测试连接`：用当前配置发送一次最小视觉请求，验证 Base URL、Key、模型与 API 风格是否全链路可用，并显示响应延迟与排错提示
 - 是否显示实时 AI 建议
 - `高级 AI 选项` 里可展开 `API 风格`、`API Base URL`、`附加请求头 JSON` 和 Prompt 编辑器

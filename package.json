@@ -13,6 +13,7 @@
     "smoke:action-popup-target": "node scripts/e2e/action-popup-target-smoke.mjs",
     "smoke:debugger-conflict": "node scripts/e2e/debugger-conflict-smoke.mjs",
     "smoke:browser-observation": "node scripts/e2e/browser-observation-smoke.mjs",
+    "smoke:browser-observation-model": "PW_OBSERVATION_MODEL_SMOKE=1 node scripts/e2e/browser-observation-smoke.mjs",
     "validate:e2e": "node scripts/e2e/validate-extension.mjs",
     "watchdog": "node scripts/dev-watchdog.mjs"
   },

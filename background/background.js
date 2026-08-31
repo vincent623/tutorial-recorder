@@ -27,6 +27,9 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target === 'offscreen') {
+    return false;
+  }
   if (!message?.action) {
     return false;
   }

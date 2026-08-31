@@ -134,7 +134,7 @@ export async function ensureOffscreenDocument() {
   S.offscreenCreationPromise = chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
     reasons: ['USER_MEDIA', 'DISPLAY_MEDIA', 'BLOBS'],
-    justification: 'Record screen, microphone, manage capture timers, and render tutorial PDFs.'
+    justification: 'Record media, manage capture timers, render tutorial PDFs, and draw transient AI decision screenshots.'
   });
 
   try {
@@ -179,5 +179,4 @@ export async function sendOffscreenMessage(type, payload = {}) {
 
   return response;
 }
-
 

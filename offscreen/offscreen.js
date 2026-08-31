@@ -57,6 +57,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'generatePdf':
         sendResponse(await generatePdf(message.payload.recording));
         break;
+      case 'renderDecisionScreenshot':
+        sendResponse(await renderDecisionScreenshot(message.payload));
+        break;
       default:
         sendResponse({ ok: false, error: 'Unknown offscreen message' });
     }
@@ -133,6 +136,61 @@ async function startSession(payload = {}) {
     captureMode,
     error: buildSessionWarning(audioStarted, videoStarted, audioStartError, videoStartError)
   };
+}
+
+async function renderDecisionScreenshot(payload = {}) {
+  const source = String(payload.cleanScreenshot || '');
+  if (!/^data:image\/(?:png|jpeg|webp);base64,/.test(source)) {
+    throw new Error('缺少可标注的干净页面截图');
+  }
+  const image = await loadDecisionImage(source);
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  const viewportWidth = Math.max(1, Number(payload.viewport?.width) || canvas.width);
+  const viewportHeight = Math.max(1, Number(payload.viewport?.height) || canvas.height);
+  const scaleX = canvas.width / viewportWidth;
+  const scaleY = canvas.height / viewportHeight;
+  const lineWidth = Math.max(2, Math.round(Math.min(scaleX, scaleY) * 2));
+  const fontSize = Math.max(14, Math.round(Math.min(scaleX, scaleY) * 16));
+  context.lineWidth = lineWidth;
+  context.font = `bold ${fontSize}px sans-serif`;
+  context.textBaseline = 'middle';
+
+  for (const element of Array.isArray(payload.elements) ? payload.elements.slice(0, 250) : []) {
+    const rect = element?.rect || {};
+    const x = Math.round((Number(rect.x) || 0) * scaleX);
+    const y = Math.round((Number(rect.y) || 0) * scaleY);
+    const width = Math.max(1, Math.round((Number(rect.width) || 0) * scaleX));
+    const height = Math.max(1, Math.round((Number(rect.height) || 0) * scaleY));
+    const label = String(Number(element.label) || '').slice(0, 4);
+    context.strokeStyle = '#ff2d55';
+    context.strokeRect(x, y, width, height);
+    if (!label) continue;
+    const textWidth = Math.ceil(context.measureText(label).width);
+    const badgeWidth = Math.max(fontSize + 8, textWidth + 10);
+    const badgeHeight = fontSize + 8;
+    const badgeX = Math.max(0, Math.min(canvas.width - badgeWidth, x));
+    const badgeY = Math.max(0, y - badgeHeight);
+    context.fillStyle = '#ff2d55';
+    context.fillRect(badgeX, badgeY, badgeWidth, badgeHeight);
+    context.fillStyle = '#ffffff';
+    context.fillText(label, badgeX + 5, badgeY + badgeHeight / 2);
+  }
+
+  return { ok: true, data: canvas.toDataURL('image/png') };
+}
+
+function loadDecisionImage(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('无法加载决策截图源图像'));
+    image.src = source;
+  });
 }
 
 function pauseSession() {
