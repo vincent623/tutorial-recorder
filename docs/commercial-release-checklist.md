@@ -20,14 +20,14 @@ This checklist separates code readiness from external publication evidence. A re
 
 ## Repository and release controls
 
-- [ ] Push the v2.9.0 release candidate and obtain green CI for its exact commit (the previous v2.8.0 receipt was commit `612559a32c00797b9d4150e0e662557f8079f86b`, [run 33312330526](https://github.com/vincent623/tutorial-recorder/actions/runs/33312330526))
+- [x] Push the v2.9.0 release candidate and obtain green CI for exact commit `e2a5529ffa09faf40fa2b5bdbe2fd9facd01c009` ([main run 33474415151](https://github.com/vincent623/tutorial-recorder/actions/runs/33474415151), [signed-off tag run 33474691897](https://github.com/vincent623/tutorial-recorder/actions/runs/33474691897))
 - [x] Configure the `DEEPSEEK_API_KEY` repository secret; never paste it into workflow YAML, logs, issues, or artifacts
 - [x] Protect `main`: require pull request, require `Deterministic Quality Gate`, block force pushes and deletion
 - [x] Add a `v*` tag ruleset that blocks tag updates and deletion; published release assets are immutable
 - [x] Protect the `production-release` environment with an authorized reviewer
 - [ ] Choose and publish the product's source-code license and commercial terms; this is an owner/legal decision
 - [x] Enable GitHub Private Vulnerability Reporting
-- [ ] Record the final v2.9.0 ZIP SHA256, release commit, and GitHub Actions run URL in the v2.9.0 release notes (the [v2.8.0 release notes](https://github.com/vincent623/tutorial-recorder/releases/tag/v2.8.0) are historical evidence only)
+- [x] Record the final v2.9.0 ZIP SHA256, release commit, and GitHub Actions run URL in the [v2.9.0 release notes](https://github.com/vincent623/tutorial-recorder/releases/tag/v2.9.0)
 
 ## Store submission
 
